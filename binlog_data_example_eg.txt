@@ -1,0 +1,16 @@
+# at 314
+#161020 12:03:50 server id 2  end_log_pos 388   Query   thread_id=162   exec_time=0 error_code=0
+SET TIMESTAMP=1476936230/*!*/;
+BEGIN
+/*!*/;
+
+
+
+输出要素：
+position: 位于文件中的位置，即第一行的（# at 314）,说明该事件记录从文件第314个字节开始
+timestamp: 事件发生的时间戳，即第二行的（#161020 11:07:29）
+exec_time: 事件执行的花费时间
+error_code: 错误码
+server id: 服务器标识（2）
+thread_id: 代理线程id （thread_id=162）
+type:事件类型Query

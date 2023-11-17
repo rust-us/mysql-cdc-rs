@@ -1,0 +1,97 @@
+/*!50530 SET @@SESSION.PSEUDO_SLAVE_MODE=1*/;
+/*!40019 SET @@session.max_insert_delayed_threads=0*/;
+/*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
+DELIMITER /*!*/;
+# at 4
+#161020 11:07:29 server id 2  end_log_pos 107   Start: binlog v 4, server v 5.5.51-log created 161020 11:07:29
+# Warning: this binlog is either in use or was not closed properly.
+BINLOG '
+8TQIWA8CAAAAZwAAAGsAAAABAAQANS41LjUxLWxvZwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAEzgNAAgAEgAEBAQEEgAAVAAEGggAAAAICAgCAA==
+'/*!*/;
+# at 107
+#161020 11:08:50 server id 2  end_log_pos 181   Query   thread_id=162   exec_time=1 error_code=0
+SET TIMESTAMP=1476932930/*!*/;
+SET @@session.pseudo_thread_id=162/*!*/;
+SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
+SET @@session.sql_mode=0/*!*/;
+SET @@session.auto_increment_increment=1, @@session.auto_increment_offset=1/*!*/;
+/*!\C utf8 *//*!*/;
+SET @@session.character_set_client=33,@@session.collation_connection=33,@@session.collation_server=8/*!*/;
+SET @@session.lc_time_names=0/*!*/;
+SET @@session.collation_database=DEFAULT/*!*/;
+BEGIN
+/*!*/;
+# at 181
+# at 239
+#161020 11:08:50 server id 2  end_log_pos 239   Table_map: `canal_test`.`company` mapped to number 44
+#161020 11:08:50 server id 2  end_log_pos 287   Write_rows: table id 44 flags: STMT_END_F
+
+BINLOG '
+QjUIWBMCAAAAOgAAAO8AAAAAACwAAAAAAAEACmNhbmFsX3Rlc3QAB2NvbXBhbnkAAwMPDwQsASwB
+Bg==
+QjUIWBcCAAAAMAAAAB8BAAAAACwAAAAAAAEAA//4AgAAAAIAZHAIAHNoYW5naGFp
+'/*!*/;
+# at 287
+#161020 11:08:50 server id 2  end_log_pos 314   Xid = 23915
+COMMIT/*!*/;
+# at 314
+#161020 12:03:50 server id 2  end_log_pos 388   Query   thread_id=162   exec_time=0 error_code=0
+SET TIMESTAMP=1476936230/*!*/;
+BEGIN
+/*!*/;
+# at 388
+# at 449
+#161020 12:03:50 server id 2  end_log_pos 449   Table_map: `canal_test`.`person` mapped to number 35
+#161020 12:03:50 server id 2  end_log_pos 526   Update_rows: table id 35 flags: STMT_END_F
+
+BINLOG '
+JkIIWBMCAAAAPQAAAMEBAAAAACMAAAAAAAEACmNhbmFsX3Rlc3QABnBlcnNvbgAFAw8D/g8GLAH+
+AywBHg==
+JkIIWBgCAAAATQAAAA4CAAAAACMAAAAAAAEABf//4AEAAAADAHp6aAIAAAABbQQAaGVyZeABAAAA
+AwB6emgCAAAAAW0HAG5hbmppbmc=
+'/*!*/;
+# at 526
+#161020 12:03:50 server id 2  end_log_pos 553   Xid = 26960
+COMMIT/*!*/;
+# at 553
+#161020 12:05:56 server id 2  end_log_pos 627   Query   thread_id=162   exec_time=0 error_code=0
+SET TIMESTAMP=1476936356/*!*/;
+BEGIN
+/*!*/;
+# at 627
+# at 688
+#161020 12:05:56 server id 2  end_log_pos 688   Table_map: `canal_test`.`person` mapped to number 35
+#161020 12:05:56 server id 2  end_log_pos 741   Write_rows: table id 35 flags: STMT_END_F
+
+BINLOG '
+pEIIWBMCAAAAPQAAALACAAAAACMAAAAAAAEACmNhbmFsX3Rlc3QABnBlcnNvbgAFAw8D/g8GLAH+
+AywBHg==
+pEIIWBcCAAAANQAAAOUCAAAAACMAAAAAAAEABf/gBAAAAAQAenpoNBYAAAABbQUAd2hlcmU=
+'/*!*/;
+# at 741
+#161020 12:05:56 server id 2  end_log_pos 768   Xid = 26961
+COMMIT/*!*/;
+# at 768
+#161020 12:06:34 server id 2  end_log_pos 842   Query   thread_id=162   exec_time=0 error_code=0
+SET TIMESTAMP=1476936394/*!*/;
+BEGIN
+/*!*/;
+# at 842
+# at 903
+#161020 12:06:34 server id 2  end_log_pos 903   Table_map: `canal_test`.`person` mapped to number 35
+#161020 12:06:34 server id 2  end_log_pos 956   Delete_rows: table id 35 flags: STMT_END_F
+
+BINLOG '
+ykIIWBMCAAAAPQAAAIcDAAAAACMAAAAAAAEACmNhbmFsX3Rlc3QABnBlcnNvbgAFAw8D/g8GLAH+
+AywBHg==
+ykIIWBkCAAAANQAAALwDAAAAACMAAAAAAAEABf/gBAAAAAQAenpoNBYAAAABbQUAd2hlcmU=
+'/*!*/;
+# at 956
+#161020 12:06:34 server id 2  end_log_pos 983   Xid = 26964
+COMMIT/*!*/;
+DELIMITER ;
+# End of log file
+ROLLBACK /* added by mysqlbinlog */;
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+/*!50530 SET @@SESSION.PSEUDO_SLAVE_MODE=0*/;
