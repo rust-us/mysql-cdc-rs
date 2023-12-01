@@ -3,10 +3,8 @@
 
 [workspace]
 members = [
-    "agent",
-    "mysql/common",
-    "mysql/protocol",
-    "mysql/binlog",
+    "common",
+    "binlog",
     "tests",
 ]
 
@@ -21,3 +19,4 @@ bytes = { version = "1" }
 thiserror = "1"
 serde = { workspace = "1", features = ["derive"] }
 bitflags = { version = "2.4.1", features = [] }
+nom = "7"

@@ -1,5 +1,5 @@
 [package]
-name = "protocol"
+name = "binlog"
 version = "0.3.0"
 edition = "2021"
 
@@ -14,5 +14,12 @@ lru = { workspace = true }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
+bitflags = { workspace = true }
+nom = { workspace = true }
+
+log = "0.4.11"
+log4rs = "1.0.0-alpha-1"
+lazy_static = "1.4.0"
 
 common = { path = "../common" }
+

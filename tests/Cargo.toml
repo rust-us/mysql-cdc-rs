@@ -1,5 +1,5 @@
 [package]
-name = "agent"
+name = "tests"
 version = "0.3.0"
 edition = "2021"
 
@@ -9,3 +9,10 @@ edition = "2021"
 tokio = { workspace = true }
 async-trait ={ workspace = true }
 uuid = { workspace = true }
+hex = { workspace = true }
+lru = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true, optional = true }
+
+common = { path = "../common" }
+binlog = { path = "../binlog" }
