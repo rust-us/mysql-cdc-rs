@@ -1,50 +1,91 @@
-use serde::Serialize;
+use crate::{
+    mysql::{ColTypes, ColValues},
+};
+use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
 use crate::events::event_header::Header;
-use crate::mysql::{ColTypes, ColValues};
-use crate::events::{query, rows};
 
+use lazy_static::lazy_static;
+use serde::Serialize;
+use nom::{InputLength, IResult, Parser};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+use std::cell::RefCell;
+use std::rc::Rc;
+use bytes::Buf;
+use common::parse::parse::InputBuf;
+use crate::decoder::log_decoder::LogEventDecoder;
+use crate::events::log_context::LogContext;
+use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
+use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
+use crate::events::protocol::gtid_log_event::GtidLogEvent;
+use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
+use crate::events::protocol::query_event::QueryEvent;
+
+
+lazy_static! {
+    static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColTypes>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+}
+
+///
+/// Enumeration type for the different types of log events.
+///
+/// @see  https://dev.mysql.com/doc/dev/mysql-server/latest/namespacemysql_1_1binlog_1_1event.html
+///
+/// enum def:
+/// enum xxxbEvent {
+///     PageLoad,
+///     PageUnload,
+///     // 1. 普通的结构体
+///     Click { x: i64, y: i64 }
+///     // 2. 元组结构体
+///     KeyPress(char),
+///     Paste(String),
+/// }
+///
+/// will be instand LogEvent
 #[derive(Debug, Serialize, PartialEq, Clone)]
 pub enum Event {
-    // ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
+    /// 0
+    /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
     Unknown {
         header: Header,
         checksum: u32,
     },
-    // doc: https://dev.mysql.com/doc/internals/en/query-event.html
-    // source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/statement_events.h#L44-L426
-    // layout: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/statement_events.h#L627-L643
+    /// 1
+    /// 事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
+    StartV3 {},
+
+    /// 2
     Query {
-        header: Header,
-        slave_proxy_id: u32, // thread_id
-        execution_time: u32,
-        schema_length: u8, // length of current select schema name
-        error_code: u16,
-        status_vars_length: u16,
-        status_vars: Vec<query::QueryStatusVar>,
-        schema: String,
-        query: String,
-        checksum: u32,
+        event: QueryEvent,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/stop-event.html
+    /// 3
+    /// ref: https://dev.mysql.com/doc/internals/en/stop-event.html
     Stop {
         header: Header,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/rotate-event.html
+    /// 4
+    /// ref: https://dev.mysql.com/doc/internals/en/rotate-event.html
     Rotate {
         header: Header,
         position: u64,
         next_binlog: String,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/intvar-event.html
+    /// 5
+    /// ref: https://dev.mysql.com/doc/internals/en/intvar-event.html
     IntVar {
         header: Header,
         e_type: IntVarEventType,
         value: u64,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/load-event.html
+    /// 6
+    /// ref: https://dev.mysql.com/doc/internals/en/load-event.html
     Load {
         header: Header,
         thread_id: u32,
@@ -67,38 +108,44 @@ pub enum Event {
         file_name: String,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#slave-event
+    /// 7
+    /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#slave-event
     Slave {
         header: Header,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/create-file-event.html
+    /// 8
+    /// ref: https://dev.mysql.com/doc/internals/en/create-file-event.html
     CreateFile {
         header: Header,
         file_id: u32,
         block_data: String,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/append-block-event.html
+    /// 9
+    /// ref: https://dev.mysql.com/doc/internals/en/append-block-event.html
     AppendBlock {
         header: Header,
         file_id: u32,
         block_data: String,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/exec-load-event.html
+    /// 10
+    /// ref: https://dev.mysql.com/doc/internals/en/exec-load-event.html
     ExecLoad {
         header: Header,
         file_id: u16,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/delete-file-event.html
+    /// 11
+    /// ref: https://dev.mysql.com/doc/internals/en/delete-file-event.html
     DeleteFile {
         header: Header,
         file_id: u16,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/new-load-event.html
+    /// 12
+    /// ref: https://dev.mysql.com/doc/internals/en/new-load-event.html
     NewLoad {
         header: Header,
         thread_id: u32,
@@ -127,16 +174,18 @@ pub enum Event {
         file_name: String,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/rand-event.html
+    /// 13
+    /// ref: https://dev.mysql.com/doc/internals/en/rand-event.html
     Rand {
         header: Header,
         seed1: u64,
         seed2: u64,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/user-var-event.html
-    // source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/statement_events.h#L712-L779
-    // NOTE ref is broken !!!
+    /// 14
+    /// ref: https://dev.mysql.com/doc/internals/en/user-var-event.html
+    /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/statement_events.h#L712-L779
+    /// NOTE ref is broken !!!
     UserVar {
         header: Header,
         name_length: u32,
@@ -149,30 +198,25 @@ pub enum Event {
         flags: Option<u8>,
         checksum: u32,
     },
-    // source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L295-L344
-    // event_data layout: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L387-L416
-    FormatDesc {
-        header: Header,
-        binlog_version: u16,
-        mysql_server_version: String,
-        create_timestamp: u32,
-        event_header_length: u8,
-        supported_types: Vec<u8>,
-        checksum_alg: u8,
-        checksum: u32,
+    /// 15
+    FormatDescription {
+        event: FormatDescriptionEvent,
     },
+    /// 16
     XID {
         header: Header,
         xid: u64,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/begin-load-query-event.html
+    /// 17
+    /// ref: https://dev.mysql.com/doc/internals/en/begin-load-query-event.html
     BeginLoadQuery {
         header: Header,
         file_id: u32,
         block_data: String,
         checksum: u32,
     },
+    /// 18
     ExecuteLoadQueryEvent {
         header: Header,
         thread_id: u32,
@@ -189,6 +233,7 @@ pub enum Event {
         query: String,
         checksum: u32,
     },
+    /// 19
     TableMap {
         header: Header,
         // table_id take 6 bytes in buffer
@@ -206,7 +251,25 @@ pub enum Event {
         null_bits: Vec<u8>,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/incident-event.html
+
+    ///These event numbers were used for 5.1.0 to 5.1.15 and are therefore obsolete.
+    /// 20
+    PreGaWriteRowsEvent {},
+    /// 21
+    PreGaUpdateRowsEven {},
+    /// 22
+    PreGaDeleteRowsEven {},
+
+    /// These event numbers are used from 5.1.16 and forward
+    /// The V1 event numbers are used from 5.1.16 until mysql-5.6.
+    /// 23, 24, 25
+    WRITE_ROWS_V1 {},
+    UPDATE_ROWS_V1 {},
+    DELETE_ROWS_V1 {},
+
+    /// 26
+    /// Something out of the ordinary happened on the master.
+    /// ref: https://dev.mysql.com/doc/internals/en/incident-event.html
     Incident {
         header: Header,
         d_type: IncidentEventType,
@@ -214,52 +277,44 @@ pub enum Event {
         message: String,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/heartbeat-event.html
+    /// 27
+    /// Heartbeat event to be send by master at its idle time to ensure master's online status to slave.
+    /// ref: https://dev.mysql.com/doc/internals/en/heartbeat-event.html
     Heartbeat {
         header: Header,
         checksum: u32,
     },
-    // ref: https://dev.mysql.com/doc/internals/en/rows-query-event.html
+
+    /// 28
+    /// In some situations, it is necessary to send over ignorable data to the
+    /// slave: data that a slave can handle in case there is code for handling
+    /// it, but which can be ignored if it is not recognized.
+    IgnorableLogEvent {},
+
+    /// 29
+    /// ref: https://dev.mysql.com/doc/internals/en/rows-query-event.html
     RowQuery {
         header: Header,
         length: u8,
         query_text: String,
         checksum: u32,
     },
-    // https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L1048-L1056
-    Gtid {
-        header: Header,
-        rbr_only: bool,
-        source_id: String,
-        transaction_id: String,
-        ts_type: u8,
-        last_committed: i64,
-        sequence_number: i64,
-        checksum: u32,
-    },
-    AnonymousGtid {
-        header: Header,
-        rbr_only: bool,
-        source_id: String,
-        transaction_id: String,
-        ts_type: u8,
-        last_committed: i64,
-        sequence_number: i64,
-        checksum: u32,
-    },
-    // source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L1073-L1103
-    PreviousGtids {
-        header: Header,
-        // TODO do more specify parse
-        gtid_sets: Vec<u8>,
-        buf_size: u32,
-        checksum: u32,
-    },
-    // source https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/rows_event.h#L488-L613
+
+    /// Version 2 of the Row events
+    /// 30
+    /// source https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/rows_event.h#L488-L613
     WriteRowsV2 {
         header: Header,
-        // table_id take 6 bytes in buffer
+        /// Post-Header for Rows_event
+        // table_id take 6 bytes in buffer.  The number that identifies the table
         table_id: u64,
+        // 2 byte bitfield. Reserved for future use; currently always 0.
+        // 如：
+        // flags:
+        //     end_of_stmt: true
+        //     foreign_key_checks: true
+        //     unique_key_checks: true
+        //     has_columns: true
         flags: rows::Flags,
         extra_data_len: u16,
         extra_data: Vec<rows::ExtraData>,
@@ -268,6 +323,7 @@ pub enum Event {
         rows: Vec<Vec<ColValues>>,
         checksum: u32,
     },
+    /// 31
     UpdateRowsV2 {
         header: Header,
         // table_id take 6 bytes in buffer
@@ -281,6 +337,7 @@ pub enum Event {
         rows: Vec<Vec<ColValues>>,
         checksum: u32,
     },
+    /// 32
     DeleteRowsV2 {
         header: Header,
         // table_id take 6 bytes in buffer
@@ -293,56 +350,84 @@ pub enum Event {
         rows: Vec<Vec<ColValues>>,
         checksum: u32,
     },
+
+    /// 33
+    /// equals AnonymousGtidLog
+    GtidLog {
+        event: GtidLogEvent,
+    },
+    /// 34
+    /// equals GtidLog
+    AnonymousGtidLog {
+        event: AnonymousGtidLogEvent,
+    },
+    /// 35
+    PreviousGtidsLog {
+        event: PreviousGtidsLogEvent,
+    },
+
+    /// MySQL 5.7 events
+    /// 36
+    TRANSACTION_CONTEXT {},
+    /// 37
+    VIEW_CHANGE {},
+
+    /// 38
+    /// Prepared XA transaction terminal event similar to Xid
+    XA_PREPARE_LOG {},
+
+    /// 39
+    /// Extension of UPDATE_ROWS_EVENT, allowing partial values according to binlog_row_value_options.
+    PARTIAL_UPDATE_ROWS {},
+
+    /// mysql 8.0.20
+    /// 40
+    TRANSACTION_PAYLOAD {},
+
+    /// mysql 8.0.26
+    /// 41
+    /// @see https://dev.mysql.com/doc/dev/mysql-server/latest/namespacemysql_1_1binlog_1_1event.html#a4a991abea842d4e50cbee0e490c28ceea1b1312ed0f5322b720ab2b957b0e9999
+    HEARTBEAT_LOG_V2 {},
+
+    /// 42
+    MYSQL_ENUM_END {},
+
+    /** end marker */
+    /// Add new events here - right above this comment! Existing events (except ENUM_END_EVENT) should never change their numbers.
+    ENUM_END_EVENT
 }
 
+impl Event {
+    /// event数据结构:         [startPos : Len]
+    /// +=====================================+
+    /// | event  | timestamp         0 : 4    |
+    /// | header +----------------------------+
+    /// |        | event_type         4 : 1    |
+    /// |        +----------------------------+
+    /// |        | server_id         5 : 4    |
+    /// |        +----------------------------+
+    /// |        | event_size        9 : 4    |
+    /// |        +----------------------------+
+    /// |        | next_position    13 : 4    |
+    /// |        +----------------------------+
+    /// |        | flags            17 : 2    |
+    /// |        +----------------------------+
+    /// |        | extra_headers    19 : x-19 |
+    /// +=====================================+
+    /// | event  | fixed part        x : y    |
+    /// | data   +----------------------------+
+    /// |        | variable part              |
+    /// +=====================================+
+    pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Event> {
+        let (i, header) = Header::parse_v4_header(input)?;
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub enum IntVarEventType {
-    InvalidIntEvent,
-    LastInsertIdEvent,
-    InsertIdEvent,
+        let header_ref:Rc<&Header> = Rc::new(&header);
+
+        LogEventDecoder::parse_bytes(i, header_ref, Rc::new(RefCell::new(LogContext::default())))
+    }
+
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub struct EmptyFlags {
-    field_term_empty: bool,
-    enclosed_empty: bool,
-    line_term_empty: bool,
-    line_start_empty: bool,
-    escape_empty: bool,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub struct OptFlags {
-    dump_file: bool,
-    opt_enclosed: bool,
-    replace: bool,
-    ignore: bool,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub enum DupHandlingFlags {
-    Error,
-    Ignore,
-    Replace,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub enum IncidentEventType {
-    None,
-    LostEvents,
-}
-
-#[derive(Debug, PartialEq, Serialize, Clone)]
-pub enum UserVarType {
-    STRING = 0,
-    REAL = 1,
-    INT = 2,
-    ROW = 3,
-    DECIMAL = 4,
-    VALUE_TYPE_COUNT = 5,
-    Unknown,
-}
 
 #[cfg(test)]
 mod test {

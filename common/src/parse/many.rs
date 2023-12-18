@@ -1,4 +1,5 @@
-use crate::parse::parse::{CheckError, InputBuf};
+use crate::err::DecodeError::Needed;
+use crate::parse::parse::{InputBuf};
 
 pub struct MB {
     pub age: u8,
@@ -9,15 +10,15 @@ pub trait Decode<I: InputBuf, O, E> {
     fn decode(input: &mut I) -> Result<O, E>;
 }
 
-impl<I: InputBuf> Decode<I, (), CheckError> for u8 {
-    fn decode(input: &mut I) -> Result<(), CheckError> {
+impl<I: InputBuf> Decode<I, (), Needed> for u8 {
+    fn decode(input: &mut I) -> Result<(), Needed> {
         input.read_u8_ne()?;
         Ok(())
     }
 }
 
-impl<I: InputBuf> Decode<I, Self, CheckError> for u8 {
-    fn decode(input: &mut I) -> Result<Self, CheckError> {
+impl<I: InputBuf> Decode<I, Self, Needed> for u8 {
+    fn decode(input: &mut I) -> Result<Self, Needed> {
         input.read_u8_ne()
     }
 }

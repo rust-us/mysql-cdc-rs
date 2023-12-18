@@ -1,25 +1,9 @@
 use bytes::BytesMut;
-use thiserror::Error;
-use crate::parse::parse::{CheckError, InputBuf};
+use crate::err::DecodeError::{DecodeError, Needed};
+use crate::parse::parse::{InputBuf};
 
 /// Decode 结果集定义
 pub type DecodeResult<T> = Result<T, DecodeError>;
-
-/// 编码错误
-#[derive(Debug, Clone, Error)]
-pub enum DecodeError {
-    #[error("no enough data")]
-    NoEnoughData,
-
-    #[error("invalid utf-8 string")]
-    InvalidUtf8,
-
-    #[error("missing terminal null bytes")]
-    MissingNull,
-
-    #[error("invalid data")]
-    InvalidData,
-}
 
 pub trait Decode<I: InputBuf, Output = Self, Error = DecodeError>: Sized {
     fn decode(input: &mut I) -> Result<Output, Error>;
@@ -29,9 +13,9 @@ pub trait Encode {
     fn encode(&self, buf: &mut BytesMut);
 }
 
-impl From<CheckError> for DecodeError {
-    fn from(_: CheckError) -> Self {
-        Self::NoEnoughData
+impl From<Needed> for DecodeError {
+    fn from(err: Needed) -> Self {
+        Self::Incomplete(err)
     }
 }
 
@@ -87,7 +71,7 @@ macro_rules! custom_impl {
             }
         }
 
-        impl<I: InputBuf> Decode<I> for $name {
+        impl<I: InputBuf> Decode<I> for $name where DecodeError: From<Needed> {
             fn decode(input: &mut I) -> Result<Self, DecodeError> {
                 Ok(Self(input.read_array()?))
             }

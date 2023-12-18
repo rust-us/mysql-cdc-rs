@@ -54,7 +54,6 @@ pub fn int_lenenc<'a>(input: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> {
             map(le_u64, |v: u64| (9, v))(i)
         }
         0xff => unreachable!(),
-        _ => {}
     }
 }
 
@@ -80,6 +79,8 @@ pub fn string_nul(input: &[u8]) -> IResult<&[u8], String> {
 }
 
 /// extract n(n <= len(input)) bytes string
+/// 实现思路：
+/// 由于可能存在多个终止符，首先需要找到第一个终止符位置，然后使用 String::from_utf8_lossy 将之前的字符转换为字符串。
 pub fn extract_string(input: &[u8]) -> String {
     let null_end = input
         .iter()

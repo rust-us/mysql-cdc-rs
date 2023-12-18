@@ -1,14 +1,19 @@
 #![allow(non_camel_case_types)]
 
 pub mod b_type;
-mod utils;
-mod mysql;
-mod events;
+pub mod utils;
+pub mod mysql;
+pub mod events;
+// pub mod connection;
+// pub mod cli;
+pub mod decoder;
 
 pub use events::{
     query::{QueryStatusVar, Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL},
     rows::{ExtraData, ExtraDataFormat, Flags, Payload, Row},
 };
+
+pub use mysql::{ColTypes, ColValues};
 
 // #[allow(unused_macros)]
 // macro_rules! hex {
@@ -27,6 +32,6 @@ mod test {
     #[test]
     fn test() {
         assert_eq!(1, 1);
-        println!("binlog lib test");
+        println!("binlog lib test:{}", 0x21);
     }
 }
