@@ -25,7 +25,7 @@ pub struct PreviousGtidsLogEvent {
 
 impl PreviousGtidsLogEvent {
 
-    pub fn parse<'a>(input: &'a [u8], header: Rc<&Header>) -> IResult<&'a [u8], PreviousGtidsLogEvent> {
+    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], PreviousGtidsLogEvent> {
         let gtid_sets_len = header.event_length -
             (LOG_EVENT_MINIMAL_HEADER_LEN + /*buf_size len*/4 + /*checksum len*/ST_COMMON_PAYLOAD_CHECKSUM_LEN) as u32;
         let (i, gtid_sets) = map(take(gtid_sets_len), |s: &[u8]| s.to_vec())(input)?;
@@ -33,7 +33,7 @@ impl PreviousGtidsLogEvent {
         let (i, buf_size) = le_u32(i)?;
 
         let (i, checksum) = le_u32(i)?;
-        let header_new = Header::copy_and_get(header.as_ref(), 1, checksum, Vec::new());
+        let header_new = Header::copy_and_get(&header, 1, checksum, Vec::new());
 
         Ok((
             i,

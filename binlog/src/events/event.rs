@@ -4,30 +4,18 @@ use crate::{
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
 use crate::events::event_header::Header;
 
-use lazy_static::lazy_static;
 use serde::Serialize;
 use nom::{InputLength, IResult, Parser};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
 use std::cell::RefCell;
 use std::rc::Rc;
 use bytes::Buf;
-use common::parse::parse::InputBuf;
-use crate::decoder::log_decoder::LogEventDecoder;
+use crate::decoder::event_decoder::LogEventDecoder;
 use crate::events::log_context::LogContext;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
-
-
-lazy_static! {
-    static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColTypes>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-}
 
 ///
 /// Enumeration type for the different types of log events.
@@ -56,12 +44,10 @@ pub enum Event {
     },
     /// 1
     /// 事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
-    StartV3 {},
+    StartV3,
 
     /// 2
-    Query {
-        event: QueryEvent,
-    },
+    Query(QueryEvent),
     /// 3
     /// ref: https://dev.mysql.com/doc/internals/en/stop-event.html
     Stop {
@@ -199,9 +185,7 @@ pub enum Event {
         checksum: u32,
     },
     /// 15
-    FormatDescription {
-        event: FormatDescriptionEvent,
-    },
+    FormatDescription(FormatDescriptionEvent),
     /// 16
     XID {
         header: Header,
@@ -239,33 +223,35 @@ pub enum Event {
         // table_id take 6 bytes in buffer
         table_id: u64,
         flags: u16,
+
         schema_length: u8,
         schema: String,
-        // [00] term sign in layout
+
         table_name_length: u8,
         table_name: String,
-        // [00] term sign in layout
-        // len encoded integer
-        column_count: u64,
-        columns_type: Vec<ColTypes>,
+
+        columns_number: u64,
+
+        // column_types
+        column_metadata: Vec<ColTypes>,
         null_bits: Vec<u8>,
         checksum: u32,
     },
 
     ///These event numbers were used for 5.1.0 to 5.1.15 and are therefore obsolete.
     /// 20
-    PreGaWriteRowsEvent {},
+    PreGaWriteRowsEvent,
     /// 21
-    PreGaUpdateRowsEven {},
+    PreGaUpdateRowsEven,
     /// 22
-    PreGaDeleteRowsEven {},
+    PreGaDeleteRowsEven,
 
     /// These event numbers are used from 5.1.16 and forward
     /// The V1 event numbers are used from 5.1.16 until mysql-5.6.
     /// 23, 24, 25
-    WRITE_ROWS_V1 {},
-    UPDATE_ROWS_V1 {},
-    DELETE_ROWS_V1 {},
+    WRITE_ROWS_V1,
+    UPDATE_ROWS_V1,
+    DELETE_ROWS_V1,
 
     /// 26
     /// Something out of the ordinary happened on the master.
@@ -289,7 +275,7 @@ pub enum Event {
     /// In some situations, it is necessary to send over ignorable data to the
     /// slave: data that a slave can handle in case there is code for handling
     /// it, but which can be ignored if it is not recognized.
-    IgnorableLogEvent {},
+    IgnorableLogEvent,
 
     /// 29
     /// ref: https://dev.mysql.com/doc/internals/en/rows-query-event.html
@@ -353,44 +339,38 @@ pub enum Event {
 
     /// 33
     /// equals AnonymousGtidLog
-    GtidLog {
-        event: GtidLogEvent,
-    },
+    GtidLog(GtidLogEvent),
     /// 34
     /// equals GtidLog
-    AnonymousGtidLog {
-        event: AnonymousGtidLogEvent,
-    },
+    AnonymousGtidLog(AnonymousGtidLogEvent),
     /// 35
-    PreviousGtidsLog {
-        event: PreviousGtidsLogEvent,
-    },
+    PreviousGtidsLog(PreviousGtidsLogEvent),
 
     /// MySQL 5.7 events
     /// 36
-    TRANSACTION_CONTEXT {},
+    TRANSACTION_CONTEXT,
     /// 37
-    VIEW_CHANGE {},
+    VIEW_CHANGE,
 
     /// 38
     /// Prepared XA transaction terminal event similar to Xid
-    XA_PREPARE_LOG {},
+    XA_PREPARE_LOG,
 
     /// 39
     /// Extension of UPDATE_ROWS_EVENT, allowing partial values according to binlog_row_value_options.
-    PARTIAL_UPDATE_ROWS {},
+    PARTIAL_UPDATE_ROWS,
 
     /// mysql 8.0.20
     /// 40
-    TRANSACTION_PAYLOAD {},
+    TRANSACTION_PAYLOAD,
 
     /// mysql 8.0.26
     /// 41
     /// @see https://dev.mysql.com/doc/dev/mysql-server/latest/namespacemysql_1_1binlog_1_1event.html#a4a991abea842d4e50cbee0e490c28ceea1b1312ed0f5322b720ab2b957b0e9999
-    HEARTBEAT_LOG_V2 {},
+    HEARTBEAT_LOG_V2,
 
     /// 42
-    MYSQL_ENUM_END {},
+    MYSQL_ENUM_END,
 
     /** end marker */
     /// Add new events here - right above this comment! Existing events (except ENUM_END_EVENT) should never change their numbers.
@@ -398,6 +378,7 @@ pub enum Event {
 }
 
 impl Event {
+    /// 接口作废
     /// event数据结构:         [startPos : Len]
     /// +=====================================+
     /// | event  | timestamp         0 : 4    |
@@ -418,12 +399,12 @@ impl Event {
     /// | data   +----------------------------+
     /// |        | variable part              |
     /// +=====================================+
+    /// 接口作废
     pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Event> {
         let (i, header) = Header::parse_v4_header(input)?;
 
-        let header_ref:Rc<&Header> = Rc::new(&header);
-
-        LogEventDecoder::parse_bytes(i, header_ref, Rc::new(RefCell::new(LogContext::default())))
+        let c = LogContext::default();
+        LogEventDecoder::parse_bytes(i, &header, Rc::new(RefCell::new(c)))
     }
 
 }

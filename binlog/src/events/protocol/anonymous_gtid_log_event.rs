@@ -47,7 +47,7 @@ pub struct AnonymousGtidLogEvent {
 }
 
 impl AnonymousGtidLogEvent {
-    pub fn parse<'a>(input: &'a [u8], header: Rc<&Header>) -> IResult<&'a [u8], AnonymousGtidLogEvent> {
+    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], AnonymousGtidLogEvent> {
         let (i,
             (   commit_flag,
                 source_id,
@@ -56,9 +56,9 @@ impl AnonymousGtidLogEvent {
                 last_committed,
                 sequence_number,
                 checksum)) =
-            GtidLogEvent::parse_events_gtid(input, header.clone())?;
+            GtidLogEvent::parse_events_gtid(input, &header)?;
 
-        let header_new = Header::copy_and_get(header.as_ref(), 1, checksum, Vec::new());
+        let header_new = Header::copy_and_get(&header, 1, checksum, Vec::new());
 
         let e = AnonymousGtidLogEvent {
             header: header_new,

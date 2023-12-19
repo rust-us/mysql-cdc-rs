@@ -29,7 +29,10 @@ pub trait InputBuf {
 
     fn read_to_end(&mut self) -> Vec<u8> {
         let len = self.left();
-        self.read_vec(len).unwrap()
+
+        let rs = self.read_vec(len);
+
+        rs.unwrap()
     }
 
     fn read_array<const N: usize>(&mut self) -> Result<[u8; N], Needed> {

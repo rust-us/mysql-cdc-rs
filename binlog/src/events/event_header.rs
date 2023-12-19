@@ -1,5 +1,3 @@
-use std::rc::Rc;
-use std::sync::Arc;
 use nom::{
     bytes::complete::{tag},
     number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
@@ -7,7 +5,9 @@ use nom::{
 };
 use serde::Serialize;
 use crate::events::event_header_flag::EventFlag;
-use crate::events::log_context::LogContext;
+
+
+pub const HEADER_LEN: u8 = 4;
 
 /////////////////////////////////////
 ///  EventHeader Header
@@ -33,26 +33,29 @@ use crate::events::log_context::LogContext;
 /// +=====================================+
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct Header {
-    /// 4字节的 timestamp
+    /// 4字节的 timestamp, Provides creation time in seconds from Unix.
     pub when: u32,
 
-    /// 1个代表事件类型的 u8,  event_type / type_code
+    /// 1个代表事件类型的 u8,  Gets type of the binlog event.
     pub event_type: u8,
 
     /// u32 的 server_id。 4 byte， 该id表明binlog的源server是哪个，用来在循环复制 binlog event）
     pub server_id: u32,
 
-    /// u32 事件大小，event_size
+    /// u32 事件大小， Gets event length (header + event + checksum).
     pub event_length: u32,
 
-    /// 下一个event起始偏移 next_position。  v4版本
+    /// Gets file position of next event.  v4版本
     pub log_pos: u32,
 
-    /// u16  flags
+    /// Gets event flags.
+    /// See <a href="https://mariadb.com/kb/en/2-binlog-event-header/#event-flag">documentation</a>.
     pub flags: u16,
     pub flags_attr: EventFlag,
 
+    ///////////////////////////////////////////////////
     /// other
+    ///////////////////////////////////////////////////
     /// checksum_alg
     pub checksum_alg: u8,
     /// checksum

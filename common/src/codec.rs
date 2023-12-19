@@ -1,11 +1,11 @@
 use bytes::BytesMut;
-use crate::err::DecodeError::{DecodeError, Needed};
+use crate::err::DecodeError::{ReError, Needed};
 use crate::parse::parse::{InputBuf};
 
 /// Decode 结果集定义
-pub type DecodeResult<T> = Result<T, DecodeError>;
+pub type DecodeResult<T> = Result<T, ReError>;
 
-pub trait Decode<I: InputBuf, Output = Self, Error = DecodeError>: Sized {
+pub trait Decode<I: InputBuf, Output = Self, Error = ReError>: Sized {
     fn decode(input: &mut I) -> Result<Output, Error>;
 }
 
@@ -13,14 +13,14 @@ pub trait Encode {
     fn encode(&self, buf: &mut BytesMut);
 }
 
-impl From<Needed> for DecodeError {
+impl From<Needed> for ReError {
     fn from(err: Needed) -> Self {
         Self::Incomplete(err)
     }
 }
 
 impl<I: InputBuf> Decode<I> for Vec<u8> {
-    fn decode(input: &mut I) -> Result<Self, DecodeError> {
+    fn decode(input: &mut I) -> Result<Self, ReError> {
         Ok(input.read_to_end())
     }
 }
@@ -71,8 +71,8 @@ macro_rules! custom_impl {
             }
         }
 
-        impl<I: InputBuf> Decode<I> for $name where DecodeError: From<Needed> {
-            fn decode(input: &mut I) -> Result<Self, DecodeError> {
+        impl<I: InputBuf> Decode<I> for $name where ReError: From<Needed> {
+            fn decode(input: &mut I) -> Result<Self, ReError> {
                 Ok(Self(input.read_array()?))
             }
         }

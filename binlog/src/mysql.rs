@@ -1,3 +1,4 @@
+use std::error::Error;
 use crate::utils::pu32;
 use nom::{
     bytes::complete::take,
@@ -7,6 +8,7 @@ use nom::{
     IResult,
 };
 use serde::Serialize;
+use common::err::DecodeError::ReError;
 
 /// MYSQL 数据类型
 ///
@@ -33,6 +35,8 @@ pub enum ColTypes {
     Timestamp2(u8), // this field is suck!!! don't know how to parse
     DateTime2(u8),  // this field is suck!!! don't know how to parse
     Time2(u8),      // this field is suck!!! don't know how to parse
+    /// JSON is MySQL 5.7.8+ type. Not supported in MariaDB.
+    Json(u8),
     NewDecimal(u8, u8),
     Enum,       // internal used
     Set,        // internal used
@@ -67,6 +71,7 @@ pub enum ColValues {
     Timestamp2(Vec<u8>),
     DateTime2(Vec<u8>),
     Time2(Vec<u8>),
+    Json(Vec<u8>),
     NewDecimal(Vec<u8>),
     Enum,       // internal used
     Set,        // internal used
@@ -104,6 +109,7 @@ impl ColTypes {
             ColTypes::Timestamp2(_) => (17, 1),
             ColTypes::DateTime2(_) => (18, 1),
             ColTypes::Time2(_) => (19, 1),
+            ColTypes::Json(_) => (245, 2),
             ColTypes::NewDecimal(_, _) => (246, 2),
             ColTypes::Enum => (247, 0),
             ColTypes::Set => (248, 0),
@@ -117,8 +123,9 @@ impl ColTypes {
         }
     }
 
-    pub fn from_u8(t: u8) -> Self {
-        match t {
+    pub fn from_u8(code: u8) ->  Self {
+    // pub fn from_u8(code: u8) ->  Result<Self, DecodeError> {
+        let value = match code {
             0 => ColTypes::Decimal,
             1 => ColTypes::Tiny,
             2 => ColTypes::Short,
@@ -139,6 +146,7 @@ impl ColTypes {
             17 => ColTypes::Timestamp2(0),
             18 => ColTypes::DateTime2(0),
             19 => ColTypes::Time2(0),
+            245 => ColTypes::Json(0),
             246 => ColTypes::NewDecimal(10, 0),
             247 => ColTypes::Enum,
             248 => ColTypes::Set,
@@ -150,10 +158,13 @@ impl ColTypes {
             254 => ColTypes::String(253, 0),
             255 => ColTypes::Geometry(1),
             _ => {
-                // log::error!("unknown column type: {}", t);
-                unreachable!()
+                unreachable!();
+                // return Err(DecodeError::String(format!("Unknown column type {}", code)))
             }
-        }
+        };
+
+        // Ok(value)
+        value
     }
 
     pub fn parse_def<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], (usize, Self)> {
@@ -249,7 +260,8 @@ impl ColTypes {
             })(input),
             ColTypes::Time2(_) => {
                 map(take(4usize), |v: &[u8]| (4, ColValues::Time2(v.to_vec())))(input)
-            }
+            },
+            ColTypes::Json(_) => todo!(),
             ColTypes::NewDecimal(precision, scale) => {
                 // copy from https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/src/binary_log_funcs.cpp#L204-L214
                 let dig2bytes: [u8; 10] = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4];

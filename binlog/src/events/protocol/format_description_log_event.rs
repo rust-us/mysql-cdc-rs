@@ -368,7 +368,7 @@ impl FormatDescriptionEvent {
     /// |        | checksum      76+n+5 : 4   |
     /// |        +----------------------------+
     /// +=====================================+
-    pub fn parse<'a>(input: &'a [u8], header: Rc<&Header>) -> IResult<&'a [u8], FormatDescriptionEvent> {
+    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], FormatDescriptionEvent> {
         // let declare: FormatDescriptionDeclare = context.get_format_description().get_declare();
         let declare: FormatDescriptionDeclare = FormatDescriptionDeclare::new(4);
 
@@ -392,7 +392,7 @@ impl FormatDescriptionEvent {
         let (i, checksum_alg) = le_u8(i)?;
         let (i, crc) = le_u32(i)?;
 
-        let header_new:Header = Header::copy_and_get(header.as_ref(), checksum_alg, crc, Vec::new());
+        let header_new:Header = Header::copy_and_get(&header, checksum_alg, crc, Vec::new());
 
         Ok((
             i,

@@ -416,11 +416,11 @@ pub struct QueryEvent {
 
 impl QueryEvent {
 
-    pub fn parse<'a>(input: &'a [u8], header: Rc<&Header>, context_ref: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
-        QueryEvent::parse_with_compress(input, header, false, false, context_ref)
+    pub fn parse<'a>(input: &'a [u8], header: &Header, context_ref: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
+        QueryEvent::parse_with_compress(input, &header, false, false, context_ref)
     }
 
-    pub fn parse_with_compress<'a>(input: &'a [u8], header: Rc<&Header>,
+    pub fn parse_with_compress<'a>(input: &'a [u8], header: &Header,
                                    compatiable_percona: bool, compress: bool,
                                    context_ref: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
 
@@ -493,7 +493,7 @@ impl QueryEvent {
         Ok((
             i,
             QueryEvent {
-                header: Header::copy_and_get(header.as_ref(), 1, checksum, Vec::new()),
+                header: Header::copy_and_get(&header, 1, checksum, Vec::new()),
 
                 thread_id,
                 execution_time,

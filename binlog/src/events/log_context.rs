@@ -27,6 +27,19 @@ impl Default for LogContext {
 }
 
 impl LogContext {
+    pub fn new(log_position: LogPosition) -> Self {
+        LogContext::new_with_format_description(log_position, FormatDescriptionEvent::default())
+    }
+
+    pub fn new_with_format_description(log_position: LogPosition, format_description: FormatDescriptionEvent) -> Self {
+        LogContext {
+            format_description: Arc::new(format_description),
+            log_position: Arc::new(log_position),
+            compatiable_percona: false,
+            // gtid_log_event: Box::default(),
+        }
+    }
+
     pub fn set_format_description(&mut self, fd: FormatDescriptionEvent) {
         self.format_description = Arc::new(fd);
     }

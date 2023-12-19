@@ -51,7 +51,7 @@ impl GtidLogEvent {
         }
     }
 
-    pub fn parse<'a>(input: &'a [u8], header: Rc<&Header>) -> IResult<&'a [u8], GtidLogEvent> {
+    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], GtidLogEvent> {
         let (i,
             (   commit_flag,
                 source_id,
@@ -60,10 +60,10 @@ impl GtidLogEvent {
                 last_committed,
                 sequence_number,
                 checksum)) =
-            GtidLogEvent::parse_events_gtid(input, header.clone())?;
+            GtidLogEvent::parse_events_gtid(input, &header)?;
 
         let e = GtidLogEvent {
-            header: Header::copy_and_get(header.as_ref(), 1, checksum, Vec::new()),
+            header: Header::copy_and_get(&header, 1, checksum, Vec::new()),
             commit_flag,
             sid: source_id,
             gno: transaction_id,
@@ -76,7 +76,7 @@ impl GtidLogEvent {
     }
 
     pub fn parse_events_gtid<'a>(
-        input: &'a [u8], header: Rc<&Header>
+        input: &'a [u8], header: &Header
     ) -> IResult<&'a [u8], (bool, String, String, u8, i64, i64, u32)> {
         // 记录binlog格式:
         // 如果gtid_flags值为1，表示binlog中可能有以statement方式记录的binlog

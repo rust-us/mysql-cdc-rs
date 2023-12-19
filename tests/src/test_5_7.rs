@@ -2,7 +2,6 @@
 #[cfg(test)]
 mod test {
     use binlog::ColValues::{Blob, Decimal, Double, Float, Long, NewDecimal, VarChar};
-    use binlog::events::event::Event;
     use binlog::events::event::Event::{AnonymousGtidLog, BeginLoadQuery, DeleteRowsV2, ExecuteLoadQueryEvent, FormatDescription, GtidLog, IntVar, PreviousGtidsLog, Query, Rand, Rotate, RowQuery, Stop, TableMap, UpdateRowsV2, UserVar, WriteRowsV2, XID};
     use binlog::events::{IntVarEventType, UserVarType};
     use binlog::events::event_factory::EventFactory;
@@ -159,14 +158,12 @@ mod test {
         assert_eq!(remain.len(), 0);
         assert_eq!(output.len(), 3);
         match output.get(0).unwrap() {
-            FormatDescription {
-                event: FormatDescriptionEvent {
-                    binlog_version,
-                    mysql_server_version,
-                    create_timestamp,
-                    ..
-                }
-            } => {
+            FormatDescription(FormatDescriptionEvent {
+                                  binlog_version,
+                                  mysql_server_version,
+                                  create_timestamp,
+                                  ..
+                              }) => {
                 assert_eq!(*binlog_version, 4);
                 assert_eq!(mysql_server_version, "5.7.30-log");
                 assert_eq!(*create_timestamp, 1596175634)
@@ -201,14 +198,14 @@ mod test {
                 table_id,
                 table_name,
                 flags,
-                columns_type,
+                column_metadata,
                 null_bits,
                 ..
             } => {
                 assert_eq!(*table_id, 110);
                 assert_eq!(table_name, "boxercrab");
                 assert_eq!(*flags, 1);
-                assert_eq!(*columns_type, vec![Long, VarChar(160)]);
+                assert_eq!(*column_metadata, vec![Long, VarChar(160)]);
                 assert_eq!(*null_bits, vec![0]);
             }
             _ => panic!("should be table_map"),
@@ -362,17 +359,15 @@ mod test {
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
-            GtidLog {
-                event: GtidLogEvent {
-                    commit_flag,
-                    sid,
-                    gno,
-                    lt_type,
-                    last_committed,
-                    sequence_number,
-                    ..
-                }
-            } => {
+            GtidLog(GtidLogEvent {
+                        commit_flag,
+                        sid,
+                        gno,
+                        lt_type,
+                        last_committed,
+                        sequence_number,
+                        ..
+                    }) => {
                 assert_eq!(*commit_flag, true);
                 assert_eq!(sid, "80549ecc-d2f2-11ea-b790-0242ac130002");
                 // assert_eq!(sid, "12884158204-210242-17234-183144-2661721902");
@@ -391,17 +386,15 @@ mod test {
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
-            AnonymousGtidLog {
-                event: AnonymousGtidLogEvent {
-                    commit_flag,
-                    sid,
-                    gno,
-                    lt_type,
-                    last_committed,
-                    sequence_number,
-                    ..
-                }
-            } => {
+            AnonymousGtidLog(AnonymousGtidLogEvent {
+                                 commit_flag,
+                                 sid,
+                                 gno,
+                                 lt_type,
+                                 last_committed,
+                                 sequence_number,
+                                 ..
+                             }) => {
                 assert_eq!(*commit_flag, true);
                 assert_eq!(sid, "00000000-0000-0000-0000-000000000000");
                 assert_eq!(gno, "00000000");
@@ -419,11 +412,9 @@ mod test {
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(1).unwrap() {
-            PreviousGtidsLog {
-                event: PreviousGtidsLogEvent {
-                    gtid_sets, ..
-                }
-            }  => {
+            PreviousGtidsLog(PreviousGtidsLogEvent {
+                                 gtid_sets, ..
+                             })  => {
                 assert_eq!(*gtid_sets, vec![0, 0, 0, 0]);
             }
             _ => panic!("should be previous gtid"),
