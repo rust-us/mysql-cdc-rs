@@ -16,7 +16,7 @@ mod test_normal {
 
     #[test]
     fn test_query_default() {
-        let file = load_read_only_file("C:/Workspace/ali/Replayer/tests/events/8.0/02_query/binlog.000001");
+        let file = load_read_only_file("C:/Workspace/stoneatom/Replayer/tests/events/8.0/02_query/binlog.000001");
 
         let reader = FileBinlogReader::new(file).unwrap();
 
@@ -32,7 +32,7 @@ mod test_normal {
 
     #[test]
     fn test_table_map() {
-        let file = load_read_only_file("C:/Workspace/ali/Replayer/tests/events/8.0/19_30_Table_map_event_Write_rows_log_event/binlog.000018");
+        let file = load_read_only_file("C:/Workspace/stoneatom/Replayer/tests/events/8.0/19_30_Table_map_event_Write_rows_log_event/binlog.000018");
 
         let reader = FileBinlogReader::new(file).unwrap();
 

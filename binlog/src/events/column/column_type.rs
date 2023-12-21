@@ -6,8 +6,8 @@ use nom::{
     sequence::tuple,
     IResult,
 };
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
-use common::err::DecodeError::ReError;
 use crate::ColumnValues;
 use crate::events::column::column_value::parse_packed;
 
@@ -57,78 +57,46 @@ pub enum ColumnTypes {
 
 
 impl ColumnTypes {
-    /// del
-    /// return (identifer, bytes used) of column type
-    pub fn meta(&self) -> (u8, u8) {
-        match *self {
-            ColumnTypes::Decimal => (0, 0),
-            ColumnTypes::Tiny => (1, 0),
-            ColumnTypes::Short => (2, 0),
-            ColumnTypes::Long => (3, 0),
-            ColumnTypes::Float(_) => (4, 1),
-            ColumnTypes::Double(_) => (5, 1),
-            ColumnTypes::Null => (6, 0),
-            ColumnTypes::Timestamp => (7, 0),
-            ColumnTypes::LongLong => (8, 0),
-            ColumnTypes::Int24 => (9, 0),
-            ColumnTypes::Date => (10, 0),
-            ColumnTypes::Time => (11, 0),
-            ColumnTypes::DateTime => (12, 0),
-            ColumnTypes::Year => (13, 0),
-            ColumnTypes::NewDate => (14, 0),
-            ColumnTypes::VarChar(_) => (15, 2),
-            ColumnTypes::Bit(a, b) => (16, 2),
-            ColumnTypes::Timestamp2(_) => (17, 1),
-            ColumnTypes::DateTime2(_) => (18, 1),
-            ColumnTypes::Time2(_) => (19, 1),
-            ColumnTypes::Array => (20, 0),
-            ColumnTypes::Invalid => (243, 0),
-            ColumnTypes::Bool => (244, 0),
-            ColumnTypes::Json(_) => (245, 2),
-            ColumnTypes::NewDecimal(_, _) => (246, 2),
-            ColumnTypes::Enum => (247, 0),
-            ColumnTypes::Set => (248, 0),
-            ColumnTypes::TinyBlob => (249, 0),
-            ColumnTypes::MediumBlob => (250, 0),
-            ColumnTypes::LongBlob => (251, 0),
-            ColumnTypes::Blob(_) => (252, 1),
-            ColumnTypes::VarString(_, _) => (253, 2),
-            ColumnTypes::String(_, _) => (254, 2),
-            ColumnTypes::Geometry(_) => (255, 1),
-        }
-    }
-
-    /// Decode field metadata by column types.
-    ///
-    /// @see mysql-5.1.60/sql/rpl_utility.h
-    pub fn decode_fields_def<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], (usize, Self)> {
-        match *self {
-            ColumnTypes::Float(_) => map(le_u8, |v| (1, ColumnTypes::Float(v)))(input),
-            ColumnTypes::Double(_) => map(le_u8, |v| (1, ColumnTypes::Double(v)))(input),
-            ColumnTypes::VarChar(_) => map(le_u16, |v| (2, ColumnTypes::VarChar(v)))(input),
-            ColumnTypes::NewDecimal(_, _) => map(tuple((le_u8, le_u8)), |(m, d)| {
-                (2, ColumnTypes::NewDecimal(m, d))
-            })(input),
-            ColumnTypes::Blob(_) => map(le_u8, |v| (1, ColumnTypes::Blob(v)))(input),
-            ColumnTypes::VarString(_, _) => map(tuple((le_u8, le_u8)), |(t, len)| {
-                (2, ColumnTypes::VarString(t, len))
-            })(input),
-            ColumnTypes::String(_, _) => map(tuple((le_u8, le_u8)), |(t, len)| {
-                (2, ColumnTypes::String(t, len))
-            })(input),
-            ColumnTypes::Bit(_, _) => {
-                map(tuple((le_u8, le_u8)), |(b1, b2)| (2, ColumnTypes::Bit(b1, b2)))(input)
-            }
-            ColumnTypes::Geometry(_) => map(le_u8, |v| (1, ColumnTypes::Geometry(v)))(input),
-            ColumnTypes::Timestamp2(_) => map(le_u8, |v| (1, ColumnTypes::Timestamp2(v)))(input),
-            ColumnTypes::DateTime2(_) => map(le_u8, |v| (1, ColumnTypes::DateTime2(v)))(input),
-            ColumnTypes::Time2(_) => map(le_u8, |v| (1, ColumnTypes::Timestamp2(v)))(input),
-            // 20 => ColumnTypes::Array,
-            // 243 => ColumnTypes::Invalid,
-            // 244 => ColumnTypes::Bool,
-            _ => Ok((input, (0, self.clone()))),
-        }
-    }
+//     /// del
+//     /// return (identifer, bytes used) of column type
+//     pub fn meta(&self) -> (u8, u8) {
+//         match *self {
+//             ColumnTypes::Decimal => (0, 0),
+//             ColumnTypes::Tiny => (1, 0),
+//             ColumnTypes::Short => (2, 0),
+//             ColumnTypes::Long => (3, 0),
+//             ColumnTypes::Float(_) => (4, 1),
+//             ColumnTypes::Double(_) => (5, 1),
+//             ColumnTypes::Null => (6, 0),
+//             ColumnTypes::Timestamp => (7, 0),
+//             ColumnTypes::LongLong => (8, 0),
+//             ColumnTypes::Int24 => (9, 0),
+//             ColumnTypes::Date => (10, 0),
+//             ColumnTypes::Time => (11, 0),
+//             ColumnTypes::DateTime => (12, 0),
+//             ColumnTypes::Year => (13, 0),
+//             ColumnTypes::NewDate => (14, 0),
+//             ColumnTypes::VarChar(_) => (15, 2),
+//             ColumnTypes::Bit(a, b) => (16, 2),
+//             ColumnTypes::Timestamp2(_) => (17, 1),
+//             ColumnTypes::DateTime2(_) => (18, 1),
+//             ColumnTypes::Time2(_) => (19, 1),
+//             ColumnTypes::Array => (20, 0),
+//             ColumnTypes::Invalid => (243, 0),
+//             ColumnTypes::Bool => (244, 0),
+//             ColumnTypes::Json(_) => (245, 2),
+//             ColumnTypes::NewDecimal(_, _) => (246, 2),
+//             ColumnTypes::Enum => (247, 0),
+//             ColumnTypes::Set => (248, 0),
+//             ColumnTypes::TinyBlob => (249, 0),
+//             ColumnTypes::MediumBlob => (250, 0),
+//             ColumnTypes::LongBlob => (251, 0),
+//             ColumnTypes::Blob(_) => (252, 1),
+//             ColumnTypes::VarString(_, _) => (253, 2),
+//             ColumnTypes::String(_, _) => (254, 2),
+//             ColumnTypes::Geometry(_) => (255, 1),
+//         }
+//     }
 
     pub fn parse_cell<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], (usize, ColumnValues)> {
         match *self {
@@ -257,6 +225,40 @@ impl ColumnTypes {
             },
         }
     }
+
+    // /// Decode field metadata by column types.
+    // ///
+    // /// @see mysql-5.1.60/sql/rpl_utility.h
+    // pub fn decode_fields_def<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], (usize, Self)> {
+    //     match *self {
+    //         // internal used
+    //         // ColumnTypes::TinyBlob、ColumnTypes::MediumBlob、ColumnTypes::LongBlob
+    //         ColumnTypes::Blob(_) => map(le_u8, |v| (1, ColumnTypes::Blob(v)))(input),
+    //         ColumnTypes::Double(_) => map(le_u8, |v| (1, ColumnTypes::Double(v)))(input),
+    //         ColumnTypes::Float(_) => map(le_u8, |v| (1, ColumnTypes::Float(v)))(input),
+    //         ColumnTypes::Geometry(_) => map(le_u8, |v| (1, ColumnTypes::Geometry(v)))(input),
+    //         ColumnTypes::Time2(_) => map(le_u8, |v| (1, ColumnTypes::Timestamp2(v)))(input),
+    //         ColumnTypes::DateTime2(_) => map(le_u8, |v| (1, ColumnTypes::DateTime2(v)))(input),
+    //         ColumnTypes::Timestamp2(_) => map(le_u8, |v| (1, ColumnTypes::Timestamp2(v)))(input),
+    //         ColumnTypes::Json(_) => map(le_u8, |v| (1, ColumnTypes::Json(v)))(input),
+    //
+    //         ColumnTypes::Bit(_, _) => {
+    //             map(tuple((le_u8, le_u8)), |(b1, b2)| (2, ColumnTypes::Bit(b1, b2)))(input)
+    //         }
+    //         ColumnTypes::VarChar(_) => map(le_u16, |v| (2, ColumnTypes::VarChar(v)))(input),
+    //         ColumnTypes::NewDecimal(_, _) => map(tuple((le_u8, le_u8)), |(m, d)| {
+    //             (2, ColumnTypes::NewDecimal(m, d))
+    //         })(input),
+    //
+    //         ColumnTypes::VarString(_, _) => map(tuple((le_u8, le_u8)), |(t, len)| {
+    //             (2, ColumnTypes::VarString(t, len))
+    //         })(input),
+    //         ColumnTypes::String(_, _) => map(tuple((le_u8, le_u8)), |(t, len)| {
+    //             (2, ColumnTypes::String(t, len))
+    //         })(input),
+    //         _ => Ok((input, (0, self.clone()))),
+    //     }
+    // }
 }
 
 impl From<u8> for ColumnTypes {
@@ -306,10 +308,4 @@ impl From<u8> for ColumnTypes {
         // Ok(value)
         value
     }
-}
-impl ColumnTypes {
-    pub fn from_u8(code: u8) ->  Self {
-        ColumnTypes::from(code)
-    }
-
 }

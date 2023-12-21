@@ -191,36 +191,6 @@ impl From<u64> for Q_SQL_MODE_CODE_VAL {
         }
     }
 }
-//
-// impl Into<u32> for QueryStatusVar {
-//     fn into(self) -> u32 {
-//         match self {
-//             Q_FLAGS2_CODE => 0,
-//             Q_SQL_MODE_CODE => 1,
-//             Q_CATALOG => 2,
-//             Q_AUTO_INCREMENT => 3,
-//             Q_CHARSET_CODE => 4,
-//             Q_TIME_ZONE_CODE => 5,
-//             Q_CATALOG_NZ_CODE => 6,
-//             Q_LC_TIME_NAMES_CODE => 7,
-//             Q_CHARSET_DATABASE_CODE => 8,
-//             Q_TABLE_MAP_FOR_UPDATE_CODE => 9,
-//             Q_MASTER_DATA_WRITTEN_CODE => 10,
-//             Q_INVOKERS => 11,
-//             Q_UPDATED_DB_NAMES => 12,
-//             Q_MICROSECONDS => 13,
-//             Q_COMMIT_TS => 14,
-//             Q_COMMIT_TS2 => 15,
-//             Q_EXPLICIT_DEFAULTS_FOR_TIMESTAMP => 16,
-//             Q_DDL_LOGGED_WITH_XID => 17,
-//             Q_DEFAULT_COLLATION_FOR_UTF8MB4 => 18,
-//             Q_SQL_REQUIRE_PRIMARY_KEY => 19,
-//             Q_DEFAULT_TABLE_ENCRYPTION => 20,
-//             Q_DDL_SKIP_REWRITE => 21,
-//             Q_WSREP_SKIP_READONLY_CHECKS => 128,
-//         }
-//     }
-// }
 
 pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar> {
     let (i, code) = le_u8(input)?;

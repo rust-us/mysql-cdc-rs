@@ -147,51 +147,38 @@ impl TableMapEvent {
             })(i)?;
         current_event_body_pos += column_count as u32;
 
-        // packedLong
-        let (i, (_ml_size, _column_metadata_count)) = read_len_enc_num_with_full_bytes(i)?;
+        // parse_metadata len
+        let (i, (_ml_size, _column_metadata_length)) = read_len_enc_num_with_full_bytes(i)?;
         current_event_body_pos += _ml_size as u32;
 
-        // decode_fields
-        let (i, column_metadata) = map(take(_column_metadata_count), |s: &[u8]| {
-            let mut used = 0;
-            let mut ret = vec![];
-            for col in _column_types.iter() {
-                let (_, (u, val)) = col.decode_fields_def(&s[used..]).unwrap();
-                used = used + u;
-                ret.push(val);
-            }
-            ret
-        })(i)?;
-        current_event_body_pos += _column_metadata_count as u32;
-        // // or
-        // let (i, (_m_size, column_metadata)) = TableMapEvent::parse_metadata(i, &column_types).unwrap();
-        // for idx in 0..column_metadata.len() {
-        //     let column_info = column_info_map.get_mut(idx).unwrap();
-        //     column_info.set_meta(column_metadata[idx].meta());
-        // }
-        // current_event_body_pos += _m_size as u32;
+        // parse_metadata
+        let (i, (_m_size, column_metadata_val, column_metadata)) = TableMapEvent::parse_metadata(i, &column_types).unwrap();
+        for idx in 0..column_metadata_val.len() {
+            let column_info = column_info_map.get_mut(idx).unwrap();
+            column_info.set_meta(column_metadata_val[idx]);
+        }
+        current_event_body_pos += _m_size;
 
         let mask_len = (column_count + 7) / 8;
-        let (i, null_bitmap) = map(take(mask_len), |s: &[u8]| s.to_vec())(i)?;
-        // let (i, null_bits) = map(take(mask_len), |s: &[u8]| s)(i)?;
-        // let null_bitmap = TableMapEvent::read_bitmap_little_endian(
-        //     null_bits, column_count as usize).unwrap();
+        let (i, null_bits) = map(take(mask_len), |s: &[u8]| s)(i)?;
+        let null_bitmap = TableMapEvent::read_bitmap_little_endian(
+            null_bits, column_count as usize).unwrap();
         current_event_body_pos += mask_len as u32;
 
-        // for idx in 0..column_count as usize {
-        //     if null_bitmap[idx] == 0u8 {
-        //         let bit = null_bitmap[idx];
-        //         let column_info = column_info_map.get_mut(idx).unwrap();
-        //         column_info.set_nullable(bit);
-        //     }
-        // }
+        for idx in 0..column_count as usize {
+            if null_bitmap[idx] == 0u8 {
+                let bit = null_bitmap[idx];
+                let column_info = column_info_map.get_mut(idx).unwrap();
+                column_info.set_nullable(bit);
+            }
+        }
         // let _null_bitmap = null_bitmap.iter().map(|&t| { t > 0 }).collect::<Vec<bool>>();
 
         let i = if data_len > current_event_body_pos + 4 {
             /// After null_bits field, there are some new fields for extra metadata.
-            let extra_metadata_len = data_len - current_event_body_pos;
-            let (ii, extra_metadata) = map(take(extra_metadata_len), |s: &[u8]| s)(input)?;
-            let em = TableMapEvent::read_extra_metadata(extra_metadata).unwrap();
+            let extra_metadata_len = data_len - current_event_body_pos - 4;
+            let (ii, _extra_metadata) = map(take(extra_metadata_len), |s: &[u8]| s)(i)?;
+            let extra_metadata = TableMapEvent::read_extra_metadata(_extra_metadata).unwrap();
 
             ii
         } else {
@@ -200,9 +187,6 @@ impl TableMapEvent {
 
         let (i, checksum) = le_u32(i)?;
 
-        // let column_metadata_to_type = column_metadata.iter().map(|&t| {
-        //             ColumnTypes::from(t as u8)
-        //         }).collect::<Vec<ColumnTypes>>();
         if let Ok(mut mapping) = TABLE_MAP.lock() {
             mapping.insert(table_id, column_metadata.clone());
         }
@@ -226,8 +210,9 @@ impl TableMapEvent {
     }
 
     pub fn parse_metadata<'a>(input: &'a [u8], column_types: &Vec<u8>)
-                                 -> IResult<&'a [u8], (u32, Vec<u16>)> {
+                                 -> IResult<&'a [u8], (u32, Vec<u16>, Vec<ColumnTypes>)> {
         let mut metadata = vec![0u16; column_types.len()];
+        let mut metadata_type = Vec::<ColumnTypes>::with_capacity(column_types.len());
 
         let mut source = input;
         let mut _size: u32 = 0u32;
@@ -236,52 +221,88 @@ impl TableMapEvent {
         for idx in 0..column_types.len() {
             let column_type = ColumnTypes::from(column_types[idx]);
 
-            let (_source, meta) = match column_type {
-                // 1 byte metadata
-                ColumnTypes::TinyBlob |
-                ColumnTypes::MediumBlob |
-                ColumnTypes::LongBlob |
-                ColumnTypes::Blob(_) |
-                ColumnTypes::Double(_) |
-                ColumnTypes::Float(_) |
-                ColumnTypes::Geometry(_) |
-                ColumnTypes::Time2(_) |
-                ColumnTypes::DateTime2(_) |
-                ColumnTypes::Timestamp2(_) |
-                ColumnTypes::Json(_) => {
-                    let (source, meta) = map(le_u8, |v| v as u16)(source)?;
+            let (s, column_type) = if column_type == ColumnTypes::Array {
+                let (s, v) = le_u8(source)?;
+                (s, ColumnTypes::from(v))
+            } else {
+                (source, column_type)
+            };
+            source = s;
 
+            let (_source, meta, meta_type) = match column_type {
+                // 1 byte metadata
+                // ColumnTypes::TinyBlob |
+                // ColumnTypes::MediumBlob |
+                // ColumnTypes::LongBlob |
+                ColumnTypes::Blob(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta)
+                    (source, meta as u16, ColumnTypes::Blob(meta))
+                },
+                ColumnTypes::Double(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::Double(meta))
+                },
+                ColumnTypes::Float(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::Float(meta))
+                },
+                ColumnTypes::Geometry(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::Geometry(meta))
+                },
+                ColumnTypes::Time2(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::Time2(meta))
+                },
+                ColumnTypes::DateTime2(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::DateTime2(meta))
+                },
+                ColumnTypes::Timestamp2(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::Timestamp2(meta))
+                },
+                ColumnTypes::Json(_) => {
+                    let (source, meta) = map(le_u8, |v| v)(source)?;
+                    _size += 1;
+                    (source, meta as u16, ColumnTypes::Json(meta))
                 },
 
                 // 2 bytes little endian
-                ColumnTypes::Bit(_, _) |
-                ColumnTypes::VarChar(_) => {
-                    let (source, meta) = map(le_u16, |v| v as u16)(source)?;
-                    // u16 --> 2 u8
-                    // metadata_types.push(ColumnTypes::Bit((meta >> 8) as u8, meta as u8));
-
+                ColumnTypes::Bit(_, _) => {
+                    let (source, meta) = map(le_u16, |v| v)(source)?;
                     _size += 2;
-                    (source, meta)
+                    (source, meta, /*  u16 --> 2 u8 */ ColumnTypes::Bit((meta >> 8) as u8, meta as u8))
+                },
+                ColumnTypes::VarChar(_) => {
+                    let (source, meta) = map(le_u16, |v| v)(source)?;
+                    _size += 2;
+                    (source, meta, ColumnTypes::VarChar(meta))
                 },
                 ColumnTypes::NewDecimal(_, _) => {
                     // precision
-                    let (source, mut precision) = map(le_u8, |v| v as u16)(source)?;
-                    precision = precision << 8;
+                    let (source, precision) = map(le_u8, |v| v as u16)(source)?;
+                    let mut x: u16  = precision << 8;
                     // decimals
-                    let (source, decimals) = map(le_u8, |v| v as u16)(source)?;
-
-                    precision += decimals;
+                    let (source, decimals) = map(le_u8, |v| v)(source)?;
+                    x += decimals as u16;
 
                     _size += 2;
-                    (source, precision)
+                    (source, x, ColumnTypes::NewDecimal(precision as u8, decimals))
                 },
 
                 // 2 bytes big endian
+                /// log_event.h : The first byte is always MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
+                /// field size, i.e., the number of bytes in the representation of size of the string: 3 or 4.
                 ColumnTypes::Enum |
-                ColumnTypes::Set |
-                ColumnTypes::String(_, _) => {
+                ColumnTypes::Set => {
                     /*
                      * log_event.h : The first byte is always
                      * MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
@@ -289,148 +310,43 @@ impl TableMapEvent {
                      * representation of size of the string: 3 or 4.
                      */
                     // real_type, read_u16::<BigEndian>()?
-                    let (source, mut x) = map(le_u8, |v| v as u16)(source)?;
-                    x = x << 8;
+                    let (source, t) = map(le_u8, |v| v as u16)(source)?;
+                    let mut x = t << 8;
                     // pack or field length
-                    let (source, len) = map(le_u8, |v| v as u16)(source)?;
-
-                    x += len;
+                    let (source, len) = map(le_u8, |v| v)(source)?;
+                    x += len as u16;
 
                     _size += 2;
-                    (source, x)
+                    (source, x, column_type.clone())
                 },
-                _ => (source, 0),
+                ColumnTypes::VarString(_, _) => {
+                    let (source, t) = map(le_u8, |v| v as u16)(source)?;
+                    let mut x = t << 8;
+                    // pack or field length
+                    let (source, len) = map(le_u8, |v| v)(source)?;
+                    x += len as u16;
+
+                    _size += 2;
+                    (source, x, ColumnTypes::VarString(t as u8, len))
+                },
+                ColumnTypes::String(_, _) => {
+                    let (source, t) = map(le_u8, |v| v as u16)(source)?;
+                    let mut x = t << 8;
+                    // pack or field length
+                    let (source, len) = map(le_u8, |v| v)(source)?;
+                    x += len as u16;
+
+                    _size += 2;
+                    (source, x, ColumnTypes::String(t as u8, len))
+                },
+                _ => (source, 0, column_type.clone()),
             };
             metadata[idx] = meta;
+            metadata_type.push(meta_type);
             source = _source;
-
-            // let (source, binlog_type) = if column_type == ColumnTypes::Array.into() {
-            //     let (source, t) = map(le_u8, |v: u8| v)(source)?;
-            //
-            //     (source, ColumnTypes::from(t))
-            // } else {
-            //     (source, column_type)
-            // };
-            //
-            // let (s, meta) = match binlog_type {
-            //     /// These types store a single byte.
-            //     ColumnTypes::Float(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Float(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::Double(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Double(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::Blob(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Blob(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::Geometry(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Geometry(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::Timestamp2(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Timestamp2(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::DateTime2(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::DateTime2(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::Time2(_) => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Time2(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::Json(_) |
-            //     ColumnTypes::TinyBlob |
-            //     ColumnTypes::MediumBlob |
-            //     ColumnTypes::LongBlob  => {
-            //         let (source, meta) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(binlog_type.clone());
-            //         (source, meta)
-            //     },
-            //
-            //     /// 2 bytes big endian
-            //     /// log_event.h : The first byte is always MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
-            //     /// field size, i.e., the number of bytes in the representation of size of the string: 3 or 4.
-            //     ColumnTypes::Enum |
-            //     ColumnTypes::Set => {
-            //         // real_type, read_u16::<BigEndian>()?
-            //         let (source, mut x) = map(le_u8, |v| v as u16)(source)?;
-            //         x = x << 8;
-            //         // pack or field length
-            //         let (source, len) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(binlog_type.clone());
-            //
-            //         x += len;
-            //
-            //         // let (source, x) = map(tuple((le_u8, le_u8)), |(t, len)| {
-            //         //     ColumnTypes::String(t, len)
-            //         // })(source)?;
-            //
-            //         (source, x)
-            //     },
-            //     ColumnTypes::String(_, _) => {
-            //         let (source, mut x) = map(le_u8, |v| v as u16)(source)?;
-            //         x = x << 8;
-            //         let (source, len) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::String(x as u8, len as u8));
-            //
-            //         x += len;
-            //
-            //         (source, x)
-            //     },
-            //
-            //     // 2 bytes little endian
-            //     ColumnTypes::Bit(_, _) => {
-            //         let (source, meta) = map(le_u16, |v| v as u16)(source)?;
-            //         // u16 --> 2 u8
-            //         metadata_types.push(ColumnTypes::Bit((meta >> 8) as u8, meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::VarChar(_) => {
-            //         let (source, meta) = map(le_u16, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::Double(meta as u8));
-            //         (source, meta)
-            //     },
-            //     ColumnTypes::NewDecimal(_, _) => {
-            //         // precision
-            //         let (source, mut x) = map(le_u8, |v| v as u16)(source)?;
-            //         x = x << 8;
-            //         // decimals
-            //         let (source, decimals) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::NewDecimal(x as u8, decimals as u8));
-            //
-            //         x += decimals;
-            //         (source, x)
-            //     },
-            //     ColumnTypes::VarString(_, _) => {
-            //         let (source, mut t) = map(le_u8, |v| v as u16)(source)?;
-            //         t = t << 8;
-            //         // pack or field length
-            //         let (source, len) = map(le_u8, |v| v as u16)(source)?;
-            //         metadata_types.push(ColumnTypes::VarString(t as u8, len as u8));
-            //
-            //         // t += len;
-            //         (source, 0)
-            //     },
-            //     _ => {
-            //         metadata_types.push(binlog_type.clone());
-            //         // meta = 0
-            //         (source, 0)
-            //     },
-            // };
         }
 
-        Ok((source, (_size, metadata)))
+        Ok((source, (_size, metadata, metadata_type)))
     }
 
 
@@ -447,6 +363,11 @@ impl TableMapEvent {
         for bit in 0..mask_len {
             let flag = &cursor.read_u8()?;
             let _flag = flag & 0xff;
+
+            if _flag == 0 {
+                continue;
+            }
+
             for y in 0..8 {
                 let index = (bit << 3) + y;
                 if index == column_count {
@@ -471,8 +392,12 @@ impl TableMapEvent {
             }
 
             // optional metadata fields
-            let _type = cursor.get_u8();
-            let len = read_len_enc_num_with_cursor(&mut cursor);
+            let type_ = cursor.get_u8();
+            let (_size, len) = read_len_enc_num_with_cursor(&mut cursor)?;
+
+            match type_ {
+                _ => {},
+            }
         }
 
         Ok(Vec::from("".as_bytes()))

@@ -209,8 +209,7 @@ mod test {
                 assert_eq!(table_name, "boxercrab");
                 assert_eq!(*flags, 1);
                 assert_eq!(*column_metadata, vec![Long, VarChar(160)]);
-                // assert_eq!(*column_metadata, vec![3, 15]);
-                assert_eq!(*null_bitmap, vec![0]);
+                assert_eq!(*null_bitmap, vec![0, 0]);
             }
             _ => panic!("should be table_map"),
         }

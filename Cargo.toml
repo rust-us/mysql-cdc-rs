@@ -26,6 +26,7 @@ structopt = "0.3.16"
 bitflags = { version = "2.4.1", features = [] }
 nom = "7"
 lazy_static = "1.4.0"
+num_enum = "0.7.1"
 
 log = "0.4.20"
 log4rs = "1.2.0"
