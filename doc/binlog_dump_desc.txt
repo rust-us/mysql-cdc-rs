@@ -1,5 +1,5 @@
 # 通过mysqlbinlog查看
-# mysqlbinlog log.bin
+# mysqlbinlog --no-defaults -H -vvvvvv binlog.000001 > dump.txt
 
 /*!50530 SET @@SESSION.PSEUDO_SLAVE_MODE=1*/;
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;

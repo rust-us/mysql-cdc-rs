@@ -2,18 +2,17 @@
 
 pub mod b_type;
 pub mod utils;
-pub mod mysql;
 pub mod events;
 // pub mod connection;
 // pub mod cli;
 pub mod decoder;
 
 pub use events::{
-    query::{QueryStatusVar, Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL},
+    query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar},
     rows::{ExtraData, ExtraDataFormat, Flags, Payload, Row},
 };
 
-pub use mysql::{ColTypes, ColValues};
+pub use events::column::column_value::ColumnValues;
 
 // #[allow(unused_macros)]
 // macro_rules! hex {

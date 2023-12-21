@@ -1,14 +1,12 @@
-use std::cell::RefCell;
-use std::cmp::{max, min};
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use nom::{
     bytes::complete::{take},
     combinator::map,
     multi::{many0},
     number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
-    IResult,
-};
+    IResult, Err};
 use serde::Serialize;
+use common::err::DecodeError::ReError;
 use crate::events::event_header::Header;
 use crate::events::log_context::LogContext;
 use crate::events::log_event::{LogEvent, QUERY_HEADER_LEN, QUERY_HEADER_MINIMAL_LEN};
@@ -416,19 +414,19 @@ pub struct QueryEvent {
 
 impl QueryEvent {
 
-    pub fn parse<'a>(input: &'a [u8], header: &Header, context_ref: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
-        QueryEvent::parse_with_compress(input, &header, false, false, context_ref)
+    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
+        QueryEvent::parse_with_compress(input, &header, false, false, context)
     }
 
     pub fn parse_with_compress<'a>(input: &'a [u8], header: &Header,
                                    compatiable_percona: bool, compress: bool,
-                                   context_ref: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
+                                   context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
 
-        let context = context_ref.borrow_mut();
+        let context = context.read().unwrap();
 
         let common_header_len = context.get_format_description().common_header_len;
         let query_post_header_len = context.get_format_description().get_post_header_len(header.get_event_type() as usize);
-        // Variable data部分长度
+        // event-body 部分长度
         let mut data_len = header.get_event_length()
             - (common_header_len + query_post_header_len) as u32;
 
@@ -453,13 +451,19 @@ impl QueryEvent {
             } else {
                 data_len
             } as u16;
-            if status_vars_len > min {
-                // Err("status_vars_length (" + status_vars_length + ") > data_len (" + query_data_len + ")");
-            }
+
+            // todo
+            // if status_vars_len > min {
+            //     let err = ReError::String("status_vars_length (".to_owned() + (status_vars_len as u16).to_string().as_str() + ") > data_len (" + (data_len as u16).to_string().as_str() + ")");
+            //
+            //     return Err(Err::Error(err));
+            // }
+
             Ok((i, status_vars_len as u16))
         } else {
             Ok((input, 0 as u16))
         }?;
+
         // 计算真正的 Variable data部分长度
         data_len -= status_vars_len as u32;
 
@@ -472,6 +476,14 @@ impl QueryEvent {
             String::from_utf8(s[0..schema_length as usize].to_vec()).unwrap()
         })(i)?;
         // let (i, _) = take(1usize)(i)?;
+
+        // let mut client_charset_val: u16 = 0;
+        // status_vars.iter()
+        //     .filter(|&var|
+        //         matches!(var, QueryStatusVar::Q_CHARSET_CODE(_,_,_)))
+        //     .for_each(| &QueryStatusVar::Q_CHARSET_CODE(clientCharset, clientCollation, serverCollation)|{
+        //         client_charset_val = clientCharset;
+        //     });
 
         let query_len =
             // header.get_event_length()                       //--

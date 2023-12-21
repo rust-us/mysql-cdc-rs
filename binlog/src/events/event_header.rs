@@ -105,6 +105,10 @@ impl Header {
         self.log_pos.clone()
     }
 
+    pub fn set_checksum(&mut self, checksum: u32) {
+        self.checksum = checksum;
+    }
+
     pub fn new(log_file_name:String, when: u32, event_type: u8, server_id: u32,
                event_length: u32, log_pos: u32, flags: u16) -> Self {
         let flags_attr = EventFlag::from(flags);

@@ -1,11 +1,15 @@
 #![allow(dead_code)]
 
+use std::error::Error;
+use std::io::Cursor;
+use byteorder::{LittleEndian, ReadBytesExt};
 use nom::{
     bytes::complete::{take, take_till},
     combinator::map,
     number::complete::{le_u16, le_u32, le_u64, le_u8},
     IResult,
 };
+use common::err::DecodeError::ReError;
 
 /// extract n(n <= len(input)) bytes string
 /// 实现思路：
@@ -40,21 +44,26 @@ pub fn int_fixed<'a>(input: &'a [u8], len: u8) -> IResult<&'a [u8], u64> {
     }
 }
 
-/// parse len encoded int, return (used_bytes, value).
+/// parse len encoded int, is PackedLong, return (used_bytes, value).
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
-pub fn int_by_length_encoded<'a>(input: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> {
-    match input[0] {
+pub fn read_len_enc_num_with_full_bytes<'a>(slice: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> {
+    match /* first_byte */ slice[0] {
         // 0 -- 250
-        0..=0xfa => map(le_u8, |num: u8| (1, num as u64))(input),
-        // 251， 252
-        0xfb | 0xfc => {
-            let (i, lead) = take(1usize)(input)?;
+        0..=0xfa => map(le_u8, |num: u8| (1, num as u64))(slice),
+        // 251
+        0xfb => {
+            let (i, lead) = take(1usize)(slice)?;
+            map(le_u16, |num: u16| (3, num as u64))(i)
+        },
+        // 252
+        0xfc => {
+            let (i, lead) = take(1usize)(slice)?;
             map(le_u16, |num: u16| (3, num as u64))(i)
         }
         // 253
         0xfd => {
-            let (i, lead) = take(1usize)(input)?;
+            let (i, lead) = take(1usize)(slice)?;
             let (i, v) = map(take(3usize), |s: &[u8]| {
                 let mut raw = s.to_vec();
                 raw.push(0);
@@ -65,7 +74,7 @@ pub fn int_by_length_encoded<'a>(input: &'a [u8]) -> IResult<&'a [u8], (usize, u
         }
         // 254
         0xfe => {
-            let (i, _) = take(1usize)(input)?;
+            let (i, _) = take(1usize)(slice)?;
             map(le_u64, |v: u64| (9, v))(i)
         }
         // 255
@@ -73,11 +82,54 @@ pub fn int_by_length_encoded<'a>(input: &'a [u8]) -> IResult<&'a [u8], (usize, u
     }
 }
 
+/// if first byte is less than 0xFB - Integer value is this 1 byte integer
+/// 0xFB - NULL value
+/// 0xFC - Integer value is encoded in the next 2 bytes (3 bytes total)
+/// 0xFD - Integer value is encoded in the next 3 bytes (4 bytes total)
+/// 0xFE - Integer value is encoded in the next 8 bytes (9 bytes total)
+///
+/// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
+pub fn read_len_enc_num_with_slice(slice: &[u8]) -> Result<(usize, u64), ReError> {
+    let mut cursor = Cursor::new(slice);
+
+    read_len_enc_num_with_cursor(&mut cursor)
+}
+
+/// if first byte is less than 0xFB - Integer value is this 1 byte integer
+/// 0xFB - NULL value
+/// 0xFC - Integer value is encoded in the next 2 bytes (3 bytes total)
+/// 0xFD - Integer value is encoded in the next 3 bytes (4 bytes total)
+/// 0xFE - Integer value is encoded in the next 8 bytes (9 bytes total)
+///
+/// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
+pub fn read_len_enc_num_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<(usize, u64), ReError> {
+    let first_byte = cursor.read_u8()?;
+
+    // 0 -- 250
+    if first_byte < 0xFB {
+        Ok((1, first_byte as u64))
+    } else if first_byte == 0xFB {  // 251
+        Err(ReError::String(
+            "Length encoded integer cannot be NULL.".to_string(),
+        ))
+    } else if first_byte == 0xFC { // 252
+        Ok((3, cursor.read_u16::<LittleEndian>()? as u64))
+    } else if first_byte == 0xFD { // 253
+        Ok((4, cursor.read_u24::<LittleEndian>()? as u64))
+    } else if first_byte == 0xFE { // 254
+        Ok((9, cursor.read_u64::<LittleEndian>()? as u64))
+    } else {
+        let value = format!("Unexpected length-encoded integer: {}", first_byte).to_string();
+        Err(ReError::String(value))
+    }
+}
+
+
 /// parse length encoded string
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/string.html#packet-Protocol::LengthEncodedString
 pub fn string_by_length_encoded<'a>(input: &'a [u8]) -> IResult<&'a [u8], String> {
-    let (i, (_, str_len)) = int_by_length_encoded(input)?;
+    let (i, (_, str_len)) = read_len_enc_num_with_full_bytes(input)?;
     map(take(str_len), |s: &[u8]| {
         String::from_utf8_lossy(s).to_string()
     })(i)

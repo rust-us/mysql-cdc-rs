@@ -3,6 +3,7 @@
 mod test {
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::sync::{Arc, RwLock};
     use binlog::events::event::Event;
     use binlog::events::event_factory::EventFactory;
     use binlog::events::event_header::Header;
@@ -25,9 +26,9 @@ mod test {
 
         let mut _context:LogContext = LogContext::default();
         &_context.set_log_position(LogPosition::new("test".to_string()));
-        let context = Rc::new(RefCell::new(_context));
+        let context = Arc::new(RwLock::new(_context));
 
-        let (i, event_raws) = EventFactory::steam_to_event_raw(i, Rc::clone(&context)).unwrap();
+        let (i, event_raws) = EventFactory::steam_to_event_raw(i, context).unwrap();
         assert_eq!(i.len(), 0);
         assert_eq!(event_raws.len(), 4);
     }
@@ -40,15 +41,15 @@ mod test {
 
         let mut _context:LogContext = LogContext::default();
         &_context.set_log_position(LogPosition::new("test".to_string()));
-        let context = Rc::new(RefCell::new(_context));
+        let context = Arc::new(RwLock::new(_context));
 
-        let (i, event_raws) = EventFactory::steam_to_event_raw(i, Rc::clone(&context)).unwrap();
+        let (i, event_raws) = EventFactory::steam_to_event_raw(i, context.clone()).unwrap();
         assert_eq!(i.len(), 0);
         assert_eq!(event_raws.len(), 4);
 
         let mut event_list = Vec::<Event>::with_capacity(event_raws.len());
         for event_raw in event_raws {
-            let rs = EventFactory::event_raw_to_event(&event_raw, Rc::clone(&context));
+            let rs = EventFactory::event_raw_to_event(&event_raw, context.clone());
 
             match rs {
                 Err(e) => {

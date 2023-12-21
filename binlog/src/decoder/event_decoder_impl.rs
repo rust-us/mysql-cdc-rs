@@ -1,30 +1,28 @@
 use lazy_static::lazy_static;
 use nom::{
-    bytes::complete::{tag, take},
+    bytes::complete::take,
     combinator::map,
-    multi::{many0, many1, many_m_n},
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
-    sequence::tuple,
     IResult,
+    multi::{many0, many1, many_m_n},
+    number::complete::{le_u16, le_u32, le_u64, le_u8},
+    sequence::tuple,
 };
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use std::ops::Deref;
-use std::rc::Rc;
-
 use crate::{
-    mysql::{ColTypes, ColValues},
-    utils::{extract_string, int_by_length_encoded, pu64, string_by_fixed_len, string_by_nul_terminated, string_by_variable_len},
-    events::event_header::{Header},
-    events::event::{Event},
+    events::event::Event,
+    events::event_header::Header,
+    utils::{extract_string, read_len_enc_num_with_full_bytes, pu64, string_by_nul_terminated, string_by_variable_len},
 };
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
+use crate::events::column::column_type::ColumnTypes;
+use crate::events::column::column_value::{ColumnValues};
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
 lazy_static! {
-    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColTypes>>>> =
+    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColumnTypes>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 }
 
@@ -526,7 +524,7 @@ pub fn parse_part_row_event<'a>(
     };
 
     // parse body
-    let (i, (encode_len, column_count)) = int_by_length_encoded(i)?;
+    let (i, (encode_len, column_count)) = read_len_enc_num_with_full_bytes(i)?;
     Ok((
         i,
         (
@@ -542,12 +540,12 @@ pub fn parse_part_row_event<'a>(
 pub fn parse_row<'a>(
     input: &'a [u8],
     init_idx: usize,
-    col_def: &Vec<ColTypes>,
-) -> IResult<&'a [u8], Vec<ColValues>> {
+    col_def: &Vec<ColumnTypes>,
+) -> IResult<&'a [u8], Vec<ColumnValues>> {
     let mut index = if input.len() != 0 { init_idx } else { 0 };
     let mut ret = vec![];
     for col in col_def {
-        let (_, (offset, col_val)) = col.parse(&input[index..])?;
+        let (_, (offset, col_val)) = col.parse_cell(&input[index..])?;
         ret.push(col_val);
         index += offset;
     }

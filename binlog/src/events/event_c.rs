@@ -9,7 +9,11 @@ use crate::events::event_header::Header;
 pub struct EventRaw {
     pub header: Header,
 
+    // payload_data_without_crc
     pub payload: Vec<u8>,
+
+    /// payload 中是否包含crc信息。 false 不包含
+    pub has_crc: bool,
 }
 
 impl EventRaw {
@@ -17,17 +21,23 @@ impl EventRaw {
         EventRaw {
             header,
             payload: Vec::with_capacity(32),
+            has_crc: false,
         }
     }
 
-    pub fn new_with_payload(header: Header, payload: Vec<u8>) -> Self {
+    pub fn new_with_payload(header: Header, payload: Vec<u8>, has_crc: bool) -> Self {
         EventRaw {
             header,
             payload,
+            has_crc,
         }
     }
 
-    pub fn get_header(&self) -> Rc<&Header> {
+    pub fn get_header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn get_header_ref(&self) -> Rc<&Header> {
         Rc::new(&self.header)
     }
 

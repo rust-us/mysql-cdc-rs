@@ -16,16 +16,18 @@ use crate::utils::{string_by_variable_len, extract_string, pu32, string_by_nul_t
 pub enum QueryStatusVar {
     /// 对应的code	状态值占用的字节数
     /// 0	4字节
-    Q_FLAGS2_CODE(Q_FLAGS2_CODE_VAL),
+    Q_FLAGS2_CODE(u32, Q_FLAGS2_CODE_VAL),
     /// 1	8字节
-    Q_SQL_MODE_CODE(Q_SQL_MODE_CODE_VAL),
+    Q_SQL_MODE_CODE(u64, Q_SQL_MODE_CODE_VAL),
     /// 2	第一个字节表示catalog_len，总共catalog_len+2个字节
     /// Q_CATALOG_CODE is catalog with end zero stored; it is used only by MySQL
     /// 5.0.x where 0<=x<=3. We have to keep it to be able to replicate these old masters.
     Q_CATALOG(String),
     /// 3	4字节
+    /// 分别代表 autoIncrementIncrement, autoIncrementOffset
     Q_AUTO_INCREMENT(u16, u16),
     /// 4	6字节
+    /// 分别代表 clientCharset, clientCollation, serverCollation
     Q_CHARSET_CODE(u16, u16, u16),
     /// 5	第一个字节表示time_zone_len，总共time_zone_len+1字节
     Q_TIME_ZONE_CODE(String),
@@ -226,11 +228,11 @@ pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar
     match code {
         0x00 => { // Q_FLAGS2_CODE
             let (i, code) = le_u32(i)?;
-            Ok((i, QueryStatusVar::Q_FLAGS2_CODE(Q_FLAGS2_CODE_VAL::from(code))))
+            Ok((i, QueryStatusVar::Q_FLAGS2_CODE(code, Q_FLAGS2_CODE_VAL::from(code))))
         }
         0x01 => { // Q_SQL_MODE_CODE
             let (i, code) = le_u64(i)?; // when sql_mode is ulonglong
-            Ok((i, QueryStatusVar::Q_SQL_MODE_CODE(Q_SQL_MODE_CODE_VAL::from(code))))
+            Ok((i, QueryStatusVar::Q_SQL_MODE_CODE(code, Q_SQL_MODE_CODE_VAL::from(code))))
         }
         0x02 => { //Q_CATALOG, for 5.0.x where 0<=x<=3 masters
             let (i, len) = le_u8(i)?;

@@ -1,7 +1,7 @@
 
 #[cfg(test)]
 mod test {
-    use binlog::ColValues::{Blob, Decimal, Double, Float, Long, NewDecimal, VarChar};
+    use binlog::ColumnValues::{Blob, Decimal, Double, Float, Long, NewDecimal, VarChar};
     use binlog::events::event::Event::{AnonymousGtidLog, BeginLoadQuery, DeleteRowsV2, ExecuteLoadQueryEvent, FormatDescription, GtidLog, IntVar, PreviousGtidsLog, Query, Rand, Rotate, RowQuery, Stop, TableMap, UpdateRowsV2, UserVar, WriteRowsV2, XID};
     use binlog::events::{IntVarEventType, UserVarType};
     use binlog::events::event_factory::EventFactory;
@@ -9,6 +9,7 @@ mod test {
     use binlog::events::protocol::format_description_log_event::FormatDescriptionEvent;
     use binlog::events::protocol::gtid_log_event::GtidLogEvent;
     use binlog::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
+    use binlog::events::protocol::table_map_event::TableMapEvent;
     use common::log::log_factory::LogFactory;
 
     #[test]
@@ -187,26 +188,29 @@ mod test {
 
     #[test]
     fn test_table_map() {
-        use binlog::ColTypes::*;
+        use binlog::events::column::column_type::ColumnTypes::*;
 
         // TODO need to test more column types
         let input = include_bytes!("../events/5.7/19_table_map/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
-            TableMap {
-                table_id,
-                table_name,
-                flags,
-                column_metadata,
-                null_bits,
-                ..
-            } => {
+            TableMap(
+                TableMapEvent {
+                    table_id,
+                    table_name,
+                    flags,
+                    column_metadata,
+                    null_bitmap,
+                    ..
+                }
+            ) => {
                 assert_eq!(*table_id, 110);
                 assert_eq!(table_name, "boxercrab");
                 assert_eq!(*flags, 1);
                 assert_eq!(*column_metadata, vec![Long, VarChar(160)]);
-                assert_eq!(*null_bits, vec![0]);
+                // assert_eq!(*column_metadata, vec![3, 15]);
+                assert_eq!(*null_bitmap, vec![0]);
             }
             _ => panic!("should be table_map"),
         }

@@ -12,6 +12,7 @@ uuid = { workspace = true }
 hex = { workspace = true }
 lru = { workspace = true }
 bytes = { workspace = true }
+byteorder = { workspace = true }
 thiserror = { workspace = true }
 #serde = { workspace = true, optional = true }
 #serde_json = { workspace = true, optional = true }

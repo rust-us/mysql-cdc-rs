@@ -3,6 +3,7 @@ use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use hex::FromHexError;
+use nom::error;
 
 #[derive(Debug)]
 pub enum ReError {
@@ -30,6 +31,12 @@ impl From<io::Error> for ReError {
         ReError::IoError(error)
     }
 }
+
+// impl <T> From<error::Error<T>> for ReError {
+//     fn  from(error: error::Error<T>) -> Self {
+//         ReError::String(error.input)
+//     }
+// }
 
 impl From<Utf8Error> for ReError {
     fn from(error: Utf8Error) -> Self {

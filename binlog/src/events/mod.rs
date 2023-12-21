@@ -13,6 +13,7 @@ pub mod log_context;
 pub mod log_position;
 
 pub mod event_factory;
+pub mod column;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub enum IntVarEventType {

@@ -1,15 +1,10 @@
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-use std::rc::Rc;
-use std::sync::Arc;
+use std::mem::ManuallyDrop;
+use std::ptr;
+use std::sync::{Arc, RwLock};
 use std::vec::IntoIter;
-use nom::{
-    bytes::complete::{take},
-    combinator::map,
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
-};
 use common::err::DecodeError::ReError;
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
@@ -38,7 +33,7 @@ pub struct FileBinlogReader {
     /// stream 与 source_bytes 加载的缓冲区。 在一次BinlogReader中会被多次复用
     payload_buffer: Vec<u8>,
 
-    context: Rc<RefCell<LogContext>>,
+    context: Arc<RwLock<LogContext>>,
 }
 
 /// Reads binlog events from a stream.
@@ -49,7 +44,7 @@ pub struct BytesBinlogReader {
     /// stream 与 source_bytes 的解析器
     decoder: LogEventDecoder,
 
-    context: Rc<RefCell<LogContext>>,
+    context: Arc<RwLock<LogContext>>,
 
     event_raw_iter: Arc<IntoIter<EventRaw>>,
 }
@@ -57,7 +52,7 @@ pub struct BytesBinlogReader {
 impl BinlogReader<File> for FileBinlogReader {
     fn new(source: File) -> Result<Self, ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("test_demo".to_string()));
-        let context = Rc::new(RefCell::new(_context));
+        let context = Arc::new(RwLock::new(_context));
 
         Ok(Self {
             stream: source,
@@ -113,7 +108,7 @@ impl FileBinlogReader {
 impl BinlogReader<&[u8]> for BytesBinlogReader {
     fn new(source: &[u8]) -> Result<Self, ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader".to_string()));
-        let context = Rc::new(RefCell::new(_context));
+        let context = Arc::new(RwLock::new(_context));
 
         let event_raw_list = Vec::new();
         Ok(Self {

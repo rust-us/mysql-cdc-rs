@@ -1,21 +1,20 @@
-use crate::{
-    mysql::{ColTypes, ColValues},
-};
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
 use crate::events::event_header::Header;
 
 use serde::Serialize;
 use nom::{InputLength, IResult, Parser};
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use bytes::Buf;
 use crate::decoder::event_decoder::LogEventDecoder;
+use crate::events::column::column_type::ColumnTypes;
+use crate::events::column::column_value::{ColumnValues};
 use crate::events::log_context::LogContext;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
+use crate::events::protocol::table_map_event::TableMapEvent;
 
 ///
 /// Enumeration type for the different types of log events.
@@ -218,33 +217,15 @@ pub enum Event {
         checksum: u32,
     },
     /// 19
-    TableMap {
-        header: Header,
-        // table_id take 6 bytes in buffer
-        table_id: u64,
-        flags: u16,
-
-        schema_length: u8,
-        schema: String,
-
-        table_name_length: u8,
-        table_name: String,
-
-        columns_number: u64,
-
-        // column_types
-        column_metadata: Vec<ColTypes>,
-        null_bits: Vec<u8>,
-        checksum: u32,
-    },
+    TableMap(TableMapEvent),
 
     ///These event numbers were used for 5.1.0 to 5.1.15 and are therefore obsolete.
     /// 20
     PreGaWriteRowsEvent,
     /// 21
-    PreGaUpdateRowsEven,
+    PreGaUpdateRowsEvent,
     /// 22
-    PreGaDeleteRowsEven,
+    PreGaDeleteRowsEvent,
 
     /// These event numbers are used from 5.1.16 and forward
     /// The V1 event numbers are used from 5.1.16 until mysql-5.6.
@@ -306,7 +287,7 @@ pub enum Event {
         extra_data: Vec<rows::ExtraData>,
         column_count: u64,
         inserted_image_bits: Vec<u8>,
-        rows: Vec<Vec<ColValues>>,
+        rows: Vec<Vec<ColumnValues>>,
         checksum: u32,
     },
     /// 31
@@ -320,7 +301,7 @@ pub enum Event {
         column_count: u64,
         before_image_bits: Vec<u8>,
         after_image_bits: Vec<u8>,
-        rows: Vec<Vec<ColValues>>,
+        rows: Vec<Vec<ColumnValues>>,
         checksum: u32,
     },
     /// 32
@@ -333,7 +314,7 @@ pub enum Event {
         extra_data: Vec<rows::ExtraData>,
         column_count: u64,
         deleted_image_bits: Vec<u8>,
-        rows: Vec<Vec<ColValues>>,
+        rows: Vec<Vec<ColumnValues>>,
         checksum: u32,
     },
 
@@ -404,9 +385,57 @@ impl Event {
         let (i, header) = Header::parse_v4_header(input)?;
 
         let c = LogContext::default();
-        LogEventDecoder::parse_bytes(i, &header, Rc::new(RefCell::new(c)))
+        LogEventDecoder::parse_bytes(i, &header, Arc::new(RwLock::new(c)))
     }
 
+    pub fn get_type_name(value: &Event) -> String {
+        match value {
+            Event::Unknown{ .. } => "UnknownEvent".to_owned(),
+            Event::StartV3=> "StartV3Event".to_owned(),
+            Event::Query(e)=> "QueryEvent".to_owned(),
+            Event::Stop{ .. } => "StopEvent".to_owned(),
+            Event::Rotate{ .. } => "RotateEvent".to_string(),
+            Event::IntVar{ .. } => "IntVarEvent".to_string(),
+            Event::Load{ .. } => "LoadEvent".to_string(),
+            Event::Slave{ .. } => "SlaveEvent".to_string(),
+            Event:: CreateFile{ .. } => "CreateFileEvent".to_string(),
+            Event::AppendBlock{ .. } => "AppendBlockEvent".to_string(),
+            Event::ExecLoad{ .. } => "ExecLoadEvent".to_string(),
+            Event::DeleteFile{ .. } => "DeleteFileEvent".to_string(),
+            Event::NewLoad{ .. } => "NewLoadEvent".to_string(),
+            Event::Rand{ .. } => "RandEvent".to_string(),
+            Event::UserVar{ .. } => "UserVarEvent".to_string(),
+            Event::FormatDescription(e) => "FormatDescriptionEvent".to_string(),
+            Event::XID{ .. } => "XIDEvent".to_string(),
+            Event::BeginLoadQuery{ .. } => "BeginLoadQueryEvent".to_string(),
+            Event::ExecuteLoadQueryEvent{ .. } => "ExecuteLoadQueryEvent".to_string(),
+            Event::TableMap{ .. } => "TableMapEvent".to_string(),
+            Event::PreGaWriteRowsEvent{ .. } => "PreGaWriteRowsEvent".to_string(),
+            Event::PreGaUpdateRowsEvent{ .. } => "PreGaUpdateRowsEvent".to_string(),
+            Event::PreGaDeleteRowsEvent{ .. } => "PreGaDeleteRowsEvent".to_string(),
+            Event::WRITE_ROWS_V1{ .. } => "WRITE_ROWS_V1_Event".to_string(),
+            Event::UPDATE_ROWS_V1{ .. } => "UPDATE_ROWS_V1_Event".to_string(),
+            Event::DELETE_ROWS_V1{ .. } => "DELETE_ROWS_V1_Event".to_string(),
+            Event::Incident{ .. } => "IncidentEvent".to_string(),
+            Event::Heartbeat{ .. } => "HeartbeatEvent".to_string(),
+            Event::IgnorableLogEvent{ .. } => "IgnorableLogEvent".to_string(),
+            Event::RowQuery{ .. } => "RowQueryEvent".to_string(),
+            Event::WriteRowsV2{ .. } => "WriteRowsV2Event".to_string(),
+            Event::UpdateRowsV2{ .. } => "UpdateRowsV2Event".to_string(),
+            Event::DeleteRowsV2{ .. } => "DeleteRowsV2Event".to_string(),
+            Event::GtidLog(e) => "GtidLogEvent".to_string(),
+            Event::AnonymousGtidLog(e) => "AnonymousGtidLog".to_string(),
+            Event::PreviousGtidsLog(e) => "PreviousGtidsLog".to_string(),
+            Event::TRANSACTION_CONTEXT => "TRANSACTION_CONTEXT_Event".to_string(),
+            Event::VIEW_CHANGE => "VIEW_CHANGE_Event".to_string(),
+            Event::XA_PREPARE_LOG => "XA_PREPARE_LOG_Event".to_string(),
+            Event::PARTIAL_UPDATE_ROWS => "PARTIAL_UPDATE_ROWS_Event".to_string(),
+            Event::TRANSACTION_PAYLOAD => "TRANSACTION_PAYLOAD_Event".to_string(),
+            Event::HEARTBEAT_LOG_V2 => "HEARTBEAT_LOG_V2_Event".to_string(),
+            Event::MYSQL_ENUM_END => "MYSQL_ENUM_END_Event".to_string(),
+            Event::ENUM_END_EVENT => "ENUM_END_EVENT".to_string(),
+        }
+    }
 }
 
 
