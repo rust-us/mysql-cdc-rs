@@ -1,8 +1,10 @@
-use std::io::{self, BufRead, Cursor, Read, Write};
-use std::sync::{Arc, RwLock};
-use byteorder::{LittleEndian, ReadBytesExt};
+use std::cell::RefCell;
+use std::io::{BufRead, Cursor, Read};
+use std::rc::Rc;
+use std::sync::{Arc, Mutex, RwLock};
+use byteorder::{ReadBytesExt};
 use bytes::Buf;
-use nom::{AsBytes, bytes::complete::take, combinator::map, IResult, number::complete::{le_u16, le_u32, le_u8}};
+use nom::{bytes::complete::take, combinator::map, IResult, number::complete::{le_u16, le_u32, le_u8}};
 use nom::number::complete::le_u24;
 use serde::Serialize;
 use common::err::DecodeError::ReError;
@@ -10,12 +12,12 @@ use common::err::DecodeError::ReError;
 use crate::{
     events::event::Event,
     events::event_header::Header,
-    utils::{read_len_enc_num_with_full_bytes, pu64, string_by_fixed_len},
+    utils::{read_len_enc_num, pu64, read_fixed_len_string},
 };
+use crate::column::column_type::ColumnTypes;
 use crate::decoder::event_decoder_impl::TABLE_MAP;
-use crate::events::column::column_type::ColumnTypes;
 use crate::events::log_context::LogContext;
-use crate::utils::read_len_enc_num_with_cursor;
+use crate::metadata::table_metadata::TableMetadata;
 
 /// The event has table defition for row events.
 /// <a href="https://mariadb.com/kb/en/library/table_map_event/">See more</a>
@@ -56,8 +58,8 @@ pub struct TableMapEvent {
     /// Gets columns nullability
     pub null_bitmap: Vec<u8>,
 
-    // /// Gets table metadata for MySQL 5.6+
-    // pub table_metadata: Option<TableMetadata>,
+    /// Gets table metadata for MySQL 5.6+
+    pub table_metadata: Option<TableMetadata>,
 
     checksum: u32,
 }
@@ -96,12 +98,13 @@ impl TableMapEvent {
 }
 
 impl TableMapEvent {
-    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], TableMapEvent> {
-
-        let _context = context.read().unwrap();
+    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], TableMapEvent> {
+        let _context = context.borrow();
 
         let common_header_len = _context.get_format_description().common_header_len;
         let query_post_header_len = _context.get_format_description().get_post_header_len(header.get_event_type() as usize);
+
+        let mut column_info_maps: Vec<ColumnInfo> = Vec::new();
 
         /* post-header部分 */
         let (i, table_id): (&'a [u8], u64) = map(take(6usize), |id_raw: &[u8]| {
@@ -120,41 +123,40 @@ impl TableMapEvent {
             - (common_header_len + query_post_header_len) as u32;
 
         // Database name is null terminated
-        let (i, (schema_length, schema)) = string_by_fixed_len(i)?;
+        let (i, (schema_length, schema)) = read_fixed_len_string(i)?;
         let (i, term) = le_u8(i)?;
         assert_eq!(term, 0);
         current_event_body_pos += schema_length as u32 + 1 + 1;
 
         // Table name is null terminated
-        let (i, (table_name_length, table_name)) = string_by_fixed_len(i)?;
+        let (i, (table_name_length, table_name)) = read_fixed_len_string(i)?;
         let (i, term) = le_u8(i)?; /* termination null */
         assert_eq!(term, 0);
         current_event_body_pos += table_name_length as u32 + 1 + 1;
 
         // Read column information
-        let (i, (_f_size, column_count)) = read_len_enc_num_with_full_bytes(i)?;
+        let (i, (_f_size, column_count)) = read_len_enc_num(i)?;
         current_event_body_pos += _f_size as u32;
 
-        let mut column_info_map: Vec<ColumnInfo> = Vec::new();
-        let mut _column_types: Vec<ColumnTypes> = Vec::new();
+        // let mut _column_types: Vec<ColumnTypes> = Vec::new();
         let (i, /* type is Vec<u8>*/ column_types): (&'a [u8], Vec<u8>) =
             map(take(column_count), |s: &[u8]| {
                 s.iter().map(|&t| {
-                    _column_types.push(ColumnTypes::from(t));
-                    column_info_map.push(ColumnInfo::new(t));
+                    // _column_types.push(ColumnTypes::from(t));
+                    column_info_maps.push(ColumnInfo::new(t));
                     t
                 }).collect()
             })(i)?;
         current_event_body_pos += column_count as u32;
 
         // parse_metadata len
-        let (i, (_ml_size, _column_metadata_length)) = read_len_enc_num_with_full_bytes(i)?;
+        let (i, (_ml_size, _column_metadata_length)) = read_len_enc_num(i)?;
         current_event_body_pos += _ml_size as u32;
 
         // parse_metadata
         let (i, (_m_size, column_metadata_val, column_metadata)) = TableMapEvent::parse_metadata(i, &column_types).unwrap();
         for idx in 0..column_metadata_val.len() {
-            let column_info = column_info_map.get_mut(idx).unwrap();
+            let column_info = column_info_maps.get_mut(idx).unwrap();
             column_info.set_meta(column_metadata_val[idx]);
         }
         current_event_body_pos += _m_size;
@@ -168,17 +170,22 @@ impl TableMapEvent {
         for idx in 0..column_count as usize {
             if null_bitmap[idx] == 0u8 {
                 let bit = null_bitmap[idx];
-                let column_info = column_info_map.get_mut(idx).unwrap();
+                let column_info = column_info_maps.get_mut(idx).unwrap();
                 column_info.set_nullable(bit);
             }
         }
         // let _null_bitmap = null_bitmap.iter().map(|&t| { t > 0 }).collect::<Vec<bool>>();
 
+        let mut table_metadata = None;
         let i = if data_len > current_event_body_pos + 4 {
             /// After null_bits field, there are some new fields for extra metadata.
             let extra_metadata_len = data_len - current_event_body_pos - 4;
             let (ii, _extra_metadata) = map(take(extra_metadata_len), |s: &[u8]| s)(i)?;
-            let extra_metadata = TableMapEvent::read_extra_metadata(_extra_metadata).unwrap();
+            let shard_column_info_maps = Arc::new(Mutex::new(column_info_maps));
+            let extra_metadata = TableMetadata::read_extra_metadata(_extra_metadata, &column_types, shard_column_info_maps.clone()).unwrap();
+
+            // Table metadata is supported in MySQL 5.6+ and MariaDB 10.5+.
+            table_metadata = Some(extra_metadata);
 
             ii
         } else {
@@ -204,6 +211,7 @@ impl TableMapEvent {
             column_metadata,
             null_bitmap,
             checksum,
+            table_metadata,
         };
 
         Ok((i, e))
@@ -381,27 +389,6 @@ impl TableMapEvent {
         Ok(result)
     }
 
-    fn read_extra_metadata<'a>(slice: &'a [u8]) -> Result<Vec<u8>, ReError> {
-        let mut cursor = Cursor::new(slice);
-        // let table_id = cursor.read_u48::<LittleEndian>()?;
-
-        let exist_optional_metaData = false;
-        loop {
-            if !cursor.has_remaining() {
-                break;
-            }
-
-            // optional metadata fields
-            let type_ = cursor.get_u8();
-            let (_size, len) = read_len_enc_num_with_cursor(&mut cursor)?;
-
-            match type_ {
-                _ => {},
-            }
-        }
-
-        Ok(Vec::from("".as_bytes()))
-    }
 }
 
 impl Default for ColumnInfo {
@@ -439,6 +426,14 @@ impl ColumnInfo {
             visibility: false,
             array: false,
         }
+    }
+
+    pub fn get_type(&self) -> Option<u8> {
+        self.b_type
+    }
+
+    pub fn set_unsigned(&mut self, unsigned: bool) {
+        self.unsigned = unsigned;
     }
 
     pub fn set_meta(&mut self, meta: u16) {

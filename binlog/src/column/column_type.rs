@@ -6,10 +6,9 @@ use nom::{
     sequence::tuple,
     IResult,
 };
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
+use crate::column::column_value::parse_packed;
 use crate::ColumnValues;
-use crate::events::column::column_value::parse_packed;
 
 /// MYSQL 数据类型
 ///
@@ -27,6 +26,7 @@ pub enum ColumnTypes {
     LongLong,
     Int24,
     Date,
+
     Time,
     DateTime,
     Year,

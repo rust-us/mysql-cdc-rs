@@ -14,11 +14,11 @@ use std::{
 use crate::{
     events::event::Event,
     events::event_header::Header,
-    utils::{extract_string, read_len_enc_num_with_full_bytes, pu64, string_by_nul_terminated, string_by_variable_len},
+    utils::{extract_string, read_len_enc_num, pu64, read_null_term_string, read_variable_len_string},
 };
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
-use crate::events::column::column_type::ColumnTypes;
-use crate::events::column::column_value::{ColumnValues};
+use crate::column::column_type::ColumnTypes;
+use crate::column::column_value::{ColumnValues};
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
 lazy_static! {
@@ -45,7 +45,7 @@ pub fn parse_stop<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Eve
 pub fn parse_rotate<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
     let (i, position) = le_u64(input)?;
     let str_len = header.event_length - LOG_EVENT_HEADER_LEN as u32 - 8 - 4;
-    let (i, next_binlog) = map(take(str_len), |s: &[u8]| string_by_variable_len(s, str_len as usize))(i)?;
+    let (i, next_binlog) = map(take(str_len), |s: &[u8]| read_variable_len_string(s, str_len as usize))(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
@@ -88,7 +88,7 @@ pub fn extract_many_fields<'a>(
     let total_len: u64 = field_name_lengths.iter().sum::<u8>() as u64 + num_fields as u64;
     let (i, raw_field_names) = take(total_len)(i)?;
     let (_, field_names) =
-        many_m_n(num_fields as usize, num_fields as usize, string_by_nul_terminated)(raw_field_names)?;
+        many_m_n(num_fields as usize, num_fields as usize, read_null_term_string)(raw_field_names)?;
     let (i, table_name) = map(take(table_name_length + 1), |s: &[u8]| extract_string(s))(i)?;
     let (i, schema_name) = map(take(schema_length + 1), |s: &[u8]| extract_string(s))(i)?;
     let (i, file_name) = map(
@@ -246,7 +246,7 @@ pub fn parse_delete_file<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u
 
 pub fn extract_from_prev<'a>(input: &'a [u8]) -> IResult<&'a [u8], (u8, String)> {
     let (i, len) = le_u8(input)?;
-    map(take(len), move |s| (len, string_by_variable_len(s, len as usize)))(i)
+    map(take(len), move |s| (len, read_variable_len_string(s, len as usize)))(i)
 }
 
 pub fn parse_new_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
@@ -314,7 +314,7 @@ pub fn parse_rand<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Eve
 pub fn parse_user_var<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
     let (i, name_length) = le_u32(input)?;
     let (i, name) = map(take(name_length), |s: &[u8]| {
-        string_by_variable_len(s, name_length as usize)
+        read_variable_len_string(s, name_length as usize)
     })(i)?;
     let (i, is_null) = map(le_u8, |v| v == 1)(i)?;
     if is_null {
@@ -464,7 +464,7 @@ pub fn parse_incident<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
     })(input)?;
     let (i, message_length) = le_u8(i)?;
     let (i, message) = map(take(message_length), |s: &[u8]| {
-        string_by_variable_len(s, message_length as usize)
+        read_variable_len_string(s, message_length as usize)
     })(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
@@ -489,7 +489,7 @@ pub fn parse_heartbeat<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8]
 
 pub fn parse_row_query<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
     let (i, length) = le_u8(input)?;
-    let (i, query_text) = map(take(length), |s: &[u8]| string_by_variable_len(s, length as usize))(i)?;
+    let (i, query_text) = map(take(length), |s: &[u8]| read_variable_len_string(s, length as usize))(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
@@ -524,7 +524,7 @@ pub fn parse_part_row_event<'a>(
     };
 
     // parse body
-    let (i, (encode_len, column_count)) = read_len_enc_num_with_full_bytes(i)?;
+    let (i, (encode_len, column_count)) = read_len_enc_num(i)?;
     Ok((
         i,
         (

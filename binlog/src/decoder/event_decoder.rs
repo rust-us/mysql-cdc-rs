@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use nom::IResult;
 use common::err::DecodeError::ReError;
@@ -34,7 +36,7 @@ pub trait EventDecoder {
     /// ```
     ///
     /// ```
-    fn decode_with_raw(&mut self, raw: &EventRaw, context: Arc<RwLock<LogContext>>) -> Result<(Event, Vec<u8>), ReError>;
+    fn decode_with_raw(&mut self, raw: &EventRaw, context: Rc<RefCell<LogContext>>) -> Result<(Event, Vec<u8>), ReError>;
 
     ///
     ///
@@ -53,7 +55,7 @@ pub trait EventDecoder {
     /// ```
     ///
     /// ```
-    fn decode_with_slice(&mut self, slice: &[u8], header: &Header, context: Arc<RwLock<LogContext>>) -> Result<(Event, Vec<u8>), ReError>;
+    fn decode_with_slice(&mut self, slice: &[u8], header: &Header, context: Rc<RefCell<LogContext>>) -> Result<(Event, Vec<u8>), ReError>;
 }
 
 pub struct LogEventDecoder {
@@ -65,14 +67,14 @@ pub struct LogEventDecoder {
 }
 
 impl EventDecoder for LogEventDecoder {
-    fn decode_with_raw(&mut self, raw: &EventRaw, context: Arc<RwLock<LogContext>>) -> Result<(Event, Vec<u8>), ReError> {
+    fn decode_with_raw(&mut self, raw: &EventRaw, context: Rc<RefCell<LogContext>>) -> Result<(Event, Vec<u8>), ReError> {
         let header = raw.get_header_ref();
         let i = raw.get_payload();
 
         self.decode_with_slice(i, header.as_ref(), context)
     }
 
-    fn decode_with_slice(&mut self, slice: &[u8], header: &Header, context: Arc<RwLock<LogContext>>) -> Result<(Event, Vec<u8>), ReError> {
+    fn decode_with_slice(&mut self, slice: &[u8], header: &Header, context: Rc<RefCell<LogContext>>) -> Result<(Event, Vec<u8>), ReError> {
          match LogEventDecoder::parse_bytes(slice, header, context) {
             Err(e) => return Err(ReError::Error(e.to_string())),
             Ok((i1, o)) => {
@@ -91,7 +93,7 @@ impl LogEventDecoder {
 
     /// 接口应该为私有
     pub fn parse_bytes<'a>(input: &'a [u8], header: &Header,
-                           mut context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], Event> {
+                           mut context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], Event> {
         let b_type = header.event_type;
 
         let type_ = LogEventType::from(b_type);
@@ -104,7 +106,7 @@ impl LogEventDecoder {
             LogEventType::QUERY_EVENT => {
                 let (i, event) = QueryEvent::parse(input, &header, context.clone())?;
                 /* updating position in context */
-                context.write().unwrap().set_log_position_with_offset(header.get_log_pos());
+                context.borrow_mut().set_log_position_with_offset(header.get_log_pos());
                 // header.putGtid
 
                 Ok((i, Event::Query(event)))
@@ -124,8 +126,8 @@ impl LogEventDecoder {
             LogEventType::FORMAT_DESCRIPTION_EVENT => {   // 15
                 let (i, event) = FormatDescriptionEvent::parse(input, &header)?;
                 /* updating position in context */
-                context.write().unwrap().set_log_position_with_offset(header.get_log_pos());
-                context.write().unwrap().set_format_description(event.clone());
+                context.borrow_mut().set_log_position_with_offset(header.get_log_pos());
+                context.borrow_mut().set_format_description(event.clone());
 
                 Ok((i, Event::FormatDescription(event)))
             },
@@ -135,8 +137,8 @@ impl LogEventDecoder {
             LogEventType::TABLE_MAP_EVENT => {     // 19
                 let (i, event) = TableMapEvent::parse(input, &header, context.clone())?;
                 /* updating position in context */
-                context.write().unwrap().set_log_position_with_offset(header.get_log_pos());
-                context.write().unwrap().put_table(event.get_table_id(), event.clone());
+                context.borrow_mut().set_log_position_with_offset(header.get_log_pos());
+                context.borrow_mut().put_table(event.get_table_id(), event.clone());
 
                 Ok((i, Event::TableMap(event)))
             },
@@ -158,7 +160,7 @@ impl LogEventDecoder {
             LogEventType::GTID_LOG_EVENT => { // 33
                 let (i, event) = GtidLogEvent::parse(input, &header)?;
                 /* updating position in context */
-                context.write().unwrap().set_log_position_with_offset(header.get_log_pos());
+                context.borrow_mut().set_log_position_with_offset(header.get_log_pos());
                 // update latest gtid
                 // setGtidLogEvent
 
@@ -167,7 +169,7 @@ impl LogEventDecoder {
             LogEventType::ANONYMOUS_GTID_LOG_EVENT => { // 34
                 let (i, event) = AnonymousGtidLogEvent::parse(input, &header)?;
                 /* updating position in context */
-                context.write().unwrap().set_log_position_with_offset(header.get_log_pos());
+                context.borrow_mut().set_log_position_with_offset(header.get_log_pos());
                 // update latest gtid
                 // setGtidLogEvent
 
@@ -176,7 +178,7 @@ impl LogEventDecoder {
             LogEventType::PREVIOUS_GTIDS_LOG_EVENT => {  // 35
                 let (i, event) = PreviousGtidsLogEvent::parse(input, &header)?;
                 /* updating position in context */
-                context.write().unwrap().set_log_position_with_offset(header.get_log_pos());
+                context.borrow_mut().set_log_position_with_offset(header.get_log_pos());
 
                 Ok((i, Event::PreviousGtidsLog(event)))
             },

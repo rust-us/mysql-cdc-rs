@@ -26,7 +26,7 @@ mod test {
 
         let mut _context:LogContext = LogContext::default();
         &_context.set_log_position(LogPosition::new("test".to_string()));
-        let context = Arc::new(RwLock::new(_context));
+        let context = Rc::new(RefCell::new(_context));
 
         let (i, event_raws) = EventFactory::steam_to_event_raw(i, context).unwrap();
         assert_eq!(i.len(), 0);
@@ -41,7 +41,7 @@ mod test {
 
         let mut _context:LogContext = LogContext::default();
         &_context.set_log_position(LogPosition::new("test".to_string()));
-        let context = Arc::new(RwLock::new(_context));
+        let context = Rc::new(RefCell::new(_context));
 
         let (i, event_raws) = EventFactory::steam_to_event_raw(i, context.clone()).unwrap();
         assert_eq!(i.len(), 0);

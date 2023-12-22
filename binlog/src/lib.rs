@@ -7,13 +7,16 @@ pub mod events;
 // pub mod cli;
 pub mod decoder;
 pub mod metadata;
+pub mod column;
 
 pub use events::{
     query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar},
     rows::{ExtraData, ExtraDataFormat, Flags, Payload, Row},
 };
 
-pub use events::column::column_value::ColumnValues;
+pub use column::column_value::ColumnValues;
+
+pub const NULL_TERMINATOR: u8 = 0;
 
 #[cfg(test)]
 mod test {

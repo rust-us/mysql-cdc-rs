@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
 use crate::events::event_header::Header;
 
@@ -6,8 +8,7 @@ use nom::{InputLength, IResult, Parser};
 use std::sync::{Arc, RwLock};
 use bytes::Buf;
 use crate::decoder::event_decoder::LogEventDecoder;
-use crate::events::column::column_type::ColumnTypes;
-use crate::events::column::column_value::{ColumnValues};
+use crate::column::column_value::{ColumnValues};
 use crate::events::log_context::LogContext;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
@@ -385,7 +386,7 @@ impl Event {
         let (i, header) = Header::parse_v4_header(input)?;
 
         let c = LogContext::default();
-        LogEventDecoder::parse_bytes(i, &header, Arc::new(RwLock::new(c)))
+        LogEventDecoder::parse_bytes(i, &header, Rc::new(RefCell::new(c)))
     }
 
     pub fn get_type_name(value: &Event) -> String {

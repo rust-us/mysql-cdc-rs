@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::io::Cursor;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use bytes::Buf;
 use nom::IResult;
@@ -40,8 +42,8 @@ impl EventFactory {
     }
 
     /// input &[u8] 转为 Vec<EventRaw>， 并返回剩余数组
-    pub fn steam_to_event_raw<'a>(input: &'a [u8], context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], Vec<EventRaw>> {
-        let header_len = context.read().unwrap().get_format_description().common_header_len as usize;
+    pub fn steam_to_event_raw<'a>(input: &'a [u8], context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], Vec<EventRaw>> {
+        let header_len = context.borrow_mut().get_format_description().common_header_len as usize;
         let mut event_raws = Vec::<EventRaw>::new();
 
         if input.len() < header_len {
@@ -99,7 +101,7 @@ impl EventFactory {
     }
 
     ///EventRaw 转为 Event
-    pub fn event_raw_to_event(raw: &EventRaw, context: Arc<RwLock<LogContext>>) -> Result<Event, ReError> {
+    pub fn event_raw_to_event(raw: &EventRaw, context: Rc<RefCell<LogContext>>) -> Result<Event, ReError> {
         let mut decoder = LogEventDecoder::new();
         let rs = decoder.decode_with_raw(&raw, context);
 

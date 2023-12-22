@@ -9,7 +9,7 @@ use nom::number::complete::le_u24;
 use serde::Serialize;
 use crate::events::protocol::query_event::{MAX_DBS_IN_EVENT_MTS, OVER_MAX_DBS_IN_EVENT_MTS};
 
-use crate::utils::{string_by_variable_len, extract_string, pu32, string_by_nul_terminated};
+use crate::utils::{read_variable_len_string, extract_string, pu32, read_null_term_string};
 
 /// 状态的类型. not more than 256 values (1 byte).
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
@@ -206,7 +206,7 @@ pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar
         }
         0x02 => { //Q_CATALOG, for 5.0.x where 0<=x<=3 masters
             let (i, len) = le_u8(i)?;
-            let (i, val) = map(take(len), |s: &[u8]| string_by_variable_len(s, len as usize))(i)?;
+            let (i, val) = map(take(len), |s: &[u8]| read_variable_len_string(s, len as usize))(i)?;
             let (i, term) = le_u8(i)?;
             assert_eq!(term, 0x00);
             Ok((i, QueryStatusVar::Q_CATALOG(val)))
@@ -248,10 +248,10 @@ pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar
         },
         0x0b => { // Q_INVOKERS => 11
             let (i, len) = le_u8(i)?;
-            let (i, user) = map(take(len), |s: &[u8]| string_by_variable_len(s, len as usize))(i)?;
+            let (i, user) = map(take(len), |s: &[u8]| read_variable_len_string(s, len as usize))(i)?;
 
             let (i, len) = le_u8(i)?;
-            let (i, host) = map(take(len), |s: &[u8]| string_by_variable_len(s, len as usize))(i)?;
+            let (i, host) = map(take(len), |s: &[u8]| read_variable_len_string(s, len as usize))(i)?;
             Ok((i, QueryStatusVar::Q_INVOKERS(user, host)))
         }
         0x0c => { // Q_UPDATED_DB_NAMES => 12
@@ -268,7 +268,7 @@ pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar
             }
 
             let (i, mts_accessed_db_names) =
-                many_m_n(mts_accessed_dbs as usize, mts_accessed_dbs as usize, string_by_nul_terminated)(i)?;
+                many_m_n(mts_accessed_dbs as usize, mts_accessed_dbs as usize, read_null_term_string)(i)?;
             Ok((i, QueryStatusVar::Q_UPDATED_DB_NAMES(mts_accessed_db_names)))
         }
         0x0d => { // Q_MICROSECONDS => 13

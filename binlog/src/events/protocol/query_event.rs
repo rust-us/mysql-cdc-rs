@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use nom::{
     bytes::complete::{take},
@@ -414,15 +416,15 @@ pub struct QueryEvent {
 
 impl QueryEvent {
 
-    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
+    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
         QueryEvent::parse_with_compress(input, &header, false, false, context)
     }
 
     pub fn parse_with_compress<'a>(input: &'a [u8], header: &Header,
                                    compatiable_percona: bool, compress: bool,
-                                   context: Arc<RwLock<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
+                                   shard_context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
 
-        let context = context.read().unwrap();
+        let context = shard_context.borrow_mut();
 
         let common_header_len = context.get_format_description().common_header_len;
         let query_post_header_len = context.get_format_description().get_post_header_len(header.get_event_type() as usize);

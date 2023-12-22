@@ -188,7 +188,7 @@ mod test {
 
     #[test]
     fn test_table_map() {
-        use binlog::events::column::column_type::ColumnTypes::*;
+        use binlog::column::column_type::ColumnTypes::*;
 
         // TODO need to test more column types
         let input = include_bytes!("../events/5.7/19_table_map/log.bin");
