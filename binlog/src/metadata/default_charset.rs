@@ -7,14 +7,14 @@ pub struct DefaultCharset {
     pub default_charset: u32,
 
     /// Gets ColumnIndex-Charset map for columns that don't use the default charset.
-    pub charset_collations: Vec<(u32, u32)>,
+    pub charset_collations_pair: Vec<(u32, u32)>,
 }
 
 impl DefaultCharset {
-    pub fn new(default_charset: u32, charset_collations: Vec<(u32, u32)>) -> Self {
+    pub fn new(default_charset: u32, charset_collations_pair: Vec<(u32, u32)>) -> Self {
         Self {
             default_charset,
-            charset_collations,
+            charset_collations_pair,
         }
     }
 }

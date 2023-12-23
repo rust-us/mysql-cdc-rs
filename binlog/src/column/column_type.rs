@@ -57,46 +57,45 @@ pub enum ColumnTypes {
 
 
 impl ColumnTypes {
-//     /// del
-//     /// return (identifer, bytes used) of column type
-//     pub fn meta(&self) -> (u8, u8) {
-//         match *self {
-//             ColumnTypes::Decimal => (0, 0),
-//             ColumnTypes::Tiny => (1, 0),
-//             ColumnTypes::Short => (2, 0),
-//             ColumnTypes::Long => (3, 0),
-//             ColumnTypes::Float(_) => (4, 1),
-//             ColumnTypes::Double(_) => (5, 1),
-//             ColumnTypes::Null => (6, 0),
-//             ColumnTypes::Timestamp => (7, 0),
-//             ColumnTypes::LongLong => (8, 0),
-//             ColumnTypes::Int24 => (9, 0),
-//             ColumnTypes::Date => (10, 0),
-//             ColumnTypes::Time => (11, 0),
-//             ColumnTypes::DateTime => (12, 0),
-//             ColumnTypes::Year => (13, 0),
-//             ColumnTypes::NewDate => (14, 0),
-//             ColumnTypes::VarChar(_) => (15, 2),
-//             ColumnTypes::Bit(a, b) => (16, 2),
-//             ColumnTypes::Timestamp2(_) => (17, 1),
-//             ColumnTypes::DateTime2(_) => (18, 1),
-//             ColumnTypes::Time2(_) => (19, 1),
-//             ColumnTypes::Array => (20, 0),
-//             ColumnTypes::Invalid => (243, 0),
-//             ColumnTypes::Bool => (244, 0),
-//             ColumnTypes::Json(_) => (245, 2),
-//             ColumnTypes::NewDecimal(_, _) => (246, 2),
-//             ColumnTypes::Enum => (247, 0),
-//             ColumnTypes::Set => (248, 0),
-//             ColumnTypes::TinyBlob => (249, 0),
-//             ColumnTypes::MediumBlob => (250, 0),
-//             ColumnTypes::LongBlob => (251, 0),
-//             ColumnTypes::Blob(_) => (252, 1),
-//             ColumnTypes::VarString(_, _) => (253, 2),
-//             ColumnTypes::String(_, _) => (254, 2),
-//             ColumnTypes::Geometry(_) => (255, 1),
-//         }
-//     }
+    /// return (identifer, bytes used) of column type
+    pub fn meta(&self) -> (u8, u8) {
+        match *self {
+            ColumnTypes::Decimal => (0, 0),
+            ColumnTypes::Tiny => (1, 0),
+            ColumnTypes::Short => (2, 0),
+            ColumnTypes::Long => (3, 0),
+            ColumnTypes::Float(_) => (4, 1),
+            ColumnTypes::Double(_) => (5, 1),
+            ColumnTypes::Null => (6, 0),
+            ColumnTypes::Timestamp => (7, 0),
+            ColumnTypes::LongLong => (8, 0),
+            ColumnTypes::Int24 => (9, 0),
+            ColumnTypes::Date => (10, 0),
+            ColumnTypes::Time => (11, 0),
+            ColumnTypes::DateTime => (12, 0),
+            ColumnTypes::Year => (13, 0),
+            ColumnTypes::NewDate => (14, 0),
+            ColumnTypes::VarChar(_) => (15, 2),
+            ColumnTypes::Bit(a, b) => (16, 2),
+            ColumnTypes::Timestamp2(_) => (17, 1),
+            ColumnTypes::DateTime2(_) => (18, 1),
+            ColumnTypes::Time2(_) => (19, 1),
+            ColumnTypes::Array => (20, 0),
+            ColumnTypes::Invalid => (243, 0),
+            ColumnTypes::Bool => (244, 0),
+            ColumnTypes::Json(_) => (245, 2),
+            ColumnTypes::NewDecimal(_, _) => (246, 2),
+            ColumnTypes::Enum => (247, 0),
+            ColumnTypes::Set => (248, 0),
+            ColumnTypes::TinyBlob => (249, 0),
+            ColumnTypes::MediumBlob => (250, 0),
+            ColumnTypes::LongBlob => (251, 0),
+            ColumnTypes::Blob(_) => (252, 1),
+            ColumnTypes::VarString(_, _) => (253, 2),
+            ColumnTypes::String(_, _) => (254, 2),
+            ColumnTypes::Geometry(_) => (255, 1),
+        }
+    }
 
     pub fn parse_cell<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], (usize, ColumnValues)> {
         match *self {
@@ -259,6 +258,45 @@ impl ColumnTypes {
     //         _ => Ok((input, (0, self.clone()))),
     //     }
     // }
+
+    pub fn get_code(&self) -> u8 {
+        match *self {
+            ColumnTypes::Decimal => 0,
+            ColumnTypes::Tiny => 1,
+            ColumnTypes::Short => 2,
+            ColumnTypes::Long => 3,
+            ColumnTypes::Float(_) => 4,
+            ColumnTypes::Double(_) => 5,
+            ColumnTypes::Null => 6,
+            ColumnTypes::Timestamp => 7,
+            ColumnTypes::LongLong => 8,
+            ColumnTypes::Int24 => 9,
+            ColumnTypes::Date => 10,
+            ColumnTypes::Time => 11,
+            ColumnTypes::DateTime => 12,
+            ColumnTypes::Year => 13,
+            ColumnTypes::NewDate => 14,
+            ColumnTypes::VarChar(_) => 15,
+            ColumnTypes::Bit(a, b) => 16,
+            ColumnTypes::Timestamp2(_) => 17,
+            ColumnTypes::DateTime2(_) => 18,
+            ColumnTypes::Time2(_) => 19,
+            ColumnTypes::Array => 20,
+            ColumnTypes::Invalid => 243,
+            ColumnTypes::Bool => 244,
+            ColumnTypes::Json(_) => 245,
+            ColumnTypes::NewDecimal(_, _) => 246,
+            ColumnTypes::Enum => 247,
+            ColumnTypes::Set => 248,
+            ColumnTypes::TinyBlob => 249,
+            ColumnTypes::MediumBlob => 250,
+            ColumnTypes::LongBlob => 251,
+            ColumnTypes::Blob(_) => 252,
+            ColumnTypes::VarString(_, _) => 253,
+            ColumnTypes::String(_, _) => 254,
+            ColumnTypes::Geometry(_) => 255,
+        }
+    }
 }
 
 impl From<u8> for ColumnTypes {

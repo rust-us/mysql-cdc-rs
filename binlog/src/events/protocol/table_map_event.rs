@@ -85,7 +85,10 @@ pub struct ColumnInfo {
     pk: bool,
     set_enum_values: Vec<String>,
     charset: u8,
-    geoType: u8,
+
+    geo_type: u32,
+    // geo_type: u8,
+
     visibility: bool,
     array: bool,
 }
@@ -357,7 +360,6 @@ impl TableMapEvent {
         Ok((source, (_size, metadata, metadata_type)))
     }
 
-
     /// Reads bitmap in little-endian bytes order
     fn read_bitmap_little_endian<'a>(slice: &'a [u8], column_count: usize)
                                                -> Result<Vec<u8>, ReError> {
@@ -391,6 +393,10 @@ impl TableMapEvent {
 
 }
 
+pub fn get_real_type(type_: u8, meta: u16) -> u8 {
+    todo!()
+}
+
 impl Default for ColumnInfo {
     fn default() -> Self {
         ColumnInfo {
@@ -402,7 +408,7 @@ impl Default for ColumnInfo {
             pk: false,
             set_enum_values: vec![],
             charset: 0,
-            geoType: 0,
+            geo_type: 0,
             nullable: 0,
             visibility: false,
             array: false,
@@ -422,25 +428,56 @@ impl ColumnInfo {
             pk: false,
             set_enum_values: vec![],
             charset: 0,
-            geoType: 0,
+            geo_type: 0,
             visibility: false,
             array: false,
         }
+    }
+
+    pub fn get_c_type(&self) -> Option<ColumnTypes> {
+        self.c_type.clone()
     }
 
     pub fn get_type(&self) -> Option<u8> {
         self.b_type
     }
 
+    pub fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
+    pub fn set_enum_values(&mut self, set_enum_values: Vec<String>) {
+        self.set_enum_values = set_enum_values;
+    }
+
     pub fn set_unsigned(&mut self, unsigned: bool) {
         self.unsigned = unsigned;
     }
 
+    pub fn set_pk(&mut self, pk: bool) {
+        self.pk = pk;
+    }
+
+    pub fn set_charset(&mut self, charset: u8) {
+        self.charset = charset;
+    }
+
+    pub fn set_visibility(&mut self, visibility: bool) {
+        self.visibility = visibility;
+    }
+
+    pub fn get_meta(&self) -> u16 {
+        self.meta
+    }
     pub fn set_meta(&mut self, meta: u16) {
         self.meta = meta;
     }
 
     pub fn set_nullable(&mut self, nullable: u8) {
         self.nullable = nullable;
+    }
+
+    pub fn set_geo_type(&mut self, geo_type: u32) {
+        self.geo_type = geo_type;
     }
 }
