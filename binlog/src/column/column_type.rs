@@ -1,146 +1,149 @@
-use crate::utils::pu32;
 use nom::{
     bytes::complete::take,
     combinator::map,
     number::complete::{le_u16, le_u8},
-    sequence::tuple,
     IResult,
 };
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
 use crate::column::column_value::parse_packed;
 use crate::ColumnValues;
+use crate::utils::pu32;
 
 /// MYSQL 数据类型
 ///
 /// type def ref: https://dev.mysql.com/doc/internals/en/table-map-event.html
-#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
-pub enum ColumnTypes {
-    Decimal,
-    Tiny,
-    Short,
-    Long,
-    Float(u8),
-    Double(u8),
-    Null,
-    Timestamp,
-    LongLong,
-    Int24,
-    Date,
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum ColumnType {
+    Decimal = 0,
+    Tiny = 1,
+    Short = 2,
+    Long = 3,
+    Float = 4,
+    Double = 5,
+    Null = 6,
+    Timestamp = 7,
+    LongLong = 8,
+    Int24 = 9,
+    Date = 10,
 
-    Time,
-    DateTime,
-    Year,
-    NewDate, // internal used
-    VarChar(u16),
-    Bit(u8, u8),
-    Timestamp2(u8), // this field is suck!!! don't know how to parse
-    DateTime2(u8),  // this field is suck!!! don't know how to parse
-    Time2(u8),      // this field is suck!!! don't know how to parse
+    Time = 11,
+    DateTime = 12,
+    Year = 13,
+    NewDate = 14, // internal used
+    VarChar = 15,
+    // /*  u16 --> 2 u8 */ (meta >> 8) as u8, meta as u8
+    Bit = 16,
+    Timestamp2 = 17, // this field is suck!!! don't know how to parse
+    DateTime2 = 18,  // this field is suck!!! don't know how to parse
+    Time2 = 19,      // this field is suck!!! don't know how to parse
 
-    Array,
-    Invalid,
-    Bool,
+    Array = 20,
+    Invalid = 243,
+    Bool = 244,
 
     /// JSON is MySQL 5.7.8+ type. Not supported in MariaDB.
-    Json(u8),
-    NewDecimal(u8, u8),
-    Enum,       // internal used
-    Set,        // internal used
-    TinyBlob,   // internal used
-    MediumBlob, // internal used
-    LongBlob,   // internal used
-    Blob(u8),
-    VarString(u8, u8),
-    String(u8, u8),
-    Geometry(u8),
+    Json = 245,
+    NewDecimal = 246,
+    Enum = 247,       // internal used
+    Set = 248,        // internal used
+    TinyBlob = 249,   // internal used
+    MediumBlob = 250, // internal used
+    LongBlob = 251,   // internal used
+    Blob = 252,
+    VarString = 253,
+    String = 254,
+    Geometry = 255,
 }
 
-
-impl ColumnTypes {
+impl ColumnType {
     /// return (identifer, bytes used) of column type
-    pub fn meta(&self) -> (u8, u8) {
+    pub fn meta(&self) -> (u16, u8) {
         match *self {
-            ColumnTypes::Decimal => (0, 0),
-            ColumnTypes::Tiny => (1, 0),
-            ColumnTypes::Short => (2, 0),
-            ColumnTypes::Long => (3, 0),
-            ColumnTypes::Float(_) => (4, 1),
-            ColumnTypes::Double(_) => (5, 1),
-            ColumnTypes::Null => (6, 0),
-            ColumnTypes::Timestamp => (7, 0),
-            ColumnTypes::LongLong => (8, 0),
-            ColumnTypes::Int24 => (9, 0),
-            ColumnTypes::Date => (10, 0),
-            ColumnTypes::Time => (11, 0),
-            ColumnTypes::DateTime => (12, 0),
-            ColumnTypes::Year => (13, 0),
-            ColumnTypes::NewDate => (14, 0),
-            ColumnTypes::VarChar(_) => (15, 2),
-            ColumnTypes::Bit(a, b) => (16, 2),
-            ColumnTypes::Timestamp2(_) => (17, 1),
-            ColumnTypes::DateTime2(_) => (18, 1),
-            ColumnTypes::Time2(_) => (19, 1),
-            ColumnTypes::Array => (20, 0),
-            ColumnTypes::Invalid => (243, 0),
-            ColumnTypes::Bool => (244, 0),
-            ColumnTypes::Json(_) => (245, 2),
-            ColumnTypes::NewDecimal(_, _) => (246, 2),
-            ColumnTypes::Enum => (247, 0),
-            ColumnTypes::Set => (248, 0),
-            ColumnTypes::TinyBlob => (249, 0),
-            ColumnTypes::MediumBlob => (250, 0),
-            ColumnTypes::LongBlob => (251, 0),
-            ColumnTypes::Blob(_) => (252, 1),
-            ColumnTypes::VarString(_, _) => (253, 2),
-            ColumnTypes::String(_, _) => (254, 2),
-            ColumnTypes::Geometry(_) => (255, 1),
+            ColumnType::Decimal => (0, 0),
+            ColumnType::Tiny => (1, 0),
+            ColumnType::Short => (2, 0),
+            ColumnType::Long => (3, 0),
+            ColumnType::Float => (4, 1),
+            ColumnType::Double => (5, 1),
+            ColumnType::Null => (6, 0),
+            ColumnType::Timestamp => (7, 0),
+            ColumnType::LongLong => (8, 0),
+            ColumnType::Int24 => (9, 0),
+            ColumnType::Date => (10, 0),
+            ColumnType::Time => (11, 0),
+            ColumnType::DateTime => (12, 0),
+            ColumnType::Year => (13, 0),
+            ColumnType::NewDate => (14, 0),
+            ColumnType::VarChar => (15, 2),
+            ColumnType::Bit => (16, 2),
+            ColumnType::Timestamp2 => (17, 1),
+            ColumnType::DateTime2 => (18, 1),
+            ColumnType::Time2 => (19, 1),
+
+            ColumnType::Array => (20, 0),
+            ColumnType::Invalid => (243, 0),
+            ColumnType::Bool => (244, 0),
+
+            ColumnType::Json => (245, 2),
+            ColumnType::NewDecimal => (246, 2),
+            ColumnType::Enum => (247, 0),
+            ColumnType::Set => (248, 0),
+            ColumnType::TinyBlob => (249, 0),
+            ColumnType::MediumBlob => (250, 0),
+            ColumnType::LongBlob => (251, 0),
+            ColumnType::Blob => (252, 1),
+            ColumnType::VarString => (253, 2),
+            ColumnType::String => (254, 2),
+            ColumnType::Geometry => (255, 1),
         }
     }
 
-    pub fn parse_cell<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], (usize, ColumnValues)> {
+    pub fn parse_cell<'a>(&self, input: &'a [u8], meta:u16) -> IResult<&'a [u8], (usize, ColumnValues)> {
         match *self {
-            ColumnTypes::Decimal => {
+            ColumnType::Decimal => {
                 map(take(4usize), |s: &[u8]| (4, ColumnValues::Decimal(s.to_vec())))(input)
             }
-            ColumnTypes::Tiny => map(take(1usize), |s: &[u8]| (1, ColumnValues::Tiny(s.to_vec())))(input),
-            ColumnTypes::Short => {
+            ColumnType::Tiny => map(take(1usize), |s: &[u8]| (1, ColumnValues::Tiny(s.to_vec())))(input),
+            ColumnType::Short => {
                 map(take(2usize), |s: &[u8]| (2, ColumnValues::Short(s.to_vec())))(input)
             }
-            ColumnTypes::Long => map(take(4usize), |s: &[u8]| (4, ColumnValues::Long(s.to_vec())))(input),
-            ColumnTypes::Float(_) => map(take(4usize), |s: &[u8]| {
+            ColumnType::Long => map(take(4usize), |s: &[u8]| (4, ColumnValues::Long(s.to_vec())))(input),
+            ColumnType::Float => map(take(4usize), |s: &[u8]| {
                 let mut f: [u8; 4] = Default::default();
                 f.copy_from_slice(s);
                 (4, ColumnValues::Float(f32::from_le_bytes(f)))
             })(input),
-            ColumnTypes::Double(_) => map(take(8usize), |s: &[u8]| {
+            ColumnType::Double => map(take(8usize), |s: &[u8]| {
                 let mut d: [u8; 8] = Default::default();
                 d.copy_from_slice(s);
                 (8, ColumnValues::Double(f64::from_le_bytes(d)))
             })(input),
-            ColumnTypes::Null => map(take(0usize), |_| (0, ColumnValues::Null))(input),
-            ColumnTypes::LongLong => map(take(8usize), |s: &[u8]| {
+            ColumnType::Null => map(take(0usize), |_| (0, ColumnValues::Null))(input),
+            ColumnType::LongLong => map(take(8usize), |s: &[u8]| {
                 (8, ColumnValues::LongLong(s.to_vec()))
             })(input),
-            ColumnTypes::Int24 => {
+            ColumnType::Int24 => {
                 map(take(4usize), |s: &[u8]| (4, ColumnValues::Int24(s.to_vec())))(input)
             }
-            ColumnTypes::Timestamp => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
+            ColumnType::Timestamp => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
                 (len, ColumnValues::Timestamp(v))
             })(input),
-            ColumnTypes::Date => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
+            ColumnType::Date => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
                 (len, ColumnValues::Date(v))
             })(input),
-            ColumnTypes::Time => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
+            ColumnType::Time => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
                 (len, ColumnValues::Time(v))
             })(input),
-            ColumnTypes::DateTime => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
+            ColumnType::DateTime => map(parse_packed, |(len, v): (usize, Vec<u8>)| {
                 (len, ColumnValues::DateTime(v))
             })(input),
-            ColumnTypes::Year => map(take(2usize), |s: &[u8]| (2, ColumnValues::Year(s.to_vec())))(input),
-            ColumnTypes::NewDate => map(take(0usize), |_| (0, ColumnValues::NewDate))(input),
+            ColumnType::Year => map(take(2usize), |s: &[u8]| (2, ColumnValues::Year(s.to_vec())))(input),
+            ColumnType::NewDate => map(take(0usize), |_| (0, ColumnValues::NewDate))(input),
             // ref: https://dev.mysql.com/doc/refman/5.7/en/char.html
-            ColumnTypes::VarChar(max_len) => {
-                if max_len > 255 {
+            ColumnType::VarChar => {
+                if meta > 255 {
                     let (i, len) = le_u16(input)?;
                     map(take(len), move |s: &[u8]| {
                         (len as usize + 2, ColumnValues::VarChar(s.to_vec()))
@@ -152,40 +155,53 @@ impl ColumnTypes {
                     })(i)
                 }
             }
-            ColumnTypes::Bit(b1, b2) => {
-                let len = ((b1 + 7) / 8 + (b2 + 7) / 8) as usize;
-                map(take(len), move |s: &[u8]| (len, ColumnValues::Bit(s.to_vec())))(input)
-            }
-            ColumnTypes::Timestamp2(_) => map(take(4usize), |v: &[u8]| {
+            ColumnType::Bit => unreachable!(),
+            // ColumnType::Bit(b1, b2) => {
+            //     let len = ((b1 + 7) / 8 + (b2 + 7) / 8) as usize;
+            //     map(take(len), move |s: &[u8]| (len, ColumnValues::Bit(s.to_vec())))(input)
+            // }
+            ColumnType::Timestamp2 => map(take(4usize), |v: &[u8]| {
                 (4, ColumnValues::Timestamp2(v.to_vec()))
             })(input),
-            ColumnTypes::DateTime2(_) => map(take(4usize), |v: &[u8]| {
+            ColumnType::DateTime2 => map(take(4usize), |v: &[u8]| {
                 (4, ColumnValues::DateTime2(v.to_vec()))
             })(input),
-            ColumnTypes::Time2(_) => {
+            ColumnType::Time2 => {
                 map(take(4usize), |v: &[u8]| (4, ColumnValues::Time2(v.to_vec())))(input)
             },
-            ColumnTypes::Json(_) => todo!(),
-            ColumnTypes::NewDecimal(precision, scale) => {
+            ColumnType::Json => unreachable!(),
+            // ColumnTypes::NewDecimal(precision, scale) => {
+            ColumnType::NewDecimal => {
+                let decimals: u8 = (meta & 0xFF) as u8; // is precision ???
+                let precision = (meta >> 8) as u8; // is scale  ???
+
                 // copy from https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/src/binary_log_funcs.cpp#L204-L214
                 let dig2bytes: [u8; 10] = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4];
-                let intg = precision - scale;
+                let intg = precision - decimals;
+                // let intg = precision - scale;
+
                 let intg0 = intg / 9;
-                let frac0 = scale / 9;
+                let frac0 = decimals / 9;
+                // let frac0 = scale / 9;
+
                 let intg0x = intg - intg0 * 9;
-                let frac0x = scale - frac0 * 9;
+                let frac0x = decimals - frac0 * 9;
+                // let frac0x = scale - frac0 * 9;
+
                 let len =
                     intg0 * 4 + dig2bytes[intg0x as usize] + frac0 * 4 + dig2bytes[frac0x as usize];
                 map(take(len), move |s: &[u8]| {
                     (len as usize, ColumnValues::NewDecimal(s.to_vec()))
                 })(input)
             }
-            ColumnTypes::Enum => map(take(0usize), |_| (0, ColumnValues::Enum))(input),
-            ColumnTypes::Set => map(take(0usize), |_| (0, ColumnValues::Set))(input),
-            ColumnTypes::TinyBlob => map(take(0usize), |_| (0, ColumnValues::TinyBlob))(input),
-            ColumnTypes::MediumBlob => map(take(0usize), |_| (0, ColumnValues::MediumBlob))(input),
-            ColumnTypes::LongBlob => map(take(0usize), |_| (0, ColumnValues::LongBlob))(input),
-            ColumnTypes::Blob(len_bytes) => {
+            ColumnType::Enum => map(take(0usize), |_| (0, ColumnValues::Enum))(input),
+            ColumnType::Set => map(take(0usize), |_| (0, ColumnValues::Set))(input),
+            ColumnType::TinyBlob => map(take(0usize), |_| (0, ColumnValues::TinyBlob))(input),
+            ColumnType::MediumBlob => map(take(0usize), |_| (0, ColumnValues::MediumBlob))(input),
+            ColumnType::LongBlob => map(take(0usize), |_| (0, ColumnValues::LongBlob))(input),
+            ColumnType::Blob => {
+                let len_bytes = meta;
+
                 let mut raw_len = input[..len_bytes as usize].to_vec();
                 for _ in 0..(4 - len_bytes) {
                     raw_len.push(0);
@@ -198,28 +214,34 @@ impl ColumnTypes {
                     )
                 })(&input[len_bytes as usize..])
             }
-            ColumnTypes::VarString(_, _) => {
+            ColumnType::VarString => {
                 // TODO should check string max_len ?
                 let (i, len) = le_u8(input)?;
                 map(take(len), move |s: &[u8]| {
                     (len as usize, ColumnValues::VarString(s.to_vec()))
                 })(i)
             }
-            ColumnTypes::String(_, _) => {
+            ColumnType::String => {
                 // TODO should check string max_len ?
                 let (i, len) = le_u8(input)?;
                 map(take(len), move |s: &[u8]| {
                     (len as usize, ColumnValues::VarChar(s.to_vec()))
                 })(i)
             }
-            // TODO fix do not use len in def ?
-            ColumnTypes::Geometry(len) => map(take(len), |s: &[u8]| {
-                (len as usize, ColumnValues::Geometry(s.to_vec()))
-            })(input),
+            // // TODO fix do not use len in def ?
+            ColumnType::Geometry=> {
+                let len_ = meta;
+
+                let x = map(take(len_), |s: &[u8]| {
+                    (len_ as usize, ColumnValues::Geometry(s.to_vec()))
+                })(input);
+
+                x
+            },
             // 20 => ColumnTypes::Array,
             // 243 => ColumnTypes::Invalid,
             // 244 => ColumnTypes::Bool,
-            ColumnTypes::Array | ColumnTypes::Invalid | ColumnTypes::Bool => {
+            ColumnType::Array | ColumnType::Invalid | ColumnType::Bool => {
                 unreachable!()
             },
         }
@@ -258,92 +280,45 @@ impl ColumnTypes {
     //         _ => Ok((input, (0, self.clone()))),
     //     }
     // }
-
-    pub fn get_code(&self) -> u8 {
-        match *self {
-            ColumnTypes::Decimal => 0,
-            ColumnTypes::Tiny => 1,
-            ColumnTypes::Short => 2,
-            ColumnTypes::Long => 3,
-            ColumnTypes::Float(_) => 4,
-            ColumnTypes::Double(_) => 5,
-            ColumnTypes::Null => 6,
-            ColumnTypes::Timestamp => 7,
-            ColumnTypes::LongLong => 8,
-            ColumnTypes::Int24 => 9,
-            ColumnTypes::Date => 10,
-            ColumnTypes::Time => 11,
-            ColumnTypes::DateTime => 12,
-            ColumnTypes::Year => 13,
-            ColumnTypes::NewDate => 14,
-            ColumnTypes::VarChar(_) => 15,
-            ColumnTypes::Bit(a, b) => 16,
-            ColumnTypes::Timestamp2(_) => 17,
-            ColumnTypes::DateTime2(_) => 18,
-            ColumnTypes::Time2(_) => 19,
-            ColumnTypes::Array => 20,
-            ColumnTypes::Invalid => 243,
-            ColumnTypes::Bool => 244,
-            ColumnTypes::Json(_) => 245,
-            ColumnTypes::NewDecimal(_, _) => 246,
-            ColumnTypes::Enum => 247,
-            ColumnTypes::Set => 248,
-            ColumnTypes::TinyBlob => 249,
-            ColumnTypes::MediumBlob => 250,
-            ColumnTypes::LongBlob => 251,
-            ColumnTypes::Blob(_) => 252,
-            ColumnTypes::VarString(_, _) => 253,
-            ColumnTypes::String(_, _) => 254,
-            ColumnTypes::Geometry(_) => 255,
-        }
-    }
 }
 
-impl From<u8> for ColumnTypes {
-    /// enum_field_types
-    fn from(code: u8) -> Self {
-        let value = match code {
-            0 => ColumnTypes::Decimal,
-            1 => ColumnTypes::Tiny,
-            2 => ColumnTypes::Short,
-            3 => ColumnTypes::Long,
-            4 => ColumnTypes::Float(4),
-            5 => ColumnTypes::Double(8),
-            6 => ColumnTypes::Null,
-            7 => ColumnTypes::Timestamp,
-            8 => ColumnTypes::LongLong,
-            9 => ColumnTypes::Int24,
-            10 => ColumnTypes::Date,
-            11 => ColumnTypes::Time,
-            12 => ColumnTypes::DateTime,
-            13 => ColumnTypes::Year,
-            14 => ColumnTypes::NewDate,
-            15 => ColumnTypes::VarChar(0),
-            16 => ColumnTypes::Bit(0, 0),
-            17 => ColumnTypes::Timestamp2(0),
-            18 => ColumnTypes::DateTime2(0),
-            19 => ColumnTypes::Time2(0),
-            20 => ColumnTypes::Array,
-            243 => ColumnTypes::Invalid,
-            244 => ColumnTypes::Bool,
-            245 => ColumnTypes::Json(0),
-            246 => ColumnTypes::NewDecimal(10, 0),
-            247 => ColumnTypes::Enum,
-            248 => ColumnTypes::Set,
-            249 => ColumnTypes::TinyBlob,
-            250 => ColumnTypes::MediumBlob,
-            251 => ColumnTypes::LongBlob,
-            252 => ColumnTypes::Blob(1),
-            253 => ColumnTypes::VarString(1, 0),
-            254 => ColumnTypes::String(253, 0),
-            255 => ColumnTypes::Geometry(1),
-            _ => {
-                unreachable!();
-                // return Err(DecodeError::String(format!("Unknown column type {}", code)))
-            }
-        };
+#[cfg(test)]
+mod test {
+    use crate::column::column_type::ColumnType;
 
-        // Ok(value)
-        value
+    #[test]
+    fn test() {
+        let code = ColumnType::LongBlob;
+        assert_eq!(251, u8::from(code));
+
+        let t = ColumnType::try_from(253).unwrap();
+        assert_eq!(t, ColumnType::VarString);
+    }
+
+    #[test]
+    fn test_into() {
+        let st: u8 = ColumnType::DateTime.into();
+        assert_eq!(st, 12u8);
+
+        let sp = ColumnType::Int24;
+        let sp_val:u8 = sp.into();
+        assert_eq!(sp_val, 9u8);
+
+        let code = ColumnType::Short;
+        let code_val:u8 = code.into();
+        assert_eq!(u8::from(code), 2);
+        assert_eq!(code_val, 2);
+    }
+
+    #[test]
+    fn test_try_from() {
+        let pk = ColumnType::try_from(11u8);
+        assert_eq!(pk, Ok(ColumnType::Time));
+
+        let three = ColumnType::try_from(111u8);
+        assert_eq!(
+            three.unwrap_err().to_string(),
+            "No discriminant in enum `ColumnType` matches the value `111`",
+        );
     }
 }

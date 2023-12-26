@@ -4,7 +4,6 @@ pub mod protocol;
 
 pub mod event;
 pub mod event_c;
-pub mod rows;
 pub mod event_header_flag;
 pub mod event_header;
 pub mod query;

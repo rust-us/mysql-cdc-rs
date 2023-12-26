@@ -7,11 +7,11 @@ use crate::events::protocol::table_map_event::TableMapEvent;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct LogContext {
-    pub format_description: Arc<FormatDescriptionEvent>,
+    format_description: Arc<FormatDescriptionEvent>,
 
-    pub log_position: Arc<RwLock<LogPosition>>,
+    log_position: Arc<RwLock<LogPosition>>,
 
-    pub compatiable_percona: bool,
+    compatiable_percona: bool,
 
     map_of_table: Arc<RwLock<HashMap<u64, TableMapEvent>>>,
 

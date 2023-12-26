@@ -1,10 +1,11 @@
 use std::rc::Rc;
+use serde::Serialize;
 use crate::events::event_header::Header;
 
 /////////////////////////////////////
 ///  Event Data
 /////////////////////////////////////
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Clone)]
 #[cfg_attr(feature = "serde", serde::Serialize, serde::DeSerialize)]
 pub struct EventRaw {
     pub header: Header,

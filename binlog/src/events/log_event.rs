@@ -33,6 +33,15 @@ pub const EVENT_LEN_OFFSETN: i32= 9;
 pub const LOG_POS_OFFSETN: i32= 13;
 pub const FLAGS_OFFSETN: i32= 17;
 
+///
+/// 1 byte length, 1 byte format Length is total length in bytes, including 2
+/// byte header Length values 0 and 1 are currently invalid and reserved.
+///
+pub const EXTRA_ROW_INFO_LEN_OFFSET: u8= 0;
+pub const EXTRA_ROW_INFO_FORMAT_OFFSET: u8= 1;
+pub const EXTRA_ROW_INFO_HDR_BYTES: u8= 2;
+pub const EXTRA_ROW_INFO_MAX_PAYLOAD: u8= (255 - EXTRA_ROW_INFO_HDR_BYTES);
+
 
 /// event-specific post-header sizes where 3.23, 4.x and 5.0 agree.
 /// 11 byte

@@ -66,6 +66,7 @@ BEGIN
 #      169 0a 04 00 01 97 27 85 6b                          |.......k|
 # 	Table_map: `default`.`boxercrab` mapped to number 208
 # at 369
+
 #200728 15:19:29 server id 1  end_log_pos 502 CRC32 0xd3665ffb 
 # Position  Timestamp   Type   Master ID        Size      Master Pos    Flags 
 #      171 01 42 20 5f   1f   01 00 00 00   85 00 00 00   f6 01 00 00   00 00
@@ -86,6 +87,7 @@ AUIgXx8BAAAAhQAAAPYBAAAAANAAAAAAAAEAAgAJ/////wD+AQAAAAMAYWJjA2FiYwMAYWJjAwAA
 YWJjAwAAAGFiYwAAgD8AAAAAAAAAQIAAAwAAAP4BAAAAAgB4ZAJ4ZAIAeGQCAAB4ZAIAAAB4ZAAA
 gEAAAAAAAAAQQIAABAAA+19m0w==
 '/*!*/;
+
 # at 502
 #200728 15:19:29 server id 1  end_log_pos 533 CRC32 0xfc082779 
 # Position  Timestamp   Type   Master ID        Size      Master Pos    Flags 

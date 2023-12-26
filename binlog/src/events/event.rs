@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
+use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
 use crate::events::event_header::Header;
 
 use serde::Serialize;
@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 use bytes::Buf;
 use crate::decoder::event_decoder::LogEventDecoder;
 use crate::column::column_value::{ColumnValues};
+use crate::decoder;
 use crate::events::log_context::LogContext;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
@@ -16,6 +17,9 @@ use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
+use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
+use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
+use crate::row::rows;
 
 ///
 /// Enumeration type for the different types of log events.
@@ -34,7 +38,7 @@ use crate::events::protocol::table_map_event::TableMapEvent;
 /// }
 ///
 /// will be instand LogEvent
-#[derive(Debug, Serialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub enum Event {
     /// 0
     /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
@@ -228,13 +232,6 @@ pub enum Event {
     /// 22
     PreGaDeleteRowsEvent,
 
-    /// These event numbers are used from 5.1.16 and forward
-    /// The V1 event numbers are used from 5.1.16 until mysql-5.6.
-    /// 23, 24, 25
-    WRITE_ROWS_V1,
-    UPDATE_ROWS_V1,
-    DELETE_ROWS_V1,
-
     /// 26
     /// Something out of the ordinary happened on the master.
     /// ref: https://dev.mysql.com/doc/internals/en/incident-event.html
@@ -268,45 +265,20 @@ pub enum Event {
         checksum: u32,
     },
 
+    /// These event numbers are used from 5.1.16 and forward The V1 event numbers are used from 5.1.16 until mysql-5.6.
+    /// 23, 24, 25
+    WRITE_ROWS_V1,
+    UPDATE_ROWS_V1,
+    DELETE_ROWS_V1,
     /// Version 2 of the Row events
     /// 30
     /// source https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/rows_event.h#L488-L613
-    WriteRowsV2 {
-        header: Header,
-        /// Post-Header for Rows_event
-        // table_id take 6 bytes in buffer.  The number that identifies the table
-        table_id: u64,
-        // 2 byte bitfield. Reserved for future use; currently always 0.
-        // 如：
-        // flags:
-        //     end_of_stmt: true
-        //     foreign_key_checks: true
-        //     unique_key_checks: true
-        //     has_columns: true
-        flags: rows::Flags,
-        extra_data_len: u16,
-        extra_data: Vec<rows::ExtraData>,
-        column_count: u64,
-        inserted_image_bits: Vec<u8>,
-        rows: Vec<Vec<ColumnValues>>,
-        checksum: u32,
-    },
+    WriteRows(WriteRowsEvent),
     /// 31
-    UpdateRowsV2 {
-        header: Header,
-        // table_id take 6 bytes in buffer
-        table_id: u64,
-        flags: rows::Flags,
-        extra_data_len: u16,
-        extra_data: Vec<rows::ExtraData>,
-        column_count: u64,
-        before_image_bits: Vec<u8>,
-        after_image_bits: Vec<u8>,
-        rows: Vec<Vec<ColumnValues>>,
-        checksum: u32,
-    },
+    UpdateRows(UpdateRowsEvent),
+
     /// 32
-    DeleteRowsV2 {
+    DeleteRows {
         header: Header,
         // table_id take 6 bytes in buffer
         table_id: u64,
@@ -386,7 +358,8 @@ impl Event {
         let (i, header) = Header::parse_v4_header(input)?;
 
         let c = LogContext::default();
-        LogEventDecoder::parse_bytes(i, &header, Rc::new(RefCell::new(c)))
+        let mut decoder = LogEventDecoder::new();
+        decoder.parse_bytes(i, &header, Rc::new(RefCell::new(c)))
     }
 
     pub fn get_type_name(value: &Event) -> String {
@@ -421,9 +394,9 @@ impl Event {
             Event::Heartbeat{ .. } => "HeartbeatEvent".to_string(),
             Event::IgnorableLogEvent{ .. } => "IgnorableLogEvent".to_string(),
             Event::RowQuery{ .. } => "RowQueryEvent".to_string(),
-            Event::WriteRowsV2{ .. } => "WriteRowsV2Event".to_string(),
-            Event::UpdateRowsV2{ .. } => "UpdateRowsV2Event".to_string(),
-            Event::DeleteRowsV2{ .. } => "DeleteRowsV2Event".to_string(),
+            Event::WriteRows { .. } => "WriteRowsV2Event".to_string(),
+            Event::UpdateRows { .. } => "UpdateRowsV2Event".to_string(),
+            Event::DeleteRows { .. } => "DeleteRowsV2Event".to_string(),
             Event::GtidLog(e) => "GtidLogEvent".to_string(),
             Event::AnonymousGtidLog(e) => "AnonymousGtidLog".to_string(),
             Event::PreviousGtidsLog(e) => "PreviousGtidsLog".to_string(),

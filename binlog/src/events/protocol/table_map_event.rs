@@ -5,18 +5,19 @@ use std::sync::{Arc, Mutex, RwLock};
 use byteorder::{ReadBytesExt};
 use bytes::Buf;
 use nom::{bytes::complete::take, combinator::map, IResult, number::complete::{le_u16, le_u32, le_u8}};
-use nom::number::complete::le_u24;
+
 use serde::Serialize;
 use common::err::DecodeError::ReError;
 
 use crate::{
-    events::event::Event,
     events::event_header::Header,
     utils::{read_len_enc_num, pu64, read_fixed_len_string},
 };
-use crate::column::column_type::ColumnTypes;
+use crate::column::column_type::ColumnType;
 use crate::decoder::event_decoder_impl::TABLE_MAP;
+use crate::decoder::event_decoder_impl::TABLE_MAP_META;
 use crate::events::log_context::LogContext;
+use crate::events::log_event::LogEvent;
 use crate::metadata::table_metadata::TableMetadata;
 
 /// The event has table defition for row events.
@@ -52,16 +53,14 @@ pub struct TableMapEvent {
     column_types: Vec<u8>,
 
     /// Gets columns metadata
-    // pub column_metadata: Vec<u16>,
-    pub column_metadata: Vec<ColumnTypes>,
+    pub column_metadata: Vec<u16>,
+    pub column_metadata_type: Vec<ColumnType>,
 
     /// Gets columns nullability
     pub null_bitmap: Vec<u8>,
 
     /// Gets table metadata for MySQL 5.6+
     pub table_metadata: Option<TableMetadata>,
-
-    checksum: u32,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
@@ -70,7 +69,7 @@ pub struct ColumnInfo {
     // Gets column types of the changed table： column_types: Vec<u8>
     b_type: Option<u8>,
     // Gets column types of the changed table： column_types: Vec<ColumnTypes>
-    c_type: Option<ColumnTypes>,
+    c_type: Option<ColumnType>,
 
     /// Gets columns metadata: column_metadata: Vec<ColumnTypes>
     meta: u16,
@@ -97,6 +96,11 @@ pub struct ColumnInfo {
 impl TableMapEvent {
     pub fn get_table_id(&self) -> u64 {
         self.table_id
+    }
+
+    /// Gets column types of the changed table
+    pub fn get_column_types(&self) -> Vec<u8> {
+        self.column_types.clone()
     }
 }
 
@@ -200,6 +204,9 @@ impl TableMapEvent {
         if let Ok(mut mapping) = TABLE_MAP.lock() {
             mapping.insert(table_id, column_metadata.clone());
         }
+        if let Ok(mut mapping) = TABLE_MAP_META.lock() {
+            mapping.insert(table_id, column_metadata_val.clone());
+        }
 
         let e = TableMapEvent {
             header: Header::copy_and_get(&header, 1, checksum, Vec::new()),
@@ -211,9 +218,9 @@ impl TableMapEvent {
             table_name: table_name.clone(),
             columns_number: column_count,
             column_types,
-            column_metadata,
+            column_metadata: column_metadata_val,
+            column_metadata_type: column_metadata,
             null_bitmap,
-            checksum,
             table_metadata,
         };
 
@@ -221,20 +228,20 @@ impl TableMapEvent {
     }
 
     pub fn parse_metadata<'a>(input: &'a [u8], column_types: &Vec<u8>)
-                                 -> IResult<&'a [u8], (u32, Vec<u16>, Vec<ColumnTypes>)> {
+                                 -> IResult<&'a [u8], (u32, Vec<u16>, Vec<ColumnType>)> {
         let mut metadata = vec![0u16; column_types.len()];
-        let mut metadata_type = Vec::<ColumnTypes>::with_capacity(column_types.len());
+        let mut metadata_type = Vec::<ColumnType>::with_capacity(column_types.len());
 
         let mut source = input;
         let mut _size: u32 = 0u32;
 
         // See https://mariadb.com/kb/en/library/rows_event_v1/#column-data-formats
         for idx in 0..column_types.len() {
-            let column_type = ColumnTypes::from(column_types[idx]);
+            let column_type = ColumnType::try_from(column_types[idx]).unwrap();
 
-            let (s, column_type) = if column_type == ColumnTypes::Array {
+            let (s, column_type) = if column_type == ColumnType::Array {
                 let (s, v) = le_u8(source)?;
-                (s, ColumnTypes::from(v))
+                (s, ColumnType::try_from(v).unwrap())
             } else {
                 (source, column_type)
             };
@@ -245,59 +252,59 @@ impl TableMapEvent {
                 // ColumnTypes::TinyBlob |
                 // ColumnTypes::MediumBlob |
                 // ColumnTypes::LongBlob |
-                ColumnTypes::Blob(_) => {
+                ColumnType::Blob => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Blob(meta))
+                    (source, meta as u16, ColumnType::Blob)
                 },
-                ColumnTypes::Double(_) => {
+                ColumnType::Double => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Double(meta))
+                    (source, meta as u16, ColumnType::Double)
                 },
-                ColumnTypes::Float(_) => {
+                ColumnType::Float => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Float(meta))
+                    (source, meta as u16, ColumnType::Float)
                 },
-                ColumnTypes::Geometry(_) => {
+                ColumnType::Geometry => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Geometry(meta))
+                    (source, meta as u16, ColumnType::Geometry)
                 },
-                ColumnTypes::Time2(_) => {
+                ColumnType::Time2 => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Time2(meta))
+                    (source, meta as u16, ColumnType::Time2)
                 },
-                ColumnTypes::DateTime2(_) => {
+                ColumnType::DateTime2 => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::DateTime2(meta))
+                    (source, meta as u16, ColumnType::DateTime2)
                 },
-                ColumnTypes::Timestamp2(_) => {
+                ColumnType::Timestamp2 => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Timestamp2(meta))
+                    (source, meta as u16, ColumnType::Timestamp2)
                 },
-                ColumnTypes::Json(_) => {
+                ColumnType::Json => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
-                    (source, meta as u16, ColumnTypes::Json(meta))
+                    (source, meta as u16, ColumnType::Json)
                 },
 
                 // 2 bytes little endian
-                ColumnTypes::Bit(_, _) => {
+                ColumnType::Bit => {
                     let (source, meta) = map(le_u16, |v| v)(source)?;
                     _size += 2;
-                    (source, meta, /*  u16 --> 2 u8 */ ColumnTypes::Bit((meta >> 8) as u8, meta as u8))
+                    (source, meta, /*  u16 --> 2 u8 */ ColumnType::Bit)
                 },
-                ColumnTypes::VarChar(_) => {
+                ColumnType::VarChar => {
                     let (source, meta) = map(le_u16, |v| v)(source)?;
                     _size += 2;
-                    (source, meta, ColumnTypes::VarChar(meta))
+                    (source, meta, ColumnType::VarChar)
                 },
-                ColumnTypes::NewDecimal(_, _) => {
+                ColumnType::NewDecimal => {
                     // precision
                     let (source, precision) = map(le_u8, |v| v as u16)(source)?;
                     let mut x: u16  = precision << 8;
@@ -306,14 +313,14 @@ impl TableMapEvent {
                     x += decimals as u16;
 
                     _size += 2;
-                    (source, x, ColumnTypes::NewDecimal(precision as u8, decimals))
+                    (source, x, ColumnType::NewDecimal)
                 },
 
                 // 2 bytes big endian
                 /// log_event.h : The first byte is always MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
                 /// field size, i.e., the number of bytes in the representation of size of the string: 3 or 4.
-                ColumnTypes::Enum |
-                ColumnTypes::Set => {
+                ColumnType::Enum |
+                ColumnType::Set => {
                     /*
                      * log_event.h : The first byte is always
                      * MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
@@ -330,7 +337,7 @@ impl TableMapEvent {
                     _size += 2;
                     (source, x, column_type.clone())
                 },
-                ColumnTypes::VarString(_, _) => {
+                ColumnType::VarString => {
                     let (source, t) = map(le_u8, |v| v as u16)(source)?;
                     let mut x = t << 8;
                     // pack or field length
@@ -338,9 +345,9 @@ impl TableMapEvent {
                     x += len as u16;
 
                     _size += 2;
-                    (source, x, ColumnTypes::VarString(t as u8, len))
+                    (source, x, ColumnType::VarString)
                 },
-                ColumnTypes::String(_, _) => {
+                ColumnType::String => {
                     let (source, t) = map(le_u8, |v| v as u16)(source)?;
                     let mut x = t << 8;
                     // pack or field length
@@ -348,7 +355,7 @@ impl TableMapEvent {
                     x += len as u16;
 
                     _size += 2;
-                    (source, x, ColumnTypes::String(t as u8, len))
+                    (source, x, ColumnType::String)
                 },
                 _ => (source, 0, column_type.clone()),
             };
@@ -420,7 +427,7 @@ impl ColumnInfo {
     fn new(b_type: u8) -> Self {
         ColumnInfo {
             b_type: Some(b_type),
-            c_type: Some(ColumnTypes::from(b_type)),
+            c_type: Some(ColumnType::try_from(b_type).unwrap()),
             meta: 0,
             nullable: 0,
             name: "".to_string(),
@@ -434,7 +441,7 @@ impl ColumnInfo {
         }
     }
 
-    pub fn get_c_type(&self) -> Option<ColumnTypes> {
+    pub fn get_c_type(&self) -> Option<ColumnType> {
         self.c_type.clone()
     }
 
@@ -480,4 +487,8 @@ impl ColumnInfo {
     pub fn set_geo_type(&mut self, geo_type: u32) {
         self.geo_type = geo_type;
     }
+}
+
+impl LogEvent for TableMapEvent {
+
 }

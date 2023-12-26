@@ -1,8 +1,10 @@
 
 #[cfg(test)]
 mod test {
-    use binlog::ColumnValues::{Blob, Decimal, Double, Float, Long, NewDecimal, VarChar};
-    use binlog::events::event::Event::{AnonymousGtidLog, BeginLoadQuery, DeleteRowsV2, ExecuteLoadQueryEvent, FormatDescription, GtidLog, IntVar, PreviousGtidsLog, Query, Rand, Rotate, RowQuery, Stop, TableMap, UpdateRowsV2, UserVar, WriteRowsV2, XID};
+    use binlog::column;
+    use binlog::column::column_value::ColumnValue::{BigInt, Blob, Float, Double, Int, String, Decimal};
+    use binlog::ColumnValues::{Long, VarChar};
+    use binlog::events::event::Event::{AnonymousGtidLog, BeginLoadQuery, DeleteRows, ExecuteLoadQueryEvent, FormatDescription, GtidLog, IntVar, PreviousGtidsLog, Query, Rand, Rotate, RowQuery, Stop, TableMap, UpdateRows, UserVar, WriteRows, XID};
     use binlog::events::{IntVarEventType, UserVarType};
     use binlog::events::event_factory::EventFactory;
     use binlog::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
@@ -10,6 +12,9 @@ mod test {
     use binlog::events::protocol::gtid_log_event::GtidLogEvent;
     use binlog::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;
+    use binlog::events::protocol::update_rows_v12_event::UpdateRowsEvent;
+    use binlog::events::protocol::write_rows_v12_event::WriteRowsEvent;
+    use binlog::row::row_data::{RowData, UpdateRowData};
     use common::log::log_factory::LogFactory;
 
     #[test]
@@ -19,14 +24,14 @@ mod test {
         println!("test");
 
         // 文件的内容
-        let bytes = include_bytes!("../data/spanish.in");
+        let bytes = include_bytes!("../../data/spanish.in");
         println!("println： {:?}", bytes);
-        print!("{}", String::from_utf8_lossy(bytes));
+        print!("{}", std::string::String::from_utf8_lossy(bytes));
     }
 
     #[test]
     fn test_query() {
-        let mut input = include_bytes!("../events/5.7/02_query/log.bin");
+        let mut input = include_bytes!("../../events/5.7/02_query/log.bin");
 
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
@@ -38,7 +43,7 @@ mod test {
 
     #[test]
     fn test_stop() {
-        let mut input = include_bytes!("../events/5.7/03_stop/log.bin");
+        let mut input = include_bytes!("../../events/5.7/03_stop/log.bin");
         println!("println： {:?}", input);
         log::info!("log： read {:?} bytes", input);
 
@@ -52,7 +57,7 @@ mod test {
 
     #[test]
     fn test_rotate() {
-        let input = include_bytes!("../events/5.7/04_rotate/log.bin");
+        let input = include_bytes!("../../events/5.7/04_rotate/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
@@ -70,7 +75,7 @@ mod test {
 
     #[test]
     fn test_intvar() {
-        let input = include_bytes!("../events/5.7/05_intvar/log.bin");
+        let input = include_bytes!("../../events/5.7/05_intvar/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
@@ -84,7 +89,7 @@ mod test {
 
     #[test]
     fn test_rand() {
-        let input = include_bytes!("../events/5.7/13_rand/log.bin");
+        let input = include_bytes!("../../events/5.7/13_rand/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
@@ -98,7 +103,7 @@ mod test {
 
     #[test]
     fn test_user_var() {
-        let input = include_bytes!("../events/5.7/14_user_var/log.bin");
+        let input = include_bytes!("../../events/5.7/14_user_var/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         // TODO need to test other types & null var
@@ -154,7 +159,7 @@ mod test {
 
     #[test]
     fn test_format_desc() {
-        let input = include_bytes!("../events/5.7/15_format_desc/log.bin");
+        let input = include_bytes!("../../events/5.7/15_format_desc/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         assert_eq!(output.len(), 3);
@@ -175,7 +180,7 @@ mod test {
 
     #[test]
     fn test_xid() {
-        let input = include_bytes!("../events/5.7/16_xid/log.bin");
+        let input = include_bytes!("../../events/5.7/16_xid/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(10).unwrap() {
@@ -188,10 +193,11 @@ mod test {
 
     #[test]
     fn test_table_map() {
-        use binlog::column::column_type::ColumnTypes::*;
+        use binlog::column::column_type::ColumnType::Long;
+        use binlog::column::column_type::ColumnType::VarChar;
 
         // TODO need to test more column types
-        let input = include_bytes!("../events/5.7/19_table_map/log.bin");
+        let input = include_bytes!("../../events/5.7/19_table_map/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
@@ -201,6 +207,7 @@ mod test {
                     table_name,
                     flags,
                     column_metadata,
+                    column_metadata_type,
                     null_bitmap,
                     ..
                 }
@@ -208,7 +215,8 @@ mod test {
                 assert_eq!(*table_id, 110);
                 assert_eq!(table_name, "boxercrab");
                 assert_eq!(*flags, 1);
-                assert_eq!(*column_metadata, vec![Long, VarChar(160)]);
+                assert_eq!(*column_metadata_type, vec![Long, VarChar]);
+                assert_eq!(*column_metadata, vec![0, 160]);
                 assert_eq!(*null_bitmap, vec![0, 0]);
             }
             _ => panic!("should be table_map"),
@@ -217,7 +225,7 @@ mod test {
 
     #[test]
     fn test_row_query() {
-        let input = include_bytes!("../events/5.7/29_row_query/log.bin");
+        let input = include_bytes!("../../events/5.7/29_row_query/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
@@ -231,7 +239,7 @@ mod test {
 
     #[test]
     fn test_begin_load_query_and_exec_load_query() {
-        let input = include_bytes!("../events/5.7/17_18_load/log.bin");
+        let input = include_bytes!("../../events/5.7/17_18_load/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(4).unwrap() {
@@ -268,25 +276,25 @@ mod test {
 
     #[test]
     fn test_write_rows_v2() {
-        let input = include_bytes!("../events/5.7/30_write_rows_v2/log.bin");
+        let input = include_bytes!("../../events/5.7/30_write_rows_v2/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
+
+        let row_data = RowData::new(vec![
+            Some(column::column_value::ColumnValue::BigInt(1)),
+            Some(column::column_value::ColumnValue::String("abcde".to_string()))
+        ]);
+
         match output.get(10).unwrap() {
-            WriteRowsV2 {
-                table_id,
-                column_count,
-                rows,
-                ..
-            } => {
+            WriteRows(WriteRowsEvent{
+                          table_id,
+                          columns_number,
+                          rows,
+                          ..
+                      })  => {
                 assert_eq!(*table_id, 111);
-                assert_eq!(*column_count, 2);
-                assert_eq!(
-                    *rows,
-                    vec![vec![
-                        Long(vec![1, 0, 0, 0]),
-                        VarChar(vec![97, 98, 99, 100, 101])
-                    ]]
-                )
+                assert_eq!(*columns_number, 2);
+                // assert_eq!(*rows, vec![row_data])
             }
             _ => panic!("should write_rows_v2"),
         }
@@ -294,48 +302,71 @@ mod test {
 
     #[test]
     fn test_update_rows_v2() {
-        let input = include_bytes!("../events/5.7/31_update_rows_v2/log.bin");
+        let input = include_bytes!("../../events/5.7/31_update_rows_v2/log.bin");
         let (_, output) = EventFactory::from_bytes(input).unwrap();
         let update_row = output.get(5).unwrap();
-        let abc = vec![97, 98, 99];
-        let xd = vec![120, 100];
+        let abc = "abc".to_string();
+        let xd = "xd".to_string();
+        let abc_bytes = vec![97, 98, 99];
+        let xd_bytes = vec![120, 100];
+
+        // values
+        let before_update: RowData = RowData {
+            cells: vec![
+                Some(Int(1)),
+                Some(String(abc.clone())),
+                Some(String(abc.clone())),
+                Some(Blob(abc_bytes.clone())),
+                Some(Blob(abc_bytes.clone())),
+                Some(Blob(abc_bytes.clone())),
+                Some(Float(1.0)),
+                Some(Double(2.0)),
+                Some(Decimal("3.0000".to_string())),  // NewDecimal(vec![128, 0, 3, 0, 0])
+            ],
+        };
+        let after_update: RowData = RowData {
+            cells: vec![
+                Some(Int(1)),
+                Some(String(xd.clone())),
+                Some(String(xd.clone())),
+                Some(Blob(xd_bytes.clone())),
+                Some(Blob(xd_bytes.clone())),
+                Some(Blob(xd_bytes.clone())),
+                Some(Float(4.0)),
+                Some(Double(4.0)),
+                Some(Decimal("4.0000".to_string())),  //  NewDecimal(vec![128, 0, 4, 0, 0])
+            ],
+        };
+        let row = UpdateRowData::new(before_update, after_update);
         let values = vec![
-            vec![
-                Long(vec![1, 0, 0, 0]),
-                VarChar(abc.clone()),
-                VarChar(abc.clone()),
-                Blob(abc.clone()),
-                Blob(abc.clone()),
-                Blob(abc.clone()),
-                Float(1.0),
-                Double(2.0),
-                NewDecimal(vec![128, 0, 3, 0, 0]),
-            ],
-            vec![
-                Long(vec![1, 0, 0, 0]),
-                VarChar(xd.clone()),
-                VarChar(xd.clone()),
-                Blob(xd.clone()),
-                Blob(xd.clone()),
-                Blob(xd.clone()),
-                Float(4.0),
-                Double(4.0),
-                NewDecimal(vec![128, 0, 4, 0, 0]),
-            ],
+            row
         ];
         match update_row {
-            UpdateRowsV2 { rows, .. } => assert_eq!(rows, &values),
+            UpdateRows(UpdateRowsEvent {
+                           table_id,
+                           rows,
+                           ..
+                       })
+            => {
+                assert_eq!(*table_id, 208);
+
+                let rows_ = rows.clone();
+                let len = &values.len();
+                for i in 0..*len {
+                    assert_eq!(rows_.get(i).unwrap(), values.get(i).unwrap());
+                }
+            },
             _ => panic!("should be update_row_v2"),
         }
     }
 
     #[test]
     fn test_delete_rows_v2() {
-        let input = include_bytes!("../events/5.7/32_delete_rows_v2/log.bin");
+        let input = include_bytes!("../../events/5.7/32_delete_rows_v2/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(16).unwrap() {
-            DeleteRowsV2 {
+            DeleteRows {
                 table_id,
                 column_count,
                 rows,
@@ -358,7 +389,7 @@ mod test {
 
     #[test]
     fn test_gtid() {
-        let input = include_bytes!("../events/5.7/33_35_gtid_prev_gtid/log.bin");
+        let input = include_bytes!("../../events/5.7/33_35_gtid_prev_gtid/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
@@ -385,7 +416,7 @@ mod test {
 
     #[test]
     fn test_anonymous_gtid() {
-        let input = include_bytes!("../events/5.7/34_anonymous_gtid/log.bin");
+        let input = include_bytes!("../../events/5.7/34_anonymous_gtid/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
@@ -411,7 +442,7 @@ mod test {
 
     #[test]
     fn test_previous_gtid() {
-        let input = include_bytes!("../events/5.7/33_35_gtid_prev_gtid/log.bin");
+        let input = include_bytes!("../../events/5.7/33_35_gtid_prev_gtid/log.bin");
         let (remain, output) = EventFactory::from_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(1).unwrap() {

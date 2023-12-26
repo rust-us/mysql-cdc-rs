@@ -5,3 +5,5 @@ pub mod anonymous_gtid_log_event;
 pub mod gtid_log_event;
 pub mod query_event;
 pub mod table_map_event;
+pub mod write_rows_v12_event;
+pub mod update_rows_v12_event;

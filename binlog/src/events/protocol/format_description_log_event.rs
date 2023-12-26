@@ -180,6 +180,20 @@ impl FormatDescriptionEvent {
         // self.binlog_version == 4
     }
 
+    /// 得到该事件类型的 Post-Header 部分的长度
+    ///
+    /// # Arguments
+    ///
+    /// * `b_type`: 事件类型
+    ///
+    /// returns: u8, 该事件类型的 Post-Header 部分的长度
+    ///
+    /// # Examples
+    ///
+    /// ```
+    ///   let query_post_header_len = context.borrow().get_format_description().get_post_header_len(header.get_event_type() as usize);
+    ///   query_post_header_len
+    /// ```
     pub fn get_post_header_len(&self, b_type: usize) -> u8 {
         self.post_header_len[b_type - 1]
     }

@@ -7,7 +7,7 @@ use byteorder::ReadBytesExt;
 use nom::Parser;
 use serde::Serialize;
 use common::err::DecodeError::ReError;
-use crate::column::column_type::ColumnTypes;
+use crate::column::column_type::ColumnType;
 use crate::events::protocol::table_map_event::{ColumnInfo, get_real_type};
 use crate::metadata::default_charset::DefaultCharset;
 use crate::metadata::metadata_type::MetadataType;
@@ -162,7 +162,7 @@ impl TableMetadata {
 
                         char_col_index += 1;
                     } else if column_charsets.is_some() {
-                        cs = column_charsets.unwrap().get(index).cloned().unwrap() as u8;
+                        cs = column_charsets.clone().unwrap().get(index).cloned().unwrap() as u8;
                         index += 1;
                     }
                     column_info_maps.get_mut(i).unwrap().set_charset(cs);
@@ -189,26 +189,26 @@ impl TableMetadata {
 
 /// 是否为字符串列
 fn is_character_type(column_type: u8) -> bool {
-    match ColumnTypes::try_from(column_type).unwrap() {
-        ColumnTypes::VarChar(_) |
-        ColumnTypes::Blob(_) |
-        ColumnTypes::VarString(_, _) |
-        ColumnTypes::String(_, _) => true,
+    match ColumnType::try_from(column_type).unwrap() {
+        ColumnType::VarChar |
+        ColumnType::Blob |
+        ColumnType::VarString |
+        ColumnType::String => true,
         _ => false,
     }
 }
 
 /// 是否为数字列
 fn is_numeric_type(column_type: u8) -> bool {
-    match ColumnTypes::try_from(column_type).unwrap() {
-        ColumnTypes::Tiny |
-        ColumnTypes::Short |
-        ColumnTypes::Int24 |
-        ColumnTypes::Long |
-        ColumnTypes::LongLong |
-        ColumnTypes::Float(_) |
-        ColumnTypes::Double(_) |
-        ColumnTypes::NewDecimal(_, _) => true,
+    match ColumnType::try_from(column_type).unwrap() {
+        ColumnType::Tiny |
+        ColumnType::Short |
+        ColumnType::Int24 |
+        ColumnType::Long |
+        ColumnType::LongLong |
+        ColumnType::Float |
+        ColumnType::Double |
+        ColumnType::NewDecimal => true,
         _ => false,
     }
 }
@@ -301,7 +301,8 @@ fn parse_int_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shar
             let mut idx = 0usize;
             for i in 0..colunm_count {
                 let column = column_info_maps.get(i).unwrap();
-                if column.get_type().unwrap() == ColumnTypes::Geometry(0).get_code() {
+                let geometry_type: u8 = ColumnType::Geometry.into();
+                if column.get_type().unwrap() == geometry_type {
                     column_info_maps.get_mut(i).unwrap().set_geo_type(result[idx].clone());
                     idx += 1;
                 }
@@ -376,10 +377,10 @@ fn parse_type_values(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, se
         let item = column_info_maps.get(i).unwrap();
 
         let real_type = get_real_type(item.get_type().unwrap(), item.get_meta());
-        if set && ColumnTypes::from(real_type) == ColumnTypes::Set {
+        if set && ColumnType::try_from(real_type).unwrap() == ColumnType::Set {
             column_info_maps.get_mut(i).unwrap().set_enum_values(result[idx].clone());
             idx += 1;
-        } else if !set && ColumnTypes::from(real_type) == ColumnTypes::Enum {
+        } else if !set && ColumnType::try_from(real_type).unwrap() == ColumnType::Enum {
             column_info_maps.get_mut(i).unwrap().set_enum_values(result[idx].clone());
             idx += 1;
         }

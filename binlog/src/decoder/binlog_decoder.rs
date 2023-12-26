@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, IsTerminal, Read, Seek};
 use std::mem::ManuallyDrop;
 use std::ptr;
 use std::rc::Rc;
@@ -23,10 +23,15 @@ pub trait BinlogReader<S> {
     fn new(stream: S) -> Result<Self, ReError> where Self: Sized;
 
     fn read_events(self) -> Self;
+
+    /// 是否读取结束
+    fn eof(&self) -> bool;
 }
 
 /// Reads binlog events from a stream.
+#[derive(Debug)]
 pub struct FileBinlogReader {
+    // todo  or Path
     stream: File,
 
     /// stream 与 source_bytes 的解析器
@@ -36,9 +41,19 @@ pub struct FileBinlogReader {
     payload_buffer: Vec<u8>,
 
     context: Rc<RefCell<LogContext>>,
+
+    eof: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileBinlogReaderIter {
+    stream: Rc<File>,
+
+    reader: Rc<FileBinlogReader>,
 }
 
 /// Reads binlog events from a stream.
+#[derive(Debug, Clone)]
 pub struct BytesBinlogReader {
     /// 源内容。在读取结束后也可能会包含读取结束时的剩余字节。用于追加下一次请求中或者直接返回
     source_bytes: Vec<u8>,
@@ -49,30 +64,37 @@ pub struct BytesBinlogReader {
     context: Rc<RefCell<LogContext>>,
 
     event_raw_iter: Arc<IntoIter<EventRaw>>,
+
+    eof: bool,
 }
 
 impl BinlogReader<File> for FileBinlogReader {
-    fn new(source: File) -> Result<Self, ReError> {
+    fn new(mut source: File) -> Result<Self, ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("test_demo".to_string()));
         let context = Rc::new(RefCell::new(_context));
+
+        // Parse magic
+        let mut magic_buffer = vec![0; HEADER_LEN as usize];
+        // read exactly HEADER_LEN bytes
+        source.read_exact(&mut magic_buffer).unwrap();
+        let (i, _) = Header::check_start(magic_buffer.as_slice()).unwrap();
+        assert_eq!(i.len(), 0);
 
         Ok(Self {
             stream: source,
             decoder: LogEventDecoder::new(),
             payload_buffer: vec![0; PAYLOAD_BUFFER_SIZE],
             context,
+            eof: false,
         })
     }
 
-    fn read_events(mut self) -> Self {
-        // Parse magic
-        let mut magic_buffer = vec![0; HEADER_LEN as usize];
-        // read exactly HEADER_LEN bytes
-        self.stream.read_exact(&mut magic_buffer).unwrap();
-        let (i, _) = Header::check_start(magic_buffer.as_slice()).unwrap();
-        assert_eq!(i.len(), 0);
-
+    fn read_events(self) -> Self {
         self
+    }
+
+    fn eof(&self) -> bool {
+        self.eof || self.stream.is_terminal()
     }
 }
 
@@ -87,7 +109,8 @@ impl FileBinlogReader {
         // parser payload
         let payload_length = header.event_length as usize - LOG_EVENT_HEADER_LEN as usize;
 
-        if payload_length  > PAYLOAD_BUFFER_SIZE {
+        if payload_length > PAYLOAD_BUFFER_SIZE {
+            // 事件payload大小超过缓冲buffer，直接以事件payload大小分配新字节数组，用于读取事件的完整大小
             let mut vec: Vec<u8> = vec![0; payload_length];
             self.stream.read_exact(&mut vec)?;
 
@@ -96,6 +119,7 @@ impl FileBinlogReader {
 
             Ok((header, binlog_event))
         } else {
+            // 从缓冲区中取空字节数组，用于读取事件的完整大小
             let slice = &mut self.payload_buffer[0..payload_length];
             self.stream.read_exact(slice)?;
 
@@ -118,6 +142,7 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
             decoder: LogEventDecoder::new(),
             context,
             event_raw_iter: Arc::new(event_raw_list.clone().into_iter().clone()),
+            eof: false,
         })
     }
 
@@ -131,6 +156,10 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
 
         self
     }
+
+    fn eof(&self) -> bool {
+        self.eof
+    }
 }
 
 impl BytesBinlogReader {
@@ -139,6 +168,10 @@ impl BytesBinlogReader {
         assert_eq!(remain_bytes.len(), 0);
 
         Ok(binlog_event)
+    }
+
+    pub fn get_source_bytes(&self) -> Vec<u8> {
+        self.source_bytes.clone()
     }
 }
 
@@ -151,9 +184,9 @@ impl Iterator for FileBinlogReader {
 
         if let Err(error) = &result {
             if let ReError::IoError(io_error) = error {
-                // IoError(Error { kind: UnexpectedEof, message: "failed to fill whole buffer" })
-                // 文件读到了最后
+                // 文件读到了最后, is IoError(Error { kind: UnexpectedEof, message: "failed to fill whole buffer" })
                 if let ErrorKind::UnexpectedEof = io_error.kind() {
+                    self.eof = true;
                     return None;
                 } else {
                     println!("{:?}", error);
@@ -184,6 +217,7 @@ impl Iterator for BytesBinlogReader {
         if let Err(error) = &result {
             if let ReError::IoError(io_error) = error {
                 if let ErrorKind::UnexpectedEof = io_error.kind() {
+                    self.eof = true;
                     return None;
                 }
             }

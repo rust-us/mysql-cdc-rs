@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::error::Error;
+use std::io;
 use std::io::{BufRead, Cursor, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 use nom::{
@@ -191,6 +192,46 @@ pub fn read_fixed_len_string(input: &[u8]) -> IResult<&[u8], (u8, String)> {
     map(take(len), move |s: &[u8]| {
         (len, String::from_utf8_lossy(s).to_string())
     })(i)
+}
+
+/// Reads bitmap in little-endian bytes order
+pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize)
+                                 -> Result<Vec<bool>, io::Error> {
+
+    let mut result = vec![false; bits_number];
+
+    let bytes_number = (bits_number + 7) / 8;
+    for i in 0..bytes_number {
+        let value = cursor.read_u8()?;
+        for y in 0..8 {
+            let index = (i << 3) + y;
+            if index == bits_number {
+                break;
+            }
+            result[index] = (value & (1 << y)) > 0;
+        }
+    }
+    Ok(result)
+}
+
+/// Reads bitmap in big-endian bytes order
+pub fn read_bitmap_big_endian(
+    cursor: &mut Cursor<&[u8]>,
+    bits_number: usize,
+) -> Result<Vec<bool>, io::Error> {
+    let mut result = vec![false; bits_number];
+    let bytes_number = (bits_number + 7) / 8;
+    for i in 0..bytes_number {
+        let value = cursor.read_u8()?;
+        for y in 0..8 {
+            let index = ((bytes_number - i - 1) << 3) + y;
+            if index >= bits_number {
+                continue;
+            }
+            result[index] = (value & (1 << y)) > 0;
+        }
+    }
+    Ok(result)
 }
 
 //////////////////////////////////////////////// Write

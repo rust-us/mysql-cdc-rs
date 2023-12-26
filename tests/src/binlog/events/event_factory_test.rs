@@ -20,7 +20,7 @@ mod test {
 
     #[test]
     fn test_steam_to_event_raw() {
-        let bytes = include_bytes!("../../events/8.0/02_query/binlog.000001");
+        let bytes = include_bytes!("../../../events/8.0/02_query/binlog.000001");
 
         let (i, _) = Header::check_start(bytes).unwrap();
 
@@ -35,7 +35,7 @@ mod test {
 
     #[test]
     fn test_event_raw_to_event() {
-        let bytes = include_bytes!("../../events/8.0/02_query/binlog.000001");
+        let bytes = include_bytes!("../../../events/8.0/02_query/binlog.000001");
 
         let (i, _) = Header::check_start(bytes).unwrap();
 

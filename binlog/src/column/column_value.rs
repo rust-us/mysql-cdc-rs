@@ -1,14 +1,12 @@
 use std::error::Error;
-use crate::utils::pu32;
 use nom::{
     bytes::complete::take,
-    combinator::map,
-    number::complete::{le_u16, le_u8},
+    number::complete::{le_u8},
     IResult,
 };
 use serde::Serialize;
 
-
+// 作废
 #[derive(Debug, Serialize, PartialEq, Clone)]
 pub enum ColumnValues {
     Decimal(Vec<u8>),
@@ -44,6 +42,53 @@ pub enum ColumnValues {
     Geometry(Vec<u8>),
 }
 
+#[derive(Debug, Serialize, PartialEq, Clone)]
+pub enum ColumnValue {
+    TinyInt(u8),
+    SmallInt(u16),
+    MediumInt(u32),
+    Int(u32),
+    BigInt(u64),
+    Float(f32),
+    Double(f64),
+    Decimal(String),
+    String(String),
+    Bit(Vec<bool>),
+    Enum(u32),
+    Set(u64),
+    Blob(Vec<u8>),
+    Year(u16),
+    Date(Date),
+    Time(Time),
+    DateTime(DateTime),
+    Timestamp(u64), // millis from unix time
+}
+
+#[derive(Debug, Serialize, PartialEq, Clone)]
+pub struct Date {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+}
+
+#[derive(Debug, Serialize, PartialEq, Clone)]
+pub struct Time {
+    pub hour: i16, // Signed value from -838 to 838
+    pub minute: u8,
+    pub second: u8,
+    pub millis: u32,
+}
+
+#[derive(Debug, Serialize, PartialEq, Clone)]
+pub struct DateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    pub millis: u32,
+}
 
 pub fn parse_packed(input: &[u8]) -> IResult<&[u8], (usize, Vec<u8>)> {
     let mut data = vec![input[0]];

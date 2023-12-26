@@ -384,13 +384,13 @@ pub struct QueryEvent {
     ////////////////////////////////////////////////////
     /// thread_id, 小端存储，执行语句的线程ID号。
     /// 可以用于审计
-    thread_id: u32,
+    pub thread_id: u32,
 
     /// 小端存储，语句执行的时间，单位秒
     execution_time: u32,
 
     /// 执行命令时候所在的database名的字节长度, length of current select schema name
-    schema_length: u8,
+    pub schema_length: u8,
 
     /// 	错误号
     error_code: u16,
@@ -405,10 +405,10 @@ pub struct QueryEvent {
     status_vars: Vec<QueryStatusVar>,
 
     /// null-terminaled类型的字符串，记录database的名字。 字节数 db_len+1字节
-    schema: String,
+    pub schema: String,
 
     /// 执行的语句。 长度不确定
-    query: String,
+    pub query: String,
 
     /// 	校验码。 4个字节
     checksum: u32,

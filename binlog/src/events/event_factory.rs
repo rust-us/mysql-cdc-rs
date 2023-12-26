@@ -4,10 +4,8 @@ use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use bytes::Buf;
 use nom::IResult;
-use nom::multi::many1;
 use nom::bytes::complete::take;
 use nom::combinator::map;
-use nom::number::complete::le_u32;
 use common::err::DecodeError::ReError;
 use crate::decoder::binlog_decoder::{BinlogReader, BytesBinlogReader};
 
@@ -24,21 +22,28 @@ pub struct EventFactory {
 
 impl EventFactory {
 
-    /// 接口作废
     pub fn from_bytes<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<Event>> {
-        // let reader = BytesBinlogReader::new(input).unwrap();
-        //
-        // let rs = reader.get_event_list().unwrap();
-        // let remain_bytes = reader.get_source_bytes();
-        //
-        // let mut events = Vec::new();
-        // for (h, e) in rs {
-        //     events.push(e);
-        // }
-        let (i, _) = Header::check_start(input)?;
+        let reader = BytesBinlogReader::new(input).unwrap();
 
-        let rs = many1(Event::parse)(i);
-        rs
+        let iter = reader.read_events();
+        let remaing_bytes = &iter.get_source_bytes();
+
+        let mut events = Vec::new();
+        for result in iter {
+            let e = result.unwrap();
+            println!("============================ {}", Event::get_type_name(&e));
+            events.push(e);
+        }
+
+        // 取出剩余字节
+        let rm = if remaing_bytes.len() != 0 {
+            &input[remaing_bytes.len()..input.len()]
+        } else {
+            let (i, bytes) = map(take(input.len()), |s: &[u8]| s)(input)?;
+            i
+        };
+
+        Ok((rm, events))
     }
 
     /// input &[u8] 转为 Vec<EventRaw>， 并返回剩余数组

@@ -16,13 +16,22 @@ use crate::{
     events::event_header::Header,
     utils::{extract_string, read_len_enc_num, pu64, read_null_term_string, read_variable_len_string},
 };
-use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, rows, UserVarType};
-use crate::column::column_type::ColumnTypes;
+use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
+use crate::column::column_type::ColumnType;
 use crate::column::column_value::{ColumnValues};
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
+use crate::events::protocol::table_map_event::TableMapEvent;
+use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
+use crate::row::rows;
 
 lazy_static! {
-    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColumnTypes>>>> =
+    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColumnType >>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    pub static ref TABLE_MAP_META: Arc<Mutex<HashMap<u64, Vec<u16 >>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    pub static ref TABLE_MAP_EVENT: Arc<Mutex<HashMap<u64, TableMapEvent>>> =
         Arc::new(Mutex::new(HashMap::new()));
 }
 
@@ -47,6 +56,7 @@ pub fn parse_rotate<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], E
     let str_len = header.event_length - LOG_EVENT_HEADER_LEN as u32 - 8 - 4;
     let (i, next_binlog) = map(take(str_len), |s: &[u8]| read_variable_len_string(s, str_len as usize))(i)?;
     let (i, checksum) = le_u32(i)?;
+
     Ok((
         i,
         Event::Rotate {
@@ -504,20 +514,18 @@ pub fn parse_row_query<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8]
 
 pub fn parse_part_row_event<'a>(
     input: &'a [u8],
-) -> IResult<&'a [u8], (u64, rows::Flags, u16, Vec<rows::ExtraData>, (usize, u64))> {
+) -> IResult<&'a [u8], (u64, rows::Flags, u16, u16, Vec<rows::ExtraData>, (usize, u64))> {
     let (i, table_id): (&'a [u8], u64) = map(take(6usize), |id_raw: &[u8]| {
         let mut filled = id_raw.to_vec();
         filled.extend(vec![0, 0]);
         pu64(&filled).unwrap().1
     })(input)?;
-    let (i, flags) = map(le_u16, |flag: u16| rows::Flags {
-        end_of_stmt: (flag >> 0) % 2 == 1,
-        foreign_key_checks: (flag >> 1) % 2 == 0,
-        unique_key_checks: (flag >> 2) % 2 == 0,
-        has_columns: (flag >> 3) % 2 == 0,
-    })(i)?;
+    let (i, flags_val) = map(le_u16, |flag: u16| flag)(i)?;
+    let flags = rows::Flags::from(flags_val);
+
     let (i, extra_data_len) = le_u16(i)?;
     assert!(extra_data_len >= 2);
+
     let (i, extra_data) = match extra_data_len {
         2 => (i, vec![]),
         _ => many1(rows::parse_extra_data)(i)?,
@@ -525,11 +533,13 @@ pub fn parse_part_row_event<'a>(
 
     // parse body
     let (i, (encode_len, column_count)) = read_len_enc_num(i)?;
+
     Ok((
         i,
         (
             table_id,
             flags,
+            flags_val,
             extra_data_len,
             extra_data,
             (encode_len, column_count),
@@ -540,59 +550,25 @@ pub fn parse_part_row_event<'a>(
 pub fn parse_row<'a>(
     input: &'a [u8],
     init_idx: usize,
-    col_def: &Vec<ColumnTypes>,
+    table_column_metadata: &Vec<u16>,
+    column_type_def: &Vec<ColumnType>,
 ) -> IResult<&'a [u8], Vec<ColumnValues>> {
     let mut index = if input.len() != 0 { init_idx } else { 0 };
     let mut ret = vec![];
-    for col in col_def {
-        let (_, (offset, col_val)) = col.parse_cell(&input[index..])?;
+
+    let mut col_idx = 0;
+    for column_type in column_type_def {
+        let column_metadata = table_column_metadata.get(col_idx).unwrap();
+        let (_, (offset, col_val)) = column_type.parse_cell(&input[index..], column_metadata.clone())?;
         ret.push(col_val);
         index += offset;
+        col_idx += 1;
     }
     Ok((&input[index..], ret))
 }
 
-pub fn parse_write_rows_v2<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, (table_id, flags, extra_data_len, extra_data, (encode_len, column_count))) =
-        parse_part_row_event(input)?;
-    let bit_len = (column_count + 7) / 8;
-    let (i, inserted_image_bits) = map(take(bit_len), |s: &[u8]| s.to_vec())(i)?;
-    let (i, col_data) = take(
-        header.event_length
-            - LOG_EVENT_HEADER_LEN as u32
-            - 6
-            - 2
-            - extra_data_len as u32
-            - encode_len as u32
-            - ((column_count as u32 + 7) / 8)
-            - 4,
-    )(i)?;
-    let (_, rows) = many1(|s| {
-        parse_row(
-            s,
-            bit_len as usize,
-            TABLE_MAP.lock().unwrap().get(&table_id).unwrap(),
-        )
-    })(col_data)?;
-    let (i, checksum) = le_u32(i)?;
-    Ok((
-        i,
-        Event::WriteRowsV2 {
-            header: Header::copy(&header),
-            table_id,
-            flags,
-            extra_data_len,
-            extra_data,
-            column_count,
-            inserted_image_bits,
-            rows,
-            checksum,
-        },
-    ))
-}
-
 pub fn parse_delete_rows_v2<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, (table_id, flags, extra_data_len, extra_data, (encode_len, column_count))) =
+    let (i, (table_id, flags, flags_val, extra_data_len, extra_data, (encode_len, column_count))) =
         parse_part_row_event(input)?;
 
     let bit_len = (column_count + 7) / 8;
@@ -611,13 +587,14 @@ pub fn parse_delete_rows_v2<'a>(input: &'a [u8], header: &Header) -> IResult<&'a
         parse_row(
             s,
             bit_len as usize,
+            TABLE_MAP_META.lock().unwrap().get(&table_id).unwrap(),
             TABLE_MAP.lock().unwrap().get(&table_id).unwrap(),
         )
     })(col_data)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
-        Event::DeleteRowsV2 {
+        Event::DeleteRows {
             header: Header::copy(&header),
             table_id,
             flags,
@@ -625,49 +602,6 @@ pub fn parse_delete_rows_v2<'a>(input: &'a [u8], header: &Header) -> IResult<&'a
             extra_data,
             column_count,
             deleted_image_bits,
-            rows,
-            checksum,
-        },
-    ))
-}
-
-pub fn parse_update_rows_v2<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, (table_id, flags, extra_data_len, extra_data, (encode_len, column_count))) =
-        parse_part_row_event(input)?;
-
-    let bit_len = (column_count + 7) / 8;
-    let (i, before_image_bits) = map(take(bit_len), |s: &[u8]| s.to_vec())(i)?;
-    let (i, after_image_bits) = map(take(bit_len), |s: &[u8]| s.to_vec())(i)?;
-    // TODO I still don't know is it right or not :(
-    let (i, col_data) = take(
-        header.event_length as u64
-            - LOG_EVENT_HEADER_LEN as u64
-            - 6
-            - 2
-            - extra_data_len as u64
-            - encode_len as u64
-            - bit_len * 2
-            - 4,
-    )(i)?;
-    let (_, rows) = many1(|s| {
-        parse_row(
-            s,
-            bit_len as usize,
-            TABLE_MAP.lock().unwrap().get(&table_id).unwrap(),
-        )
-    })(col_data)?;
-    let (i, checksum) = le_u32(i)?;
-    Ok((
-        i,
-        Event::UpdateRowsV2 {
-            header: Header::copy(&header),
-            table_id,
-            flags,
-            extra_data_len,
-            extra_data,
-            column_count,
-            before_image_bits,
-            after_image_bits,
             rows,
             checksum,
         },
