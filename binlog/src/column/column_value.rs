@@ -6,8 +6,7 @@ use nom::{
 };
 use serde::Serialize;
 
-// 作废
-#[derive(Debug, Serialize, PartialEq, Clone)]
+
 pub enum ColumnValues {
     Decimal(Vec<u8>),
     Tiny(Vec<u8>),
@@ -23,7 +22,8 @@ pub enum ColumnValues {
     Time(Vec<u8>),
     DateTime(Vec<u8>),
     Year(Vec<u8>),
-    NewDate, // internal used
+    NewDate,
+    // internal used
     VarChar(Vec<u8>),
     Bit(Vec<u8>),
     Timestamp2(Vec<u8>),
@@ -31,11 +31,16 @@ pub enum ColumnValues {
     Time2(Vec<u8>),
     Json(Vec<u8>),
     NewDecimal(Vec<u8>),
-    Enum,       // internal used
-    Set,        // internal used
-    TinyBlob,   // internal used
-    MediumBlob, // internal used
-    LongBlob,   // internal used
+    Enum,
+    // internal used
+    Set,
+    // internal used
+    TinyBlob,
+    // internal used
+    MediumBlob,
+    // internal used
+    LongBlob,
+    // internal used
     Blob(Vec<u8>),
     VarString(Vec<u8>),
     String(Vec<u8>),

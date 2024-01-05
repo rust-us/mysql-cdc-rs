@@ -19,16 +19,13 @@ impl Default for LogPosition {
 }
 
 impl LogPosition {
-    pub fn new(file_name: String) -> Self {
-        LogPosition {
-            file_name,
-            position: 0,
-        }
+    pub fn new(file_name: &str) -> Self {
+        LogPosition::new_with_position(file_name, 0)
     }
 
-    pub fn new_with_position(file_name: String, position: u64) -> Self {
+    pub fn new_with_position(file_name: &str, position: u64) -> Self {
         LogPosition {
-            file_name,
+            file_name: file_name.to_string(),
             position,
         }
     }

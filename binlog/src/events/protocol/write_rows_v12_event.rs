@@ -14,8 +14,30 @@ use crate::row::row_data::RowData;
 use crate::row::row_parser::{parse_row_data_list, parse_head, TABLE_MAP_NOT_FOUND};
 use crate::row::rows;
 use crate::row::rows::RowEventVersion;
-use crate::utils::read_bitmap_little_endian;
+use crate::utils::{read_bitmap_little_endian, read_bitmap_little_endian_bits};
 
+///                          Binary_log_event
+///                                   ^
+///                                   |
+///                                   |
+///                                   |
+///                 Log_event   B_l:Rows_event
+///                      ^            /\
+///                      |           /  \
+///                      |   <<vir>>/    \ <<vir>>
+///                      |         /      \
+///                      |        /        \
+///                      |       /          \
+///                   Rows_log_event    B_l:Write_rows_event
+///                              \          /
+///                               \        /
+///                                \      /
+///                                 \    /
+///                                  \  /
+///                                   \/
+///                         Write_rows_log_event
+///
+///   B_l: Namespace Binary_log
 #[derive(Debug, Serialize, Clone)]
 pub struct WriteRowsEvent {
     header: Header,
@@ -42,9 +64,9 @@ pub struct WriteRowsEvent {
 
     /// Gets bitmap of columns present in row event. See binlog_row_image parameter.
     pub columns_present: Vec<bool>,
-    // inserted_image_bits: Vec<u8>,
+    // pub columns_present: Vec<u8>,
 
-    /// Gets inserted rows
+    /// 存储插入的数据
     pub rows: Vec<RowData>,
 
     // event-body部分 for Rows_event END
@@ -101,12 +123,12 @@ impl WriteRowsEvent {
         cursor.read_exact(&mut rows_data_vec)?;
 
         let mut rows_data_cursor = Cursor::new(rows_data_vec.as_slice());
-        let rows = parse_row_data_list(&mut rows_data_cursor, table_map, table_id, &columns_present, columns_number);
+        let rows = parse_row_data_list(&mut rows_data_cursor, table_map, table_id, &columns_present);
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
         let e = WriteRowsEvent::new(
-            Header::copy_and_get(header, 1, checksum, vec![]),
+            Header::copy_and_get(header, checksum, vec![]),
             table_id,
             flags,
             extra_data_len,

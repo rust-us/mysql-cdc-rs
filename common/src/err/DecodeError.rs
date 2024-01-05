@@ -12,6 +12,7 @@ pub enum ReError {
     FromUtf8Error(FromUtf8Error),
     FromHexError(FromHexError),
     ParseIntError(ParseIntError),
+    ConnectionError(String),
     String(String),
 
     /// Byte code is incomplete

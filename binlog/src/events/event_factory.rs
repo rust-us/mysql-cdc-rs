@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::io::Cursor;
+use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use bytes::Buf;
@@ -7,31 +8,66 @@ use nom::IResult;
 use nom::bytes::complete::take;
 use nom::combinator::map;
 use common::err::DecodeError::ReError;
-use crate::decoder::binlog_decoder::{BinlogReader, BytesBinlogReader};
+use crate::decoder::binlog_decoder::BinlogReader;
+use crate::decoder::bytes_binlog_reader::BytesBinlogReader;
 
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_c::EventRaw;
 use crate::events::event_header::Header;
 use crate::events::log_context::LogContext;
+use crate::events::log_position::LogPosition;
 
 pub struct EventFactory {
-    //
-    bytes: Vec<u8>,
+    reader: Arc<RwLock<BytesBinlogReader>>,
+
+    context: Rc<RefCell<LogContext>>,
 }
 
 impl EventFactory {
+    pub fn get_context(&self) -> Rc<RefCell<LogContext>> {
+        self.context.clone()
+    }
 
-    pub fn from_bytes<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<Event>> {
-        let reader = BytesBinlogReader::new(input).unwrap();
+    pub fn new(skip_magic_buffer: bool) -> Self {
+        let _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
+        let context = Rc::new(RefCell::new(_context));
 
-        let iter = reader.read_events();
+        let reader = BytesBinlogReader::new(context.clone(), skip_magic_buffer).unwrap();
+
+        EventFactory {
+            reader: Arc::new(RwLock::new(reader)),
+            context
+        }
+    }
+
+    /// 从 bytes 读取 binlog
+    ///
+    /// # Arguments
+    ///
+    /// * `input`:
+    /// * `skip_magic_buffer`:  是否跳过magic_number. true 表明已经跳过了（也就是说bytes中不存在magic_buffer）。 false指仍需执行 magic_number校验
+    ///
+    /// returns: Result<(&[u8], Vec<Event, Global>), Err<Error<&[u8]>>>
+    ///
+    /// # Examples
+    ///
+    /// ```
+    ///
+    /// ```
+    pub fn parser_bytes<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], Vec<Event>> {
+        let mut reader = self.reader.write().unwrap();
+        let context = &self.context;
+
+        let iter = reader.clone().read_events(input);
         let remaing_bytes = &iter.get_source_bytes();
 
         let mut events = Vec::new();
         for result in iter {
             let e = result.unwrap();
-            println!("============================ {}", Event::get_type_name(&e));
+
+            println!("============================ {}, process_count:{}.", Event::get_type_name(&e),
+                     context.borrow().log_stat_process_count());
             events.push(e);
         }
 
@@ -44,6 +80,39 @@ impl EventFactory {
         };
 
         Ok((rm, events))
+    }
+
+    /// 从 Iterator 读取 binlog
+    pub fn parser_iter(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>) {
+        for i in iter {
+            let bytes = match i {
+                Ok(bytes) => {
+                    // bytes
+                    println!("get: {:?}", bytes);
+
+                    self.parser_bytes(&*bytes).expect("TODO: panic message");
+                },
+                Err(e) => {
+                    println!("error");
+                    break;
+                },
+            };
+        }
+    }
+
+    /// 从 BlockIterator 读取 binlog
+    pub fn parser_iter_with_block(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>) {
+        for i in iter {
+            let bytes = match i {
+                Ok(bytes) => {
+                    self.parser_bytes(&*bytes).expect("TODO: panic message");
+                },
+                Err(e) => {
+                    println!("error");
+                    break;
+                },
+            };
+        }
     }
 
     /// input &[u8] 转为 Vec<EventRaw>， 并返回剩余数组

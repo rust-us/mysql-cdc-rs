@@ -507,7 +507,7 @@ impl QueryEvent {
         Ok((
             i,
             QueryEvent {
-                header: Header::copy_and_get(&header, 1, checksum, Vec::new()),
+                header: Header::copy_and_get(&header, checksum, Vec::new()),
 
                 thread_id,
                 execution_time,

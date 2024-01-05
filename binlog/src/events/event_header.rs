@@ -56,8 +56,6 @@ pub struct Header {
     ///////////////////////////////////////////////////
     /// other
     ///////////////////////////////////////////////////
-    /// checksum_alg
-    pub checksum_alg: u8,
     /// checksum
     pub checksum: u32,
 
@@ -75,7 +73,6 @@ impl Default for Header {
             log_pos: 0,
             flags: 0,
             flags_attr: Default::default(),
-            checksum_alg: 0,
             checksum: 0,
             log_file_name: "".to_string(),
             gtid_map: vec![],
@@ -121,7 +118,6 @@ impl Header {
             log_pos,
             flags,
             flags_attr,
-            checksum_alg: 0,
             checksum: 0,
             log_file_name,
             gtid_map: vec![],
@@ -161,14 +157,13 @@ impl Header {
             log_pos: source.log_pos,
             flags: source.flags,
             flags_attr: source.get_flags_attr(),
-            checksum_alg: source.checksum_alg,
             checksum: source.checksum,
             log_file_name,
             gtid_map: source.gtid_map.clone(),
         }
     }
 
-    pub fn copy_and_get(source: &Header, checksum_alg: u8, checksum: u32, gtid_map : Vec<u8>) -> Self  {
+    pub fn copy_and_get(source: &Header, checksum: u32, gtid_map : Vec<u8>) -> Self  {
         let log_file_name : String = source.get_log_file_name();
 
         Header {
@@ -179,7 +174,6 @@ impl Header {
             log_pos: source.log_pos,
             flags: source.flags,
             flags_attr: source.get_flags_attr(),
-            checksum_alg,
             checksum,
             log_file_name,
             gtid_map,

@@ -14,7 +14,7 @@ use crate::row::actual_string_type::get_actual_string_type;
 use crate::row::decimal::parse_decimal;
 use crate::row::row_data::{RowData, UpdateRowData};
 use crate::row::rows::{ExtraDataType, RowEventVersion};
-use crate::utils::{read_bitmap_little_endian, read_len_enc_num_with_cursor, read_string};
+use crate::utils::{read_bitmap_little_endian, read_len_enc_num_with_cursor, read_string, u8_to_bool};
 
 pub const TABLE_MAP_NOT_FOUND: &str =
     "No preceding TableMapEvent event was found for the row event. \
@@ -94,8 +94,7 @@ pub fn parse_row_data_list(
     cursor: &mut Cursor<&[u8]>,
     table_map: &HashMap<u64, TableMapEvent>,
     table_id: u64,
-    columns_present: &Vec<bool>,
-    columns_number: usize) -> Result<Vec<RowData>, ReError> {
+    columns_present: &Vec<bool>) -> Result<Vec<RowData>, ReError> {
 
     let tme = TABLE_MAP_EVENT.lock().unwrap();
     let table = match table_map.get(&table_id) {
@@ -111,11 +110,12 @@ pub fn parse_row_data_list(
         },
     };
 
-    let cells_included = get_bits_number(columns_present);
+    // let columns_present = u8_to_bool(image_bits);
+    let cells_included = get_bits_number(&columns_present);
     let mut rows = Vec::new();
 
     while cursor.position() < cursor.get_ref().len() as u64 {
-        let row_result = parse_row(cursor, table, columns_present, cells_included);
+        let row_result = parse_row(cursor, table, &columns_present, cells_included);
 
         if let Err(error) = &row_result {
             if let ReError::IoError(io_error) = error {

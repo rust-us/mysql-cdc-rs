@@ -1,43 +1,43 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
 use crate::events::event_header::Header;
 
 use serde::Serialize;
-use nom::{InputLength, IResult, Parser};
-use std::sync::{Arc, RwLock};
-use bytes::Buf;
-use crate::decoder::event_decoder::LogEventDecoder;
-use crate::column::column_value::{ColumnValues};
-use crate::decoder;
-use crate::events::log_context::LogContext;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
+use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
+use crate::events::protocol::rotate_event::RotateEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
-use crate::row::rows;
 
 ///
 /// Enumeration type for the different types of log events.
 ///
 /// @see  https://dev.mysql.com/doc/dev/mysql-server/latest/namespacemysql_1_1binlog_1_1event.html
 ///
-/// enum def:
-/// enum xxxbEvent {
-///     PageLoad,
-///     PageUnload,
-///     // 1. 普通的结构体
-///     Click { x: i64, y: i64 }
-///     // 2. 元组结构体
-///     KeyPress(char),
-///     Paste(String),
-/// }
-///
-/// will be instand LogEvent
+/// event数据结构:         [startPos : Len]
+/// +=====================================+
+/// | event  | timestamp         0 : 4    |
+/// | header +----------------------------+
+/// |        | event_type         4 : 1    |
+/// |        +----------------------------+
+/// |        | server_id         5 : 4    |
+/// |        +----------------------------+
+/// |        | event_size        9 : 4    |
+/// |        +----------------------------+
+/// |        | next_position    13 : 4    |
+/// |        +----------------------------+
+/// |        | flags            17 : 2    |
+/// |        +----------------------------+
+/// |        | extra_headers    19 : x-19 |
+/// +=====================================+
+/// | event  | fixed part        x : y    |
+/// | data   +----------------------------+
+/// |        | variable part              |
+/// +=====================================+
 #[derive(Debug, Serialize, Clone)]
 pub enum Event {
     /// 0
@@ -60,12 +60,7 @@ pub enum Event {
     },
     /// 4
     /// ref: https://dev.mysql.com/doc/internals/en/rotate-event.html
-    Rotate {
-        header: Header,
-        position: u64,
-        next_binlog: String,
-        checksum: u32,
-    },
+    Rotate(RotateEvent),
     /// 5
     /// ref: https://dev.mysql.com/doc/internals/en/intvar-event.html
     IntVar {
@@ -266,30 +261,16 @@ pub enum Event {
     },
 
     /// These event numbers are used from 5.1.16 and forward The V1 event numbers are used from 5.1.16 until mysql-5.6.
-    /// 23, 24, 25
-    WRITE_ROWS_V1,
-    UPDATE_ROWS_V1,
-    DELETE_ROWS_V1,
+    /// 23 WRITE_ROWS_V1, 24 UPDATE_ROWS_V1, 25 DELETE_ROWS_V1
+    ///
     /// Version 2 of the Row events
     /// 30
     /// source https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/rows_event.h#L488-L613
     WriteRows(WriteRowsEvent),
     /// 31
     UpdateRows(UpdateRowsEvent),
-
     /// 32
-    DeleteRows {
-        header: Header,
-        // table_id take 6 bytes in buffer
-        table_id: u64,
-        flags: rows::Flags,
-        extra_data_len: u16,
-        extra_data: Vec<rows::ExtraData>,
-        column_count: u64,
-        deleted_image_bits: Vec<u8>,
-        rows: Vec<Vec<ColumnValues>>,
-        checksum: u32,
-    },
+    DeleteRows(DeleteRowsEvent),
 
     /// 33
     /// equals AnonymousGtidLog
@@ -332,36 +313,6 @@ pub enum Event {
 }
 
 impl Event {
-    /// 接口作废
-    /// event数据结构:         [startPos : Len]
-    /// +=====================================+
-    /// | event  | timestamp         0 : 4    |
-    /// | header +----------------------------+
-    /// |        | event_type         4 : 1    |
-    /// |        +----------------------------+
-    /// |        | server_id         5 : 4    |
-    /// |        +----------------------------+
-    /// |        | event_size        9 : 4    |
-    /// |        +----------------------------+
-    /// |        | next_position    13 : 4    |
-    /// |        +----------------------------+
-    /// |        | flags            17 : 2    |
-    /// |        +----------------------------+
-    /// |        | extra_headers    19 : x-19 |
-    /// +=====================================+
-    /// | event  | fixed part        x : y    |
-    /// | data   +----------------------------+
-    /// |        | variable part              |
-    /// +=====================================+
-    /// 接口作废
-    pub fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Event> {
-        let (i, header) = Header::parse_v4_header(input)?;
-
-        let c = LogContext::default();
-        let mut decoder = LogEventDecoder::new();
-        decoder.parse_bytes(i, &header, Rc::new(RefCell::new(c)))
-    }
-
     pub fn get_type_name(value: &Event) -> String {
         match value {
             Event::Unknown{ .. } => "UnknownEvent".to_owned(),
@@ -372,7 +323,7 @@ impl Event {
             Event::IntVar{ .. } => "IntVarEvent".to_string(),
             Event::Load{ .. } => "LoadEvent".to_string(),
             Event::Slave{ .. } => "SlaveEvent".to_string(),
-            Event:: CreateFile{ .. } => "CreateFileEvent".to_string(),
+            Event::CreateFile{ .. } => "CreateFileEvent".to_string(),
             Event::AppendBlock{ .. } => "AppendBlockEvent".to_string(),
             Event::ExecLoad{ .. } => "ExecLoadEvent".to_string(),
             Event::DeleteFile{ .. } => "DeleteFileEvent".to_string(),
@@ -387,16 +338,13 @@ impl Event {
             Event::PreGaWriteRowsEvent{ .. } => "PreGaWriteRowsEvent".to_string(),
             Event::PreGaUpdateRowsEvent{ .. } => "PreGaUpdateRowsEvent".to_string(),
             Event::PreGaDeleteRowsEvent{ .. } => "PreGaDeleteRowsEvent".to_string(),
-            Event::WRITE_ROWS_V1{ .. } => "WRITE_ROWS_V1_Event".to_string(),
-            Event::UPDATE_ROWS_V1{ .. } => "UPDATE_ROWS_V1_Event".to_string(),
-            Event::DELETE_ROWS_V1{ .. } => "DELETE_ROWS_V1_Event".to_string(),
             Event::Incident{ .. } => "IncidentEvent".to_string(),
             Event::Heartbeat{ .. } => "HeartbeatEvent".to_string(),
             Event::IgnorableLogEvent{ .. } => "IgnorableLogEvent".to_string(),
             Event::RowQuery{ .. } => "RowQueryEvent".to_string(),
-            Event::WriteRows { .. } => "WriteRowsV2Event".to_string(),
-            Event::UpdateRows { .. } => "UpdateRowsV2Event".to_string(),
-            Event::DeleteRows { .. } => "DeleteRowsV2Event".to_string(),
+            Event::WriteRows { .. } => "WriteRowsEvent".to_string(),
+            Event::UpdateRows { .. } => "UpdateRowsEvent".to_string(),
+            Event::DeleteRows { .. } => "DeleteRowsEvent".to_string(),
             Event::GtidLog(e) => "GtidLogEvent".to_string(),
             Event::AnonymousGtidLog(e) => "AnonymousGtidLog".to_string(),
             Event::PreviousGtidsLog(e) => "PreviousGtidsLog".to_string(),
@@ -411,7 +359,6 @@ impl Event {
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {

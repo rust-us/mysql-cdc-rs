@@ -25,7 +25,7 @@ mod test {
         let (i, _) = Header::check_start(bytes).unwrap();
 
         let mut _context:LogContext = LogContext::default();
-        &_context.set_log_position(LogPosition::new("test".to_string()));
+        &_context.set_log_position(LogPosition::new("test"));
         let context = Rc::new(RefCell::new(_context));
 
         let (i, event_raws) = EventFactory::steam_to_event_raw(i, context).unwrap();
@@ -40,7 +40,7 @@ mod test {
         let (i, _) = Header::check_start(bytes).unwrap();
 
         let mut _context:LogContext = LogContext::default();
-        &_context.set_log_position(LogPosition::new("test".to_string()));
+        &_context.set_log_position(LogPosition::new("test"));
         let context = Rc::new(RefCell::new(_context));
 
         let (i, event_raws) = EventFactory::steam_to_event_raw(i, context.clone()).unwrap();

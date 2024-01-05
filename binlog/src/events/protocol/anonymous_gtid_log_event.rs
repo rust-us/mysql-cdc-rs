@@ -58,7 +58,7 @@ impl AnonymousGtidLogEvent {
                 checksum)) =
             GtidLogEvent::parse_events_gtid(input, &header)?;
 
-        let header_new = Header::copy_and_get(&header, 1, checksum, Vec::new());
+        let header_new = Header::copy_and_get(&header, checksum, Vec::new());
 
         let e = AnonymousGtidLogEvent {
             header: header_new,

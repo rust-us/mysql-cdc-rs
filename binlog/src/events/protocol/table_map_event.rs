@@ -21,7 +21,7 @@ use crate::events::log_event::LogEvent;
 use crate::metadata::table_metadata::TableMetadata;
 
 /// The event has table defition for row events.
-/// <a href="https://mariadb.com/kb/en/library/table_map_event/">See more</a>
+/// <a href="https://github.com/mysql/mysql-server/blob/mysql-cluster-8.0.22/libbinlogevents/include/rows_event.h#L521">See more</a>
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct TableMapEvent {
     header: Header,
@@ -209,7 +209,7 @@ impl TableMapEvent {
         }
 
         let e = TableMapEvent {
-            header: Header::copy_and_get(&header, 1, checksum, Vec::new()),
+            header: Header::copy_and_get(&header, checksum, Vec::new()),
             table_id,
             flags,
             schema_length,

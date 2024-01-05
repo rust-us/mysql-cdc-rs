@@ -8,21 +8,8 @@ const DIGITS_PER_INT: u8 = 9;
 const COMPRESSED_BYTES: [u8; 10] = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4];
 
 pub fn parse_decimal(cursor: &mut Cursor<&[u8]>, metadata: u16) -> Result<String, ReError> {
-    // precision 是表示有效数字数的精度。 P范围为1〜65。
-    // D是表示小数点后的位数。 D的范围是0~30。MySQL要求D小于或等于(<=)P。
-    let scale = (metadata & 0xFF) as u8;
-    let precision = (metadata >> 8);
-    let integral = (precision - scale as u16) as u8;
-
-    let uncompressed_integral = integral / DIGITS_PER_INT;
-    let uncompressed_fractional = scale / DIGITS_PER_INT;
-    let compressed_integral = integral - (uncompressed_integral * DIGITS_PER_INT);
-    let compressed_fractional = scale - (uncompressed_fractional * DIGITS_PER_INT);
-
-    let length = (uncompressed_integral << 2)
-        + COMPRESSED_BYTES[compressed_integral as usize]
-        + (uncompressed_fractional << 2)
-        + COMPRESSED_BYTES[compressed_fractional as usize];
+    let (length, precision, scale, compressed_integral, compressed_fractional, uncompressed_integral, uncompressed_fractional) =
+                            decimal_length(metadata);
 
     // Format
     // [1-3 bytes]  [4 bytes]      [4 bytes]        [4 bytes]      [4 bytes]      [1-3 bytes]
@@ -82,6 +69,35 @@ pub fn parse_decimal(cursor: &mut Cursor<&[u8]>, metadata: u16) -> Result<String
         result += &format!("{val:0prec$}", prec = precision, val = value)
     }
     Ok(result)
+}
+
+///
+///
+/// # Arguments
+///
+/// * `metadata`:
+///
+/// returns: (u8, u8)
+///
+pub fn decimal_length(metadata: u16) -> (u8, u8, u8, u8, u8, u8, u8) {
+    // precision 是表示有效数字数的精度。 P范围为1〜65。
+    // D是表示小数点后的位数。 D的范围是0~30。MySQL要求D小于或等于(<=)P。
+    let scale = (metadata & 0xFF) as u8;
+    let precision = (metadata >> 8) as u8;;
+    let integral = precision - scale;
+
+    let uncompressed_integral = integral / DIGITS_PER_INT;
+    let uncompressed_fractional = scale / DIGITS_PER_INT;
+
+    let compressed_integral = integral - (uncompressed_integral * DIGITS_PER_INT);
+    let compressed_fractional = scale - (uncompressed_fractional * DIGITS_PER_INT);
+
+    let length = (uncompressed_integral << 2) //  uncompressed_integral * 4
+        + COMPRESSED_BYTES[compressed_integral as usize]
+        + (uncompressed_fractional << 2)
+        + COMPRESSED_BYTES[compressed_fractional as usize];
+
+    (length, precision, scale, compressed_integral, compressed_fractional, uncompressed_integral, uncompressed_fractional)
 }
 
 #[cfg(test)]

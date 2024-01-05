@@ -12,6 +12,8 @@ pub mod log_context;
 pub mod log_position;
 
 pub mod event_factory;
+pub mod checksum_type;
+pub mod log_stat;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub enum IntVarEventType {

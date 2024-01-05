@@ -1,3 +1,4 @@
+pub mod mysql;
 
 #[cfg(test)]
 mod test {

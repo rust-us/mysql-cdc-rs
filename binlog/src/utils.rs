@@ -195,11 +195,37 @@ pub fn read_fixed_len_string(input: &[u8]) -> IResult<&[u8], (u8, String)> {
 }
 
 /// Reads bitmap in little-endian bytes order
-pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize)
-                                 -> Result<Vec<bool>, io::Error> {
+pub fn read_bitmap_little_endian_bits(cursor: &mut Cursor<&[u8]>, bits_number: usize)
+                                 -> Result<Vec<u8>, io::Error> {
 
+    let mut result = vec![0; bits_number];
+
+    let bytes_number = (bits_number + 7) / 8;
+    for i in 0..bytes_number {
+        let value = cursor.read_u8()?;
+        for y in 0..8 {
+            let index = (i << 3) + y;
+            if index == bits_number {
+                break;
+            }
+            result[index] = (value & (1 << y));
+        }
+    }
+
+    Ok(result)
+}
+
+/// Reads bitmap in little-endian bytes order
+// pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize)
+//                                  -> Result<Vec<bool>, io::Error> {
+//
+//     let bitmap_little_endian_bits = read_bitmap_little_endian_bits(cursor, bits_number)?;
+//
+//     Ok(u8_to_bool(&bitmap_little_endian_bits))
+// }
+
+pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize) -> Result<Vec<bool>, io::Error> {
     let mut result = vec![false; bits_number];
-
     let bytes_number = (bits_number + 7) / 8;
     for i in 0..bytes_number {
         let value = cursor.read_u8()?;
@@ -212,6 +238,16 @@ pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize)
         }
     }
     Ok(result)
+}
+
+pub fn u8_to_bool(source: &Vec<u8>) -> Vec<bool> {
+    let mut target = vec![false; source.len()];
+
+    for i in 0..source.len() {
+        target[i] = source[i] > 0;
+    }
+
+    target
 }
 
 /// Reads bitmap in big-endian bytes order

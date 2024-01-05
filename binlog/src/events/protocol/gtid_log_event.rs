@@ -1,15 +1,13 @@
-use std::rc::Rc;
 use nom::{
     bytes::complete::{take},
     combinator::map,
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
+    number::complete::{le_i64, le_u32, le_u8},
     IResult,
 };
 use nom::number::complete::be_u64;
 use serde::Serialize;
 use uuid::Uuid;
 use crate::events::event_header::Header;
-use crate::events::log_context::LogContext;
 use crate::events::log_event::LogEvent;
 
 pub const LOGICAL_TIMESTAMP_TYPE_CODE: u8 = 2;
@@ -63,7 +61,7 @@ impl GtidLogEvent {
             GtidLogEvent::parse_events_gtid(input, &header)?;
 
         let e = GtidLogEvent {
-            header: Header::copy_and_get(&header, 1, checksum, Vec::new()),
+            header: Header::copy_and_get(&header, checksum, Vec::new()),
             commit_flag,
             sid: source_id,
             gno: transaction_id,

@@ -5,8 +5,11 @@
 members = [
     "common",
     "binlog",
-    "master",
+    "slave",
+    "./raft",
+    "./memory",
     "tests",
+    "replay_log",
 ]
 
 [workspace.dependencies]
@@ -16,8 +19,7 @@ uuid = "1.4.1"
 # 十六进制数据编码
 hex = "0.4.2"
 lru = "0.12.1"
-bytes = "0.5.6"
-byteorder = "1.4.3"
+bytes = "1.5.0"
 thiserror = "1.0.50"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"
@@ -26,7 +28,10 @@ structopt = "0.3.16"
 bitflags = { version = "2.4.1", features = [] }
 nom = "7"
 lazy_static = "1.4.0"
-num_enum = "0.7.1"
 
 log = "0.4.20"
 log4rs = "1.2.0"
+num_enum = "0.7.1"
+byteorder = "1.5.0"
+paste = "1.0.14"
+pin-project-lite = "0.2.13"

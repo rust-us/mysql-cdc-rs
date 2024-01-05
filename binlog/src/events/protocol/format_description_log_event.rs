@@ -1,19 +1,17 @@
-use std::rc::Rc;
-use std::sync::Arc;
 use crate::events::event_header::Header;
 use crate::events::protocol::start_log_event_v3::*;
 
 use nom::{
     bytes::complete::{take},
     combinator::map,
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
+    number::complete::{le_u16, le_u32, le_u8},
     IResult,
 };
 use serde::Serialize;
 use crate::b_type::{C_ENUM_END_EVENT, LogEventType};
 use crate::b_type::LogEventType::*;
+use crate::events::checksum_type::{BINLOG_CHECKSUM_ALG_DESC_LEN, ChecksumType, ST_COMMON_PAYLOAD_CHECKSUM_LEN};
 use crate::events::event::Event::*;
-use crate::events::log_context::LogContext;
 use crate::events::log_event::*;
 use crate::utils::extract_string;
 
@@ -75,11 +73,6 @@ pub const GTID_HEADER_LEN: u8 = 19;
 pub const GTID_LIST_HEADER_LEN: u8 = 4;
 pub const START_ENCRYPTION_HEADER_LEN: u8 = 0;
 pub const POST_HEADER_LENGTH: u8 = 11;
-/// checksum_alg size， 1 byte
-pub const BINLOG_CHECKSUM_ALG_DESC_LEN: u8 = 1;
-
-/// checksum size，4 byte
-pub const ST_COMMON_PAYLOAD_CHECKSUM_LEN: u8 = 4;
 
 
 /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L295-L344
@@ -92,7 +85,10 @@ pub struct FormatDescriptionEvent {
     pub binlog_version: u16,
 
     /// MySql的版本
-    pub mysql_server_version: String,
+    pub server_version: String,
+
+    /// Gets checksum algorithm type.
+    checksum_type: ChecksumType,
 
     /// binlog创建的时间 binlog文件是可追加的，这里应该理解成binlog的追加时间
     pub create_timestamp: u32,
@@ -178,6 +174,10 @@ impl FormatDescriptionEvent {
     pub fn is_v4(&self) -> bool {
         self.declare.fdv == FormatDescriptionsVersion::V5_0
         // self.binlog_version == 4
+    }
+
+    pub fn get_checksum_type(&self) -> ChecksumType {
+        self.checksum_type.clone()
     }
 
     /// 得到该事件类型的 Post-Header 部分的长度
@@ -341,7 +341,8 @@ impl FormatDescriptionEvent {
         FormatDescriptionEvent {
             header: Header::default(),
             binlog_version,
-            mysql_server_version: server_version,
+            server_version,
+            checksum_type: ChecksumType::None,
             create_timestamp,
             common_header_len,
             post_header_len,
@@ -389,7 +390,8 @@ impl FormatDescriptionEvent {
         // 一个 u16 代表的 binlog 版本
         let (i, binlog_version) = le_u16(input)?;
         // 一个固定长度为 50 的字符串（可能包含多个 \0 终止符)
-        let (i, mysql_server_version) = map(take(ST_SERVER_VER_LEN), |s: &[u8]| extract_string(s))(i)?;
+        let (i, server_version) = map(take(ST_SERVER_VER_LEN), |s: &[u8]| extract_string(s))(i)?;
+        /* Redundant timestamp & header length which is always 19 */
         // u32 的 timestamp
         let (i, create_timestamp) = le_u32(i)?;
         // let create_timestamp = 0;
@@ -403,17 +405,22 @@ impl FormatDescriptionEvent {
             - BINLOG_CHECKSUM_ALG_DESC_LEN as u32 - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32;
 
         let (i, post_header_len) = map(take(number_of_event_types as u8), |s: &[u8]| s.to_vec())(i)?;
+
+        let mut checksum_type = ChecksumType::None;
         let (i, checksum_alg) = le_u8(i)?;
+        checksum_type = ChecksumType::from_code(checksum_alg).unwrap();
+
         let (i, crc) = le_u32(i)?;
 
-        let header_new:Header = Header::copy_and_get(&header, checksum_alg, crc, Vec::new());
+        let header_new:Header = Header::copy_and_get(&header, crc, Vec::new());
 
         Ok((
             i,
             FormatDescriptionEvent {
                 header: header_new,
                 binlog_version,
-                mysql_server_version,
+                server_version,
+                checksum_type,
                 create_timestamp,
                 common_header_len,
                 post_header_len: post_header_len,

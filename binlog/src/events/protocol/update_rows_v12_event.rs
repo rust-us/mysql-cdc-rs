@@ -36,13 +36,13 @@ pub struct UpdateRowsEvent {
 
     /// Gets bitmap of columns present in row event before update. See binlog_row_image parameter.
     // before_image_bits: Vec<u8>,
-    before_image_bits: Vec<bool>,
+    pub before_image_bits: Vec<bool>,
 
     /// Gets bitmap of columns present in row event after update. See binlog_row_image parameter.
     // after_image_bits: Vec<u8>,
-    after_image_bits: Vec<bool>,
+    pub after_image_bits: Vec<bool>,
 
-    /// Gets updated rows
+    /// 存储修改前和修改后的数据
     pub rows: Vec<UpdateRowData>,
 
     row_version: RowEventVersion,
@@ -100,7 +100,7 @@ impl UpdateRowsEvent {
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
         let e = UpdateRowsEvent::new(
-            Header::copy_and_get(header, 1, checksum, vec![]),
+            Header::copy_and_get(header, checksum, vec![]),
             table_id,
             flags,
             extra_data_len,

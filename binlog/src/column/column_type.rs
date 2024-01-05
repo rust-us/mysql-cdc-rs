@@ -1,13 +1,13 @@
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+use serde::Serialize;
+use crate::column::column_value::{ColumnValues, parse_packed};
 use nom::{
     bytes::complete::take,
     combinator::map,
     number::complete::{le_u16, le_u8},
     IResult,
 };
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-use serde::Serialize;
-use crate::column::column_value::parse_packed;
-use crate::ColumnValues;
+use crate::row::decimal::decimal_length;
 use crate::utils::pu32;
 
 /// MYSQL 数据类型
@@ -172,26 +172,10 @@ impl ColumnType {
             ColumnType::Json => unreachable!(),
             // ColumnTypes::NewDecimal(precision, scale) => {
             ColumnType::NewDecimal => {
-                let decimals: u8 = (meta & 0xFF) as u8; // is precision ???
-                let precision = (meta >> 8) as u8; // is scale  ???
+                let (length, _, _, _, _, _, _) = decimal_length(meta);
 
-                // copy from https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/src/binary_log_funcs.cpp#L204-L214
-                let dig2bytes: [u8; 10] = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4];
-                let intg = precision - decimals;
-                // let intg = precision - scale;
-
-                let intg0 = intg / 9;
-                let frac0 = decimals / 9;
-                // let frac0 = scale / 9;
-
-                let intg0x = intg - intg0 * 9;
-                let frac0x = decimals - frac0 * 9;
-                // let frac0x = scale - frac0 * 9;
-
-                let len =
-                    intg0 * 4 + dig2bytes[intg0x as usize] + frac0 * 4 + dig2bytes[frac0x as usize];
-                map(take(len), move |s: &[u8]| {
-                    (len as usize, ColumnValues::NewDecimal(s.to_vec()))
+                map(take(length), move |s: &[u8]| {
+                    (length as usize, ColumnValues::NewDecimal(s.to_vec()))
                 })(input)
             }
             ColumnType::Enum => map(take(0usize), |_| (0, ColumnValues::Enum))(input),

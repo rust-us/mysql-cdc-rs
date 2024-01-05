@@ -1,15 +1,14 @@
-use std::rc::Rc;
 use serde::Serialize;
 use crate::events::event_header::Header;
 use nom::{
     bytes::complete::{take},
     combinator::map,
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
+    number::complete::{le_u32},
     IResult,
 };
-use crate::events::log_context::LogContext;
 use crate::events::log_event::LogEvent;
-use crate::events::protocol::format_description_log_event::{LOG_EVENT_MINIMAL_HEADER_LEN, ST_COMMON_PAYLOAD_CHECKSUM_LEN};
+use crate::events::protocol::format_description_log_event::{LOG_EVENT_MINIMAL_HEADER_LEN};
+use crate::events::checksum_type::ST_COMMON_PAYLOAD_CHECKSUM_LEN;
 
 /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L1073-L1103
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
@@ -33,7 +32,7 @@ impl PreviousGtidsLogEvent {
         let (i, buf_size) = le_u32(i)?;
 
         let (i, checksum) = le_u32(i)?;
-        let header_new = Header::copy_and_get(&header, 1, checksum, Vec::new());
+        let header_new = Header::copy_and_get(&header, checksum, Vec::new());
 
         Ok((
             i,

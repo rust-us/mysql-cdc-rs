@@ -1,4 +1,5 @@
 #![allow(non_camel_case_types)]
+#![feature(is_terminal)]
 
 pub mod b_type;
 pub mod utils;
@@ -17,8 +18,6 @@ pub use events::{
 pub use row::{
     rows::{ExtraData, ExtraDataFormat, Flags, Payload}
 };
-
-pub use column::column_value::ColumnValues;
 
 pub const NULL_TERMINATOR: u8 = 0;
 
