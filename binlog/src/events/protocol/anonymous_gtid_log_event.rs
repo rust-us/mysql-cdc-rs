@@ -1,10 +1,12 @@
-use std::rc::Rc;
-use nom::combinator::map;
-use nom::IResult;
-use serde::Serialize;
+use std::collections::HashMap;
+use crate::events::event::Event;
 use crate::events::event_header::Header;
 use crate::events::log_event::LogEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
+use nom::combinator::map;
+use nom::IResult;
+use serde::Serialize;
+use std::rc::Rc;
 
 /// MySQL在binlog中记录每一个匿名事务之前会记录一个Anonymous_gtid_log_event表示接下来的事务是一个匿名事务。
 /// 注意：因为在5.6.34中并不会产生Anonymous_gtid_log_event，5.7.19版本才有.
@@ -48,17 +50,20 @@ pub struct AnonymousGtidLogEvent {
 
 impl AnonymousGtidLogEvent {
     pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], AnonymousGtidLogEvent> {
-        let (i,
-            (   commit_flag,
+        let (
+            i,
+            (
+                commit_flag,
                 source_id,
                 transaction_id,
                 lt_type,
                 last_committed,
                 sequence_number,
-                checksum)) =
-            GtidLogEvent::parse_events_gtid(input, &header)?;
+                checksum,
+            ),
+        ) = GtidLogEvent::parse_events_gtid(input, &header)?;
 
-        let header_new = Header::copy_and_get(&header, checksum, Vec::new());
+        let header_new = Header::copy_and_get(&header, checksum, HashMap::new());
 
         let e = AnonymousGtidLogEvent {
             header: header_new,
@@ -75,5 +80,7 @@ impl AnonymousGtidLogEvent {
 }
 
 impl LogEvent for AnonymousGtidLogEvent {
-
+    fn get_type_name(&self) -> String {
+        "AnonymousGtidLog".to_string()
+    }
 }

@@ -3,17 +3,17 @@ use serde::Serialize;
 pub mod protocol;
 
 pub mod event;
-pub mod event_c;
+pub mod event_raw;
 pub mod event_header_flag;
 pub mod event_header;
-pub mod query;
-pub mod log_event;
 pub mod log_context;
+pub mod log_event;
 pub mod log_position;
+pub mod query;
 
-pub mod event_factory;
 pub mod checksum_type;
 pub mod log_stat;
+pub mod tracker;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub enum IntVarEventType {
@@ -30,7 +30,6 @@ pub struct EmptyFlags {
     pub line_start_empty: bool,
     pub escape_empty: bool,
 }
-
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub enum DupHandlingFlags {

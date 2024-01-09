@@ -11,10 +11,6 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use std::cell::RefCell;
-use std::io::Cursor;
-use std::rc::Rc;
-use byteorder::{LittleEndian, ReadBytesExt};
 use crate::{
     events::event::Event,
     events::event_header::Header,
@@ -22,14 +18,8 @@ use crate::{
 };
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
 use crate::column::column_type::ColumnType;
-use crate::column::column_value::ColumnValues;
-use crate::events::log_context::LogContext;
-use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
-use crate::events::protocol::rotate_event::RotateEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
-use crate::row::rows;
-use crate::utils::{pu64, read_len_enc_num};
 
 lazy_static! {
     pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColumnType >>>> =
@@ -40,13 +30,6 @@ lazy_static! {
 
     pub static ref TABLE_MAP_EVENT: Arc<Mutex<HashMap<u64, TableMapEvent>>> =
         Arc::new(Mutex::new(HashMap::new()));
-}
-
-pub fn parse_unknown<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    map(le_u32, move |checksum: u32| Event::Unknown {
-        header: Header::copy(&header),
-        checksum,
-    })(input)
 }
 
 pub fn parse_stop<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {

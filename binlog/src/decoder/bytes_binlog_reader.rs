@@ -7,10 +7,9 @@ use common::err::DecodeError::ReError;
 use crate::decoder::binlog_decoder::BinlogReader;
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
-use crate::events::event_c::EventRaw;
-use crate::events::event_factory::EventFactory;
+use crate::events::event_raw::EventRaw;
 use crate::events::event_header::Header;
-use crate::events::log_context::LogContext;
+use crate::events::log_context::{ILogContext, LogContext};
 use crate::events::log_position::LogPosition;
 
 /// Reads binlog events from a stream.
@@ -76,7 +75,7 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
             stream.to_vec()
         };
 
-        let (remaining_bytes, event_raws) = EventFactory::steam_to_event_raw(&self.source_bytes, self.context.clone()).unwrap();
+        let (remaining_bytes, event_raws) = EventRaw::steam_to_event_raw(&self.source_bytes, self.context.clone()).unwrap();
         self.source_bytes = remaining_bytes.to_vec();
         self.event_raw_iter = Arc::new(event_raws.into_iter());
 

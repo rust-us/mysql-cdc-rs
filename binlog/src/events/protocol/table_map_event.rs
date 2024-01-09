@@ -1,24 +1,30 @@
+use byteorder::ReadBytesExt;
+use bytes::Buf;
+use nom::{
+    bytes::complete::take,
+    combinator::map,
+    number::complete::{le_u16, le_u32, le_u8},
+    IResult,
+};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{BufRead, Cursor, Read};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
-use byteorder::{ReadBytesExt};
-use bytes::Buf;
-use nom::{bytes::complete::take, combinator::map, IResult, number::complete::{le_u16, le_u32, le_u8}};
 
-use serde::Serialize;
 use common::err::DecodeError::ReError;
+use serde::Serialize;
 
-use crate::{
-    events::event_header::Header,
-    utils::{read_len_enc_num, pu64, read_fixed_len_string},
-};
 use crate::column::column_type::ColumnType;
 use crate::decoder::event_decoder_impl::TABLE_MAP;
 use crate::decoder::event_decoder_impl::TABLE_MAP_META;
-use crate::events::log_context::LogContext;
+use crate::events::log_context::{ILogContext, LogContext};
 use crate::events::log_event::LogEvent;
 use crate::metadata::table_metadata::TableMetadata;
+use crate::{
+    events::event_header::Header,
+    utils::{pu64, read_fixed_len_string, read_len_enc_num},
+};
 
 /// The event has table defition for row events.
 /// <a href="https://github.com/mysql/mysql-server/blob/mysql-cluster-8.0.22/libbinlogevents/include/rows_event.h#L521">See more</a>
@@ -87,11 +93,9 @@ pub struct ColumnInfo {
 
     geo_type: u32,
     // geo_type: u8,
-
     visibility: bool,
     array: bool,
 }
-
 
 impl TableMapEvent {
     pub fn get_table_id(&self) -> u64 {
@@ -105,11 +109,17 @@ impl TableMapEvent {
 }
 
 impl TableMapEvent {
-    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], TableMapEvent> {
+    pub fn parse<'a>(
+        input: &'a [u8],
+        header: &Header,
+        context: Rc<RefCell<LogContext>>,
+    ) -> IResult<&'a [u8], TableMapEvent> {
         let _context = context.borrow();
 
         let common_header_len = _context.get_format_description().common_header_len;
-        let query_post_header_len = _context.get_format_description().get_post_header_len(header.get_event_type() as usize);
+        let query_post_header_len = _context
+            .get_format_description()
+            .get_post_header_len(header.get_event_type() as usize);
 
         let mut column_info_maps: Vec<ColumnInfo> = Vec::new();
 
@@ -126,8 +136,8 @@ impl TableMapEvent {
         /* event-body部分 */
         let mut current_event_body_pos = 0u32;
         // event-body 部分长度
-        let data_len = header.get_event_length()
-            - (common_header_len + query_post_header_len) as u32;
+        let data_len =
+            header.get_event_length() - (common_header_len + query_post_header_len) as u32;
 
         // Database name is null terminated
         let (i, (schema_length, schema)) = read_fixed_len_string(i)?;
@@ -148,11 +158,13 @@ impl TableMapEvent {
         // let mut _column_types: Vec<ColumnTypes> = Vec::new();
         let (i, /* type is Vec<u8>*/ column_types): (&'a [u8], Vec<u8>) =
             map(take(column_count), |s: &[u8]| {
-                s.iter().map(|&t| {
-                    // _column_types.push(ColumnTypes::from(t));
-                    column_info_maps.push(ColumnInfo::new(t));
-                    t
-                }).collect()
+                s.iter()
+                    .map(|&t| {
+                        // _column_types.push(ColumnTypes::from(t));
+                        column_info_maps.push(ColumnInfo::new(t));
+                        t
+                    })
+                    .collect()
             })(i)?;
         current_event_body_pos += column_count as u32;
 
@@ -161,7 +173,8 @@ impl TableMapEvent {
         current_event_body_pos += _ml_size as u32;
 
         // parse_metadata
-        let (i, (_m_size, column_metadata_val, column_metadata)) = TableMapEvent::parse_metadata(i, &column_types).unwrap();
+        let (i, (_m_size, column_metadata_val, column_metadata)) =
+            TableMapEvent::parse_metadata(i, &column_types).unwrap();
         for idx in 0..column_metadata_val.len() {
             let column_info = column_info_maps.get_mut(idx).unwrap();
             column_info.set_meta(column_metadata_val[idx]);
@@ -170,8 +183,8 @@ impl TableMapEvent {
 
         let mask_len = (column_count + 7) / 8;
         let (i, null_bits) = map(take(mask_len), |s: &[u8]| s)(i)?;
-        let null_bitmap = TableMapEvent::read_bitmap_little_endian(
-            null_bits, column_count as usize).unwrap();
+        let null_bitmap =
+            TableMapEvent::read_bitmap_little_endian(null_bits, column_count as usize).unwrap();
         current_event_body_pos += mask_len as u32;
 
         for idx in 0..column_count as usize {
@@ -189,7 +202,12 @@ impl TableMapEvent {
             let extra_metadata_len = data_len - current_event_body_pos - 4;
             let (ii, _extra_metadata) = map(take(extra_metadata_len), |s: &[u8]| s)(i)?;
             let shard_column_info_maps = Arc::new(Mutex::new(column_info_maps));
-            let extra_metadata = TableMetadata::read_extra_metadata(_extra_metadata, &column_types, shard_column_info_maps.clone()).unwrap();
+            let extra_metadata = TableMetadata::read_extra_metadata(
+                _extra_metadata,
+                &column_types,
+                shard_column_info_maps.clone(),
+            )
+            .unwrap();
 
             // Table metadata is supported in MySQL 5.6+ and MariaDB 10.5+.
             table_metadata = Some(extra_metadata);
@@ -209,7 +227,7 @@ impl TableMapEvent {
         }
 
         let e = TableMapEvent {
-            header: Header::copy_and_get(&header, checksum, Vec::new()),
+            header: Header::copy_and_get(&header, checksum, HashMap::new()),
             table_id,
             flags,
             schema_length,
@@ -227,8 +245,10 @@ impl TableMapEvent {
         Ok((i, e))
     }
 
-    pub fn parse_metadata<'a>(input: &'a [u8], column_types: &Vec<u8>)
-                                 -> IResult<&'a [u8], (u32, Vec<u16>, Vec<ColumnType>)> {
+    pub fn parse_metadata<'a>(
+        input: &'a [u8],
+        column_types: &Vec<u8>,
+    ) -> IResult<&'a [u8], (u32, Vec<u16>, Vec<ColumnType>)> {
         let mut metadata = vec![0u16; column_types.len()];
         let mut metadata_type = Vec::<ColumnType>::with_capacity(column_types.len());
 
@@ -256,71 +276,70 @@ impl TableMapEvent {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Blob)
-                },
+                }
                 ColumnType::Double => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Double)
-                },
+                }
                 ColumnType::Float => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Float)
-                },
+                }
                 ColumnType::Geometry => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Geometry)
-                },
+                }
                 ColumnType::Time2 => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Time2)
-                },
+                }
                 ColumnType::DateTime2 => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::DateTime2)
-                },
+                }
                 ColumnType::Timestamp2 => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Timestamp2)
-                },
+                }
                 ColumnType::Json => {
                     let (source, meta) = map(le_u8, |v| v)(source)?;
                     _size += 1;
                     (source, meta as u16, ColumnType::Json)
-                },
+                }
 
                 // 2 bytes little endian
                 ColumnType::Bit => {
                     let (source, meta) = map(le_u16, |v| v)(source)?;
                     _size += 2;
                     (source, meta, /*  u16 --> 2 u8 */ ColumnType::Bit)
-                },
+                }
                 ColumnType::VarChar => {
                     let (source, meta) = map(le_u16, |v| v)(source)?;
                     _size += 2;
                     (source, meta, ColumnType::VarChar)
-                },
+                }
                 ColumnType::NewDecimal => {
                     // precision
                     let (source, precision) = map(le_u8, |v| v as u16)(source)?;
-                    let mut x: u16  = precision << 8;
+                    let mut x: u16 = precision << 8;
                     // decimals
                     let (source, decimals) = map(le_u8, |v| v)(source)?;
                     x += decimals as u16;
 
                     _size += 2;
                     (source, x, ColumnType::NewDecimal)
-                },
+                }
 
                 // 2 bytes big endian
                 /// log_event.h : The first byte is always MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
                 /// field size, i.e., the number of bytes in the representation of size of the string: 3 or 4.
-                ColumnType::Enum |
-                ColumnType::Set => {
+                ColumnType::Enum | ColumnType::Set => {
                     /*
                      * log_event.h : The first byte is always
                      * MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
@@ -336,7 +355,7 @@ impl TableMapEvent {
 
                     _size += 2;
                     (source, x, column_type.clone())
-                },
+                }
                 ColumnType::VarString => {
                     let (source, t) = map(le_u8, |v| v as u16)(source)?;
                     let mut x = t << 8;
@@ -346,7 +365,7 @@ impl TableMapEvent {
 
                     _size += 2;
                     (source, x, ColumnType::VarString)
-                },
+                }
                 ColumnType::String => {
                     let (source, t) = map(le_u8, |v| v as u16)(source)?;
                     let mut x = t << 8;
@@ -356,7 +375,7 @@ impl TableMapEvent {
 
                     _size += 2;
                     (source, x, ColumnType::String)
-                },
+                }
                 _ => (source, 0, column_type.clone()),
             };
             metadata[idx] = meta;
@@ -368,8 +387,10 @@ impl TableMapEvent {
     }
 
     /// Reads bitmap in little-endian bytes order
-    fn read_bitmap_little_endian<'a>(slice: &'a [u8], column_count: usize)
-                                               -> Result<Vec<u8>, ReError> {
+    fn read_bitmap_little_endian<'a>(
+        slice: &'a [u8],
+        column_count: usize,
+    ) -> Result<Vec<u8>, ReError> {
         let mut result = vec![0; column_count];
         // let mut result = vec![false; bits_number];
 
@@ -397,7 +418,6 @@ impl TableMapEvent {
 
         Ok(result)
     }
-
 }
 
 pub fn get_real_type(type_: u8, meta: u16) -> u8 {
@@ -490,5 +510,7 @@ impl ColumnInfo {
 }
 
 impl LogEvent for TableMapEvent {
-
+    fn get_type_name(&self) -> String {
+        "TableMapEvent".to_string()
+    }
 }

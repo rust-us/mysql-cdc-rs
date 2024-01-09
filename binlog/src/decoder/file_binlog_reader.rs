@@ -8,7 +8,7 @@ use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_header::{Header, HEADER_LEN};
-use crate::events::log_context::LogContext;
+use crate::events::log_context::{ILogContext, LogContext};
 use crate::events::log_position::LogPosition;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
@@ -87,8 +87,7 @@ impl FileBinlogReader {
         // Parse header
         let mut header_buffer = [0; LOG_EVENT_HEADER_LEN as usize];
         self.stream.read_exact(&mut header_buffer)?;
-        let (i, header) = Header::parse_v4_header(&header_buffer).unwrap();
-        assert_eq!(i.len(), 0);
+        let header = Header::parse_v4_header(&header_buffer, self.context.clone()).unwrap();
 
         // parser payload
         let payload_length = header.event_length as usize - LOG_EVENT_HEADER_LEN as usize;

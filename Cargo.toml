@@ -5,11 +5,11 @@
 members = [
     "common",
     "binlog",
-    "slave",
-    "./raft",
-    "./memory",
+#    "slave",
+#    "./raft",
+#    "./memory",
     "tests",
-    "replay_log",
+#    "replay_log",
 ]
 
 [workspace.dependencies]

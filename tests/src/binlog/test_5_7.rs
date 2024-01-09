@@ -1,19 +1,23 @@
-
 #[cfg(test)]
 mod test {
     use binlog::column;
-    use binlog::column::column_value::ColumnValue::{BigInt, Blob, Float, Double, Int, String, Decimal};
-    use binlog::events::event::Event::{AnonymousGtidLog, BeginLoadQuery, DeleteRows, ExecuteLoadQueryEvent, FormatDescription, GtidLog, IntVar, PreviousGtidsLog, Query, Rand, Rotate, RowQuery, Stop, TableMap, UpdateRows, UserVar, WriteRows, XID};
+    use binlog::events::event::Event::{
+        AnonymousGtidLog, BeginLoadQuery, DeleteRows, ExecuteLoadQueryEvent, FormatDescription,
+        GtidLog, IntVar, PreviousGtidsLog, Query, Rand, Rotate, RowQuery, Stop, TableMap,
+        UpdateRows, UserVar, WriteRows, XID,
+    };
+    use binlog::column::column_value::ColumnValue::{Blob, Float, Double, Int, String, Decimal};
     use binlog::events::{IntVarEventType, UserVarType};
-    use binlog::events::event_factory::EventFactory;
     use binlog::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::format_description_log_event::FormatDescriptionEvent;
     use binlog::events::protocol::gtid_log_event::GtidLogEvent;
     use binlog::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
+    use binlog::events::protocol::rotate_event::RotateEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;
     use binlog::events::protocol::update_rows_v12_event::UpdateRowsEvent;
     use binlog::events::protocol::write_rows_v12_event::WriteRowsEvent;
+    use binlog::factory::event_factory::{EventFactory, IEventFactory};
     use binlog::row::row_data::{RowData, UpdateRowData};
     use common::log::log_factory::LogFactory;
 
@@ -64,13 +68,13 @@ mod test {
         let (remain, output) = factory.parser_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
-            Rotate {
-                next_binlog,
-                position,
-                ..
-            } => {
-                assert_eq!(next_binlog, "mysql_bin.000002");
-                assert_eq!(*position, 4);
+            Rotate(RotateEvent {
+                       binlog_filename,
+                       binlog_position,
+                       ..
+                   })  => {
+                assert_eq!(binlog_filename, "mysql_bin.000002");
+                assert_eq!(*binlog_position, 4);
             }
             _ => panic!("should be rotate"),
         }
@@ -172,11 +176,11 @@ mod test {
         assert_eq!(output.len(), 3);
         match output.get(0).unwrap() {
             FormatDescription(FormatDescriptionEvent {
-                                  binlog_version,
-                                  server_version: mysql_server_version,
-                                  create_timestamp,
-                                  ..
-                              }) => {
+                binlog_version,
+                server_version: mysql_server_version,
+                create_timestamp,
+                ..
+            }) => {
                 assert_eq!(*binlog_version, 4);
                 assert_eq!(mysql_server_version, "5.7.30-log");
                 assert_eq!(*create_timestamp, 1596175634)
@@ -210,17 +214,15 @@ mod test {
         let (remain, output) = factory.parser_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
-            TableMap(
-                TableMapEvent {
-                    table_id,
-                    table_name,
-                    flags,
-                    column_metadata,
-                    column_metadata_type,
-                    null_bitmap,
-                    ..
-                }
-            ) => {
+            TableMap(TableMapEvent {
+                table_id,
+                table_name,
+                flags,
+                column_metadata,
+                column_metadata_type,
+                null_bitmap,
+                ..
+            }) => {
                 assert_eq!(*table_id, 110);
                 assert_eq!(table_name, "boxercrab");
                 assert_eq!(*flags, 1);
@@ -294,16 +296,18 @@ mod test {
 
         let row_data = RowData::new(vec![
             Some(column::column_value::ColumnValue::BigInt(1)),
-            Some(column::column_value::ColumnValue::String("abcde".to_string()))
+            Some(column::column_value::ColumnValue::String(
+                "abcde".to_string(),
+            )),
         ]);
 
         match output.get(10).unwrap() {
-            WriteRows(WriteRowsEvent{
-                          table_id,
-                          columns_number,
-                          rows,
-                          ..
-                      })  => {
+            WriteRows(WriteRowsEvent {
+                table_id,
+                columns_number,
+                rows,
+                ..
+            }) => {
                 assert_eq!(*table_id, 111);
                 assert_eq!(*columns_number, 2);
                 // assert_eq!(*rows, vec![row_data])
@@ -334,7 +338,7 @@ mod test {
                 Some(Blob(abc_bytes.clone())),
                 Some(Float(1.0)),
                 Some(Double(2.0)),
-                Some(Decimal("3.0000".to_string())),  // NewDecimal(vec![128, 0, 3, 0, 0])
+                Some(Decimal("3.0000".to_string())), // NewDecimal(vec![128, 0, 3, 0, 0])
             ],
         };
         let after_update: RowData = RowData {
@@ -347,20 +351,13 @@ mod test {
                 Some(Blob(xd_bytes.clone())),
                 Some(Float(4.0)),
                 Some(Double(4.0)),
-                Some(Decimal("4.0000".to_string())),  //  NewDecimal(vec![128, 0, 4, 0, 0])
+                Some(Decimal("4.0000".to_string())), //  NewDecimal(vec![128, 0, 4, 0, 0])
             ],
         };
         let row = UpdateRowData::new(before_update, after_update);
-        let values = vec![
-            row
-        ];
+        let values = vec![row];
         match update_row {
-            UpdateRows(UpdateRowsEvent {
-                           table_id,
-                           rows,
-                           ..
-                       })
-            => {
+            UpdateRows(UpdateRowsEvent { table_id, rows, .. }) => {
                 assert_eq!(*table_id, 208);
 
                 let rows_ = rows.clone();
@@ -368,7 +365,7 @@ mod test {
                 for i in 0..*len {
                     assert_eq!(rows_.get(i).unwrap(), values.get(i).unwrap());
                 }
-            },
+            }
             _ => panic!("should be update_row_v2"),
         }
     }
@@ -381,11 +378,11 @@ mod test {
         assert_eq!(remain.len(), 0);
         match output.get(16).unwrap() {
             DeleteRows(DeleteRowsEvent {
-                           table_id,
-                           columns_number,
-                           rows,
-                           ..
-                       })  => {
+                table_id,
+                columns_number,
+                rows,
+                ..
+            }) => {
                 assert_eq!(*table_id, 112);
                 assert_eq!(*columns_number, 2);
                 // assert_eq!(
@@ -400,7 +397,6 @@ mod test {
         }
     }
 
-
     #[test]
     fn test_gtid() {
         let input = include_bytes!("../../events/5.7/33_35_gtid_prev_gtid/log.bin");
@@ -409,14 +405,14 @@ mod test {
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
             GtidLog(GtidLogEvent {
-                        commit_flag,
-                        sid,
-                        gno,
-                        lt_type,
-                        last_committed,
-                        sequence_number,
-                        ..
-                    }) => {
+                commit_flag,
+                sid,
+                gno,
+                lt_type,
+                last_committed,
+                sequence_number,
+                ..
+            }) => {
                 assert_eq!(*commit_flag, true);
                 assert_eq!(sid, "80549ecc-d2f2-11ea-b790-0242ac130002");
                 // assert_eq!(sid, "12884158204-210242-17234-183144-2661721902");
@@ -437,14 +433,14 @@ mod test {
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
             AnonymousGtidLog(AnonymousGtidLogEvent {
-                                 commit_flag,
-                                 sid,
-                                 gno,
-                                 lt_type,
-                                 last_committed,
-                                 sequence_number,
-                                 ..
-                             }) => {
+                commit_flag,
+                sid,
+                gno,
+                lt_type,
+                last_committed,
+                sequence_number,
+                ..
+            }) => {
                 assert_eq!(*commit_flag, true);
                 assert_eq!(sid, "00000000-0000-0000-0000-000000000000");
                 assert_eq!(gno, "00000000");
@@ -463,9 +459,7 @@ mod test {
         let (remain, output) = factory.parser_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(1).unwrap() {
-            PreviousGtidsLog(PreviousGtidsLogEvent {
-                                 gtid_sets, ..
-                             })  => {
+            PreviousGtidsLog(PreviousGtidsLogEvent { gtid_sets, .. }) => {
                 assert_eq!(*gtid_sets, vec![0, 0, 0, 0]);
             }
             _ => panic!("should be previous gtid"),

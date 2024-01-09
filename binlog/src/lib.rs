@@ -10,6 +10,7 @@ pub mod decoder;
 pub mod metadata;
 pub mod column;
 pub mod row;
+pub mod factory;
 
 pub use events::{
     query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar},

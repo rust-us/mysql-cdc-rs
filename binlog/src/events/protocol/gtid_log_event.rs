@@ -1,14 +1,16 @@
+use std::collections::HashMap;
+use crate::events::event::Event;
+use crate::events::event_header::Header;
+use crate::events::log_event::LogEvent;
+use nom::number::complete::be_u64;
 use nom::{
-    bytes::complete::{take},
+    bytes::complete::take,
     combinator::map,
     number::complete::{le_i64, le_u32, le_u8},
     IResult,
 };
-use nom::number::complete::be_u64;
 use serde::Serialize;
 use uuid::Uuid;
-use crate::events::event_header::Header;
-use crate::events::log_event::LogEvent;
 
 pub const LOGICAL_TIMESTAMP_TYPE_CODE: u8 = 2;
 
@@ -36,8 +38,15 @@ pub struct GtidLogEvent {
 }
 
 impl GtidLogEvent {
-
-    pub fn new(header: Header, commit_flag: bool, sid: String, gno: String, lt_type: u8, last_committed: i64, sequence_number: i64) -> Self {
+    pub fn new(
+        header: Header,
+        commit_flag: bool,
+        sid: String,
+        gno: String,
+        lt_type: u8,
+        last_committed: i64,
+        sequence_number: i64,
+    ) -> Self {
         GtidLogEvent {
             header,
             commit_flag,
@@ -50,18 +59,21 @@ impl GtidLogEvent {
     }
 
     pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], GtidLogEvent> {
-        let (i,
-            (   commit_flag,
+        let (
+            i,
+            (
+                commit_flag,
                 source_id,
                 transaction_id,
                 lt_type,
                 last_committed,
                 sequence_number,
-                checksum)) =
-            GtidLogEvent::parse_events_gtid(input, &header)?;
+                checksum,
+            ),
+        ) = GtidLogEvent::parse_events_gtid(input, &header)?;
 
         let e = GtidLogEvent {
-            header: Header::copy_and_get(&header, checksum, Vec::new()),
+            header: Header::copy_and_get(&header, checksum, HashMap::new()),
             commit_flag,
             sid: source_id,
             gno: transaction_id,
@@ -74,7 +86,8 @@ impl GtidLogEvent {
     }
 
     pub fn parse_events_gtid<'a>(
-        input: &'a [u8], header: &Header
+        input: &'a [u8],
+        header: &Header,
     ) -> IResult<&'a [u8], (bool, String, String, u8, i64, i64, u32)> {
         // 记录binlog格式:
         // 如果gtid_flags值为1，表示binlog中可能有以statement方式记录的binlog
@@ -187,5 +200,7 @@ impl GtidLogEvent {
 }
 
 impl LogEvent for GtidLogEvent {
-
+    fn get_type_name(&self) -> String {
+        "GtidLogEvent".to_string()
+    }
 }

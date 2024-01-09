@@ -54,6 +54,7 @@ pub enum LogEventType {
     UNKNOWN_EVENT = 0,
 
     ///  START_EVENT_V3事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
+    /// This is sent only by MySQL <=4.x
     START_EVENT_V3 = 1,
 
     /// 记录一条query语句，在基于语句的复制和基于行的复制都会有。

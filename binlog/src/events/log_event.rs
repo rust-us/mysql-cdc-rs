@@ -1,3 +1,4 @@
+use crate::events::event::Event;
 
 /// 3 is MySQL 4.x; 4 is MySQL 5.0.0. Compared to version 3, version 4 has: -
 /// a different Start_log_event, which includes info about the binary log
@@ -27,21 +28,20 @@ pub const SERVER_VERSION_3: &str = "3.23";
 ////////////////////////////////////////////////////////////////////////
 /// Event header offsets; these point to places inside the fixed header.
 ////////////////////////////////////////////////////////////////////////
-pub const EVENT_TYPE_OFFSEN: i32= 4;
-pub const SERVER_ID_OFFSEN: i32= 5;
-pub const EVENT_LEN_OFFSETN: i32= 9;
-pub const LOG_POS_OFFSETN: i32= 13;
-pub const FLAGS_OFFSETN: i32= 17;
+pub const EVENT_TYPE_OFFSEN: i32 = 4;
+pub const SERVER_ID_OFFSEN: i32 = 5;
+pub const EVENT_LEN_OFFSETN: i32 = 9;
+pub const LOG_POS_OFFSETN: i32 = 13;
+pub const FLAGS_OFFSETN: i32 = 17;
 
 ///
 /// 1 byte length, 1 byte format Length is total length in bytes, including 2
 /// byte header Length values 0 and 1 are currently invalid and reserved.
 ///
-pub const EXTRA_ROW_INFO_LEN_OFFSET: u8= 0;
-pub const EXTRA_ROW_INFO_FORMAT_OFFSET: u8= 1;
-pub const EXTRA_ROW_INFO_HDR_BYTES: u8= 2;
-pub const EXTRA_ROW_INFO_MAX_PAYLOAD: u8= (255 - EXTRA_ROW_INFO_HDR_BYTES);
-
+pub const EXTRA_ROW_INFO_LEN_OFFSET: u8 = 0;
+pub const EXTRA_ROW_INFO_FORMAT_OFFSET: u8 = 1;
+pub const EXTRA_ROW_INFO_HDR_BYTES: u8 = 2;
+pub const EXTRA_ROW_INFO_MAX_PAYLOAD: u8 = (255 - EXTRA_ROW_INFO_HDR_BYTES);
 
 /// event-specific post-header sizes where 3.23, 4.x and 5.0 agree.
 /// 11 byte
@@ -51,6 +51,6 @@ pub const QUERY_HEADER_MINIMAL_LEN: u8 = (4 + 4 + 1 + 2);
 pub const QUERY_HEADER_LEN: u8 = (QUERY_HEADER_MINIMAL_LEN + 2);
 
 pub trait LogEvent {
-    //.
+    /// 事件名
+    fn get_type_name(&self) -> String;
 }
-

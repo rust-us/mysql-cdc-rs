@@ -1,19 +1,23 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::io::{Cursor, Read};
+use std::rc::Rc;
+use byteorder::{LittleEndian, ReadBytesExt};
 use crate::events::event_header::Header;
 use crate::events::protocol::start_log_event_v3::*;
 
-use nom::{
-    bytes::complete::{take},
-    combinator::map,
-    number::complete::{le_u16, le_u32, le_u8},
-    IResult,
-};
-use serde::Serialize;
-use crate::b_type::{C_ENUM_END_EVENT, LogEventType};
 use crate::b_type::LogEventType::*;
-use crate::events::checksum_type::{BINLOG_CHECKSUM_ALG_DESC_LEN, ChecksumType, ST_COMMON_PAYLOAD_CHECKSUM_LEN};
+use crate::b_type::{LogEventType, C_ENUM_END_EVENT};
+use crate::events::checksum_type::{
+    ChecksumType, BINLOG_CHECKSUM_ALG_DESC_LEN, ST_COMMON_PAYLOAD_CHECKSUM_LEN,
+};
 use crate::events::event::Event::*;
 use crate::events::log_event::*;
 use crate::utils::extract_string;
+use serde::Serialize;
+use common::err::DecodeError::ReError;
+use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_position::LogPosition;
 
 //
 // public static final int
@@ -23,16 +27,16 @@ use crate::utils::extract_string;
 /// does not have a format).
 pub const LOG_EVENT_TYPES: usize = (C_ENUM_END_EVENT - 1) as usize;
 
-/// 除了checksum_alg、checksum 之外的 payload 大小： (2 + 50 + 4 + 1)
-pub const ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN: u8 = (ST_SERVER_VER_OFFSET + ST_SERVER_VER_LEN + 4 + 1);
-pub const ST_COMMON_HEADER_LEN_OFFSET: u8 =  ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN;
+/// 除了checksum_alg、checksum 之外的 payload 大小： (2 + 50 + 4)
+pub const ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN: u8 =
+    (ST_SERVER_VER_OFFSET + ST_SERVER_VER_LEN + 4);
+pub const ST_COMMON_HEADER_LEN_OFFSET: u8 = ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN;
 // pub const ST_COMMON_HEADER_LEN_OFFSET: isize =  (ST_SERVER_VER_OFFSET + ST_SERVER_VER_LEN + 4);
 
 /// header 大小
 pub const OLD_HEADER_LEN: u8 = 13;
 pub const LOG_EVENT_HEADER_LEN: u8 = 19;
 pub const LOG_EVENT_MINIMAL_HEADER_LEN: u8 = 19;
-
 
 ///////////////////////////////////////////
 /// event-specific post-header sizes
@@ -57,7 +61,8 @@ pub const BEGIN_LOAD_QUERY_HEADER_LEN: u8 = APPEND_BLOCK_HEADER_LEN;
 pub const ROWS_HEADER_LEN_V1: u8 = 8;
 pub const TABLE_MAP_HEADER_LEN: u8 = 8;
 pub const EXECUTE_LOAD_QUERY_EXTRA_HEADER_LEN: u8 = (4 + 4 + 4 + 1);
-pub const EXECUTE_LOAD_QUERY_HEADER_LEN: u8 = (QUERY_HEADER_LEN + EXECUTE_LOAD_QUERY_EXTRA_HEADER_LEN);
+pub const EXECUTE_LOAD_QUERY_HEADER_LEN: u8 =
+    (QUERY_HEADER_LEN + EXECUTE_LOAD_QUERY_EXTRA_HEADER_LEN);
 pub const INCIDENT_HEADER_LEN: u8 = 2;
 pub const HEARTBEAT_HEADER_LEN: u8 = 0;
 pub const IGNORABLE_HEADER_LEN: u8 = 0;
@@ -73,7 +78,6 @@ pub const GTID_HEADER_LEN: u8 = 19;
 pub const GTID_LIST_HEADER_LEN: u8 = 4;
 pub const START_ENCRYPTION_HEADER_LEN: u8 = 0;
 pub const POST_HEADER_LENGTH: u8 = 11;
-
 
 /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L295-L344
 /// event_data layout: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L387-L416
@@ -124,26 +128,19 @@ pub enum FormatDescriptionsVersion {
 
     /// MySQL 5.0 format descriptions
     V5_0,
-
 }
 
 impl FormatDescriptionDeclare {
     pub fn new(binlog_version: u16) -> Self {
         match binlog_version {
-            4 => {
-                FormatDescriptionDeclare {
-                    fdv: FormatDescriptionsVersion::V5_0,
-                }
+            4 => FormatDescriptionDeclare {
+                fdv: FormatDescriptionsVersion::V5_0,
             },
-            3 => {
-                FormatDescriptionDeclare {
-                    fdv: FormatDescriptionsVersion::V4_0_x,
-                }
+            3 => FormatDescriptionDeclare {
+                fdv: FormatDescriptionsVersion::V4_0_x,
             },
-            1 => {
-                FormatDescriptionDeclare {
-                    fdv: FormatDescriptionsVersion::V3_23,
-                }
+            1 => FormatDescriptionDeclare {
+                fdv: FormatDescriptionsVersion::V3_23,
             },
             _ => {
                 log::error!("unexpected binlog_version: {:x}", binlog_version);
@@ -168,7 +165,6 @@ impl FormatDescriptionEvent {
     pub fn is_v3(&self) -> bool {
         self.declare.fdv == FormatDescriptionsVersion::V4_0_x
         // self.binlog_version == 3
-
     }
 
     pub fn is_v4(&self) -> bool {
@@ -203,12 +199,12 @@ impl FormatDescriptionEvent {
     }
 
     pub fn declare(binlog_version: u16) -> Self {
-        let mut server_version:String = String::default();
-        let mut common_header_len:u8 = LOG_EVENT_HEADER_LEN;
-        let mut number_of_event_types:u32 = LOG_EVENT_TYPES as u32;
-        let mut post_header_len = vec![0;LogEventType::ENUM_END_EVENT.as_val()];
+        let mut server_version: String = String::default();
+        let mut common_header_len: u8 = LOG_EVENT_HEADER_LEN;
+        let mut number_of_event_types: u32 = LOG_EVENT_TYPES as u32;
+        let mut post_header_len = vec![0; LogEventType::ENUM_END_EVENT.as_val()];
 
-        let mut create_timestamp:u32 = 0;
+        let mut create_timestamp: u32 = 0;
 
         match binlog_version {
             4 => {
@@ -232,10 +228,12 @@ impl FormatDescriptionEvent {
                 post_header_len[NEW_LOAD_EVENT.as_val() - 1] = NEW_LOAD_HEADER_LEN;
                 post_header_len[RAND_EVENT.as_val() - 1] = RAND_HEADER_LEN;
                 post_header_len[USER_VAR_EVENT.as_val() - 1] = USER_VAR_HEADER_LEN;
-                post_header_len[FORMAT_DESCRIPTION_EVENT.as_val() - 1] = FORMAT_DESCRIPTION_HEADER_LEN;
+                post_header_len[FORMAT_DESCRIPTION_EVENT.as_val() - 1] =
+                    FORMAT_DESCRIPTION_HEADER_LEN;
                 post_header_len[XID_EVENT.as_val() - 1] = XID_HEADER_LEN;
                 post_header_len[BEGIN_LOAD_QUERY_EVENT.as_val() - 1] = BEGIN_LOAD_QUERY_HEADER_LEN;
-                post_header_len[EXECUTE_LOAD_QUERY_EVENT.as_val() - 1] = EXECUTE_LOAD_QUERY_HEADER_LEN;
+                post_header_len[EXECUTE_LOAD_QUERY_EVENT.as_val() - 1] =
+                    EXECUTE_LOAD_QUERY_HEADER_LEN;
                 post_header_len[TABLE_MAP_EVENT.as_val() - 1] = TABLE_MAP_HEADER_LEN;
                 post_header_len[WRITE_ROWS_EVENT_V1.as_val() - 1] = ROWS_HEADER_LEN_V1;
                 post_header_len[UPDATE_ROWS_EVENT_V1.as_val() - 1] = ROWS_HEADER_LEN_V1;
@@ -260,15 +258,18 @@ impl FormatDescriptionEvent {
                 post_header_len[ANONYMOUS_GTID_LOG_EVENT.as_val() - 1] = POST_HEADER_LENGTH;
                 post_header_len[PREVIOUS_GTIDS_LOG_EVENT.as_val() - 1] = IGNORABLE_HEADER_LEN;
 
-                post_header_len[TRANSACTION_CONTEXT_EVENT.as_val() - 1] = TRANSACTION_CONTEXT_HEADER_LEN;
+                post_header_len[TRANSACTION_CONTEXT_EVENT.as_val() - 1] =
+                    TRANSACTION_CONTEXT_HEADER_LEN;
                 post_header_len[VIEW_CHANGE_EVENT.as_val() - 1] = VIEW_CHANGE_HEADER_LEN;
                 post_header_len[XA_PREPARE_LOG_EVENT.as_val() - 1] = XA_PREPARE_HEADER_LEN;
                 post_header_len[PARTIAL_UPDATE_ROWS_EVENT.as_val() - 1] = ROWS_HEADER_LEN_V2;
-                post_header_len[TRANSACTION_PAYLOAD_EVENT.as_val() - 1] = TRANSACTION_PAYLOAD_HEADER_LEN;
+                post_header_len[TRANSACTION_PAYLOAD_EVENT.as_val() - 1] =
+                    TRANSACTION_PAYLOAD_HEADER_LEN;
 
                 // mariadb 10
                 post_header_len[ANNOTATE_ROWS_EVENT.as_val() - 1] = ANNOTATE_ROWS_HEADER_LEN;
-                post_header_len[BINLOG_CHECKPOINT_EVENT.as_val() - 1] = BINLOG_CHECKPOINT_HEADER_LEN;
+                post_header_len[BINLOG_CHECKPOINT_EVENT.as_val() - 1] =
+                    BINLOG_CHECKPOINT_HEADER_LEN;
                 post_header_len[GTID_EVENT.as_val() - 1] = GTID_HEADER_LEN;
                 post_header_len[GTID_LIST_EVENT.as_val() - 1] = GTID_LIST_HEADER_LEN;
                 post_header_len[START_ENCRYPTION_EVENT.as_val() - 1] = START_ENCRYPTION_HEADER_LEN;
@@ -276,12 +277,13 @@ impl FormatDescriptionEvent {
                 // mariadb compress
                 post_header_len[QUERY_COMPRESSED_EVENT.as_val() - 1] = QUERY_COMPRESSED_EVENT as u8;
                 post_header_len[WRITE_ROWS_COMPRESSED_EVENT.as_val() - 1] = ROWS_HEADER_LEN_V2;
-                post_header_len[UPDATE_DELETE_ROWS_COMPRESSED_EVENT.as_val() - 1] = ROWS_HEADER_LEN_V2;
+                post_header_len[UPDATE_DELETE_ROWS_COMPRESSED_EVENT.as_val() - 1] =
+                    ROWS_HEADER_LEN_V2;
                 post_header_len[UPDATE_DELETE_ROWS_COMPRESSED_EVENT.as_val()] = ROWS_HEADER_LEN_V2;
                 post_header_len[WRITE_ROWS_COMPRESSED_EVENT_V1.as_val() - 1] = ROWS_HEADER_LEN_V1;
                 post_header_len[UPDATE_ROWS_COMPRESSED_EVENT_V1.as_val() - 1] = ROWS_HEADER_LEN_V1;
                 post_header_len[DELETE_ROWS_COMPRESSED_EVENT_V1.as_val() - 1] = ROWS_HEADER_LEN_V1;
-            },
+            }
             3 => {
                 //  4.0.x x>=2
                 server_version = SERVER_VERSION_4.to_string();
@@ -306,21 +308,22 @@ impl FormatDescriptionEvent {
                 post_header_len[APPEND_BLOCK_EVENT.as_val() - 1] = APPEND_BLOCK_HEADER_LEN;
                 post_header_len[EXEC_LOAD_EVENT.as_val() - 1] = EXEC_LOAD_HEADER_LEN;
                 post_header_len[DELETE_FILE_EVENT.as_val() - 1] = DELETE_FILE_HEADER_LEN;
-                post_header_len[NEW_LOAD_EVENT.as_val() - 1] = post_header_len[LOAD_EVENT.as_val() - 1];
-            },
+                post_header_len[NEW_LOAD_EVENT.as_val() - 1] =
+                    post_header_len[LOAD_EVENT.as_val() - 1];
+            }
             1 => {
                 // 3.23
                 server_version = SERVER_VERSION_3.to_string();
                 common_header_len = OLD_HEADER_LEN as u8;
 
                 /*
-                * The first new event in binlog version 4 is Format_desc. So
-                * any event type after that does not exist in older versions.
-                * We use the events known by version 3, even if version 1 had
-                * only a subset of them (this is not a problem: it uses a few
-                * bytes for nothing but unifies code; it does not make the
-                * slave detect less corruptions).
-                */
+                 * The first new event in binlog version 4 is Format_desc. So
+                 * any event type after that does not exist in older versions.
+                 * We use the events known by version 3, even if version 1 had
+                 * only a subset of them (this is not a problem: it uses a few
+                 * bytes for nothing but unifies code; it does not make the
+                 * slave detect less corruptions).
+                 */
                 number_of_event_types = (FORMAT_DESCRIPTION_EVENT.as_val() - 1) as u32;
 
                 post_header_len[START_EVENT_V3.as_val() - 1] = START_V3_HEADER_LEN;
@@ -330,8 +333,9 @@ impl FormatDescriptionEvent {
                 post_header_len[APPEND_BLOCK_EVENT.as_val() - 1] = APPEND_BLOCK_HEADER_LEN;
                 post_header_len[EXEC_LOAD_EVENT.as_val() - 1] = EXEC_LOAD_HEADER_LEN;
                 post_header_len[DELETE_FILE_EVENT.as_val() - 1] = DELETE_FILE_HEADER_LEN;
-                post_header_len[NEW_LOAD_EVENT.as_val() - 1] = post_header_len[LOAD_EVENT.as_val() - 1];
-            },
+                post_header_len[NEW_LOAD_EVENT.as_val() - 1] =
+                    post_header_len[LOAD_EVENT.as_val() - 1];
+            }
             _ => {
                 common_header_len = 0;
                 number_of_event_types = 0;
@@ -349,7 +353,6 @@ impl FormatDescriptionEvent {
             number_of_event_types,
             declare: FormatDescriptionDeclare::new(binlog_version),
         }
-
     }
 
     /// format_desc event格式   [startPos : Len]
@@ -383,39 +386,58 @@ impl FormatDescriptionEvent {
     /// |        | checksum      76+n+5 : 4   |
     /// |        +----------------------------+
     /// +=====================================+
-    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], FormatDescriptionEvent> {
+    pub fn parse<'a>(
+        cursor: &mut Cursor<&[u8]>,
+        header: &Header,
+        context: Rc<RefCell<LogContext>>,
+    ) -> Result<FormatDescriptionEvent, ReError> {
         // let declare: FormatDescriptionDeclare = context.get_format_description().get_declare();
         let declare: FormatDescriptionDeclare = FormatDescriptionDeclare::new(4);
 
         // 一个 u16 代表的 binlog 版本
-        let (i, binlog_version) = le_u16(input)?;
+
+        let binlog_version = cursor.read_u16::<LittleEndian>()?;
         // 一个固定长度为 50 的字符串（可能包含多个 \0 终止符)
-        let (i, server_version) = map(take(ST_SERVER_VER_LEN), |s: &[u8]| extract_string(s))(i)?;
+        let mut _server_version_vec = vec![0; ST_SERVER_VER_LEN as usize];
+        cursor.read_exact(&mut _server_version_vec)?;
+        let server_version = extract_string(&_server_version_vec);
+
         /* Redundant timestamp & header length which is always 19 */
         // u32 的 timestamp
-        let (i, create_timestamp) = le_u32(i)?;
+        let create_timestamp = cursor.read_u32::<LittleEndian>()?;
         // let create_timestamp = 0;
-        let (i, common_header_len) = le_u8(i)?;
+        let common_header_len = cursor.read_u8()?;
 
         // 一直到事件结尾(去除后面 checksum 和算法)的数组
         // supported_types 要取多少个字节 = header.event_size - 19[header 大小] - (2 + 50 + 4 + 1) - 1[checksum_alg size] - 4[checksum size]
         // 剩下的就是 supported_types 占用的字节数
-        let number_of_event_types = header.event_length -
-            (LOG_EVENT_MINIMAL_HEADER_LEN + ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN) as u32
-            - BINLOG_CHECKSUM_ALG_DESC_LEN as u32 - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32;
+        let number_of_event_types = header.event_length
+            - (LOG_EVENT_MINIMAL_HEADER_LEN + ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN) as u32
+            - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
+            // crc
+            - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32;
 
-        let (i, post_header_len) = map(take(number_of_event_types as u8), |s: &[u8]| s.to_vec())(i)?;
+        let mut post_header_len = vec![0; number_of_event_types as usize];
+        for i in 0..number_of_event_types as usize {
+            post_header_len[i] = cursor.read_u8()?;
+        }
 
+        let split_server_version = FormatDescriptionEvent::server_version_split_with_dot(server_version.clone());
+        // let current_pos = cursor.position();
+        // cursor.set_position((header.event_length
+        //     - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
+        //     - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32)
+        //     as u64);
         let mut checksum_type = ChecksumType::None;
-        let (i, checksum_alg) = le_u8(i)?;
-        checksum_type = ChecksumType::from_code(checksum_alg).unwrap();
 
-        let (i, crc) = le_u32(i)?;
+        // let (i, checksum_alg) = cursor.read_u8()?;
+        // checksum_type = ChecksumType::from_code(checksum_alg).unwrap();
 
-        let header_new:Header = Header::copy_and_get(&header, crc, Vec::new());
+        let crc = cursor.read_u32::<LittleEndian>()?;
 
-        Ok((
-            i,
+        let header_new: Header = Header::copy_and_get(&header, crc, HashMap::new());
+
+        Ok(
             FormatDescriptionEvent {
                 header: header_new,
                 binlog_version,
@@ -423,14 +445,73 @@ impl FormatDescriptionEvent {
                 checksum_type,
                 create_timestamp,
                 common_header_len,
-                post_header_len: post_header_len,
+                post_header_len,
                 number_of_event_types,
-                declare
+                declare,
             },
-        ))
+        )
+    }
+
+    /// 将字符串按照 dot 符号切割，并转换为 mysql标准的版本号数字
+    fn server_version_split_with_dot(server_version: String) -> Vec<u8> {
+        let items: Vec<&str> = server_version.split(".").collect();
+        if items.len() < 3 {
+            return vec![0; 3];
+        }
+
+        let mut split = vec![0; 3];
+
+        for i in 0..3 {
+            let mut j = 0;
+            let v = items[i];
+            for char in v.chars() {
+                if !char.is_ascii_digit() {
+                    break;
+                }
+                j += 1;
+            }
+
+            if j > 0 {
+                let (number_part, last) = v.split_at(j);
+                let _v = number_part.parse::<u8>().unwrap();
+                split[i] = _v;
+            } else {
+                // 非法版本
+                split[0] = 0;
+                split[1] = 0;
+                split[2] = 0;
+            }
+        }
+
+        split
     }
 }
 
 impl LogEvent for FormatDescriptionEvent {
+    fn get_type_name(&self) -> String {
+        "FormatDescriptionEvent".to_string()
+    }
+}
 
+#[cfg(test)]
+mod test {
+    use crate::events::log_context::{ILogContext, LogContext};
+    use crate::events::log_position::LogPosition;
+    use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
+
+    #[test]
+    fn test_server_version_split_with_dot() {
+        let mut _context:LogContext = LogContext::new(LogPosition::new("AA"));
+        _context.set_log_position_with_offset(66);
+
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("192.168.9".to_string()), vec![192,168,9]);
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19-a.16B.9".to_string()), vec![19,16,9]);
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19.16.9a".to_string()), vec![19,16,9]);
+
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19-a.16B.c9".to_string()), vec![0,0,0]);
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("a19.16.c9".to_string()), vec![0,0,0]);
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("a19.16.9".to_string()), vec![0,16,9]);
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19.a16.9".to_string()), vec![0,0,9]);
+        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19.16.a9".to_string()), vec![0,0,0]);
+    }
 }

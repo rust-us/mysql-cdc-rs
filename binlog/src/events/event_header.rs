@@ -1,10 +1,17 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::rc::Rc;
+use byteorder::{LittleEndian, ReadBytesExt};
 use nom::{
     bytes::complete::{tag},
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
     IResult,
 };
 use serde::Serialize;
+use common::err::DecodeError::ReError;
+use crate::b_type::LogEventType::{FORMAT_DESCRIPTION_EVENT, ROTATE_EVENT};
 use crate::events::event_header_flag::EventFlag;
+use crate::events::log_context::{ILogContext, LogContext};
 
 
 pub const HEADER_LEN: u8 = 4;
@@ -40,27 +47,48 @@ pub struct Header {
     pub event_type: u8,
 
     /// u32 的 server_id。 4 byte， 该id表明binlog的源server是哪个，用来在循环复制 binlog event）
+    ///
+    /// The master's server id (is preserved in the relay log;
+    /// used to prevent from infinite loops in circular replication).
     pub server_id: u32,
 
     /// u32 事件大小， Gets event length (header + event + checksum).
+    /// Number of bytes written by write() function
     pub event_length: u32,
 
-    /// Gets file position of next event.  v4版本
+    /// Gets file position of next event.
+    ///
+    /// The offset in the log where this event originally appeared (it is
+    /// preserved in relay logs, making SHOW SLAVE STATUS able to print coordinates of the event in the master's binlog).
+    /// Note: when a transaction is written by the master to its binlog (wrapped in
+    /// BEGIN/COMMIT) the log_pos of all the queries it contains is the one of
+    /// the BEGIN (this way, when one does SHOW SLAVE STATUS it sees the offset of the BEGIN,
+    /// which is logical as rollback may occur), except the COMMIT query which has its real offset.
+    ///
     pub log_pos: u32,
 
     /// Gets event flags.
+    /// Some 16 flags. See the definitions above for LOG_EVENT_TIME_F, LOG_EVENT_FORCED_ROTATE_F,
+    /// LOG_EVENT_THREAD_SPECIFIC_F, and LOG_EVENT_SUPPRESS_USE_F for notes.
+    ///
     /// See <a href="https://mariadb.com/kb/en/2-binlog-event-header/#event-flag">documentation</a>.
     pub flags: u16,
     pub flags_attr: EventFlag,
 
     ///////////////////////////////////////////////////
-    /// other
+    // other
     ///////////////////////////////////////////////////
-    /// checksum
+    /// The value is set by caller of FD constructor and Log_event::write_header() for the rest.
+    /// In the FD case it's propagated into the last byte of post_header_len[] at FD::write().
+    /// On the slave side the value is assigned from post_header_len[last] of the last seen FD event.
+    pub checksum_alg: u8,
+
+    /// checksum, Placeholder for event checksum while writing to binlog.
     pub checksum: u32,
 
     log_file_name : String,
-    pub gtid_map : Vec<u8>,
+
+    pub gtid_map : HashMap<u8, String>,
 }
 
 impl Default for Header {
@@ -73,9 +101,10 @@ impl Default for Header {
             log_pos: 0,
             flags: 0,
             flags_attr: Default::default(),
+            checksum_alg: 0,
             checksum: 0,
             log_file_name: "".to_string(),
-            gtid_map: vec![],
+            gtid_map: HashMap::new(),
         }
     }
 }
@@ -106,8 +135,20 @@ impl Header {
         self.checksum = checksum;
     }
 
-    pub fn new(log_file_name:String, when: u32, event_type: u8, server_id: u32,
-               event_length: u32, log_pos: u32, flags: u16) -> Self {
+    pub fn new(log_file_name:String, when: u32,
+               event_type: u8, server_id: u32,
+               event_length: u32, log_pos: u32,
+               flags: u16) -> Self {
+        let flags_attr = EventFlag::from(flags);
+
+        Header::new_with_checksum_alg(log_file_name, when, event_type, server_id,
+                                      event_length, log_pos, flags, 0)
+    }
+
+    pub fn new_with_checksum_alg(log_file_name:String, when: u32,
+               event_type: u8, server_id: u32,
+               event_length: u32, log_pos: u32,
+               flags: u16, checksum_alg: u8) -> Self {
         let flags_attr = EventFlag::from(flags);
 
         Header {
@@ -118,9 +159,10 @@ impl Header {
             log_pos,
             flags,
             flags_attr,
+            checksum_alg,
             checksum: 0,
             log_file_name,
-            gtid_map: vec![],
+            gtid_map: HashMap::new(),
         }
     }
 
@@ -130,20 +172,83 @@ impl Header {
     }
 
     /// 解析 header
-    pub fn parse_v4_header<'a>(input: &'a [u8]) -> IResult<&'a [u8], Header> {
-        let (i, timestamp) = le_u32(input)?;
-        let (i, event_type) = le_u8(i)?;
-        let (i, server_id) = le_u32(i)?;
-        let (i, event_length) = le_u32(i)?;
-        let (i, log_pos) = le_u32(i)?;
+    pub fn parse_v4_header(bytes: &[u8], context: Rc<RefCell<LogContext>>) -> Result<Header, ReError> {
+        let mut cursor = Cursor::new(bytes);
+        let mut checksum_alg = 0;
 
-        // 计算 flags
-        let (i, flags) = le_u16(i)?;
+        let timestamp = cursor.read_u32::<LittleEndian>()?;
+        let event_type = cursor.read_u8()?;
+        let server_id = cursor.read_u32::<LittleEndian>()?;
+        let event_length = cursor.read_u32::<LittleEndian>()?;
 
-        Ok((
-            i,
-            Header::new("".to_string(), timestamp, event_type, server_id, event_length, log_pos, flags),
-        ))
+        let _context = context.borrow();
+        let current_binlog_version = _context.get_format_description().binlog_version;
+
+        if current_binlog_version == 1 {
+            return
+                Ok(
+                    Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
+                                                  event_length, 0, 0, checksum_alg),
+                );
+        }
+
+        // 4.0 or newer
+        let mut log_pos = cursor.read_u32::<LittleEndian>()?;
+
+        // If the log is 4.0 (so here it can only be a 4.0 relay log read by the SQL thread or a 4.0 master binlog read by the I/O thread),
+        // log_pos is the beginning of the event:
+        // we transform it into the end of the event, which is more useful.
+        //
+        // But how do you know that the log is 4.0:
+        // you know it if description_event is version 3 *and* you are not reading a Format_desc (remember that mysqlbinlog starts by assuming that 5.0 logs are in 4.0 format,
+        // until it finds a Format_desc).
+        if current_binlog_version == 3
+            && event_type < FORMAT_DESCRIPTION_EVENT as u8
+            && log_pos != 0 {
+            // If log_pos=0, don't change it. log_pos==0 is a marker to mean
+            // "don't change rli->group_master_log_pos" (see inc_group_relay_log_pos()).
+            // As it is unreal log_pos, adding the event len's is nonsense.
+            //
+            // For example, a fake Rotate event should not have its log_pos (which is 0) changed or it will modify
+            // Exec_master_log_pos in SHOW SLAVE STATUS, displaying a nonsense
+            // value of (a non-zero offset which does not exist in the master's binlog,
+            // so which will cause problems if the user uses this value in CHANGE MASTER).
+            log_pos += event_length;
+        }
+
+        let flags = cursor.read_u16::<LittleEndian>()?;
+
+        if event_type == ROTATE_EVENT as u8 {
+            return
+                Ok(
+                    Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
+                                                  event_length, log_pos, flags, checksum_alg),
+                );
+        }
+
+        if event_type == FORMAT_DESCRIPTION_EVENT as u8 {
+            // These events always have a header which stops here (i.e. their header is FROZEN).
+            //
+            // Initialization to zero of all other Log_event members as they're not specified.
+            // Currently there are no such members;
+            // in the future there will be an event UID (but Format_description and Rotate don't need this UID,
+            // as they are not propagated through --log-slave-updates (remember the UID is used to not play a query
+            // twice when you have two masters which are slaves of a 3rd master).
+            // Then we are done.
+
+            // need do parser checksumAlg, parser crc
+            return
+                Ok(
+                    Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
+                                                  event_length, log_pos, flags, checksum_alg),
+                );
+        }
+
+        // need do parser checksumAlg, parser crc
+        Ok(
+            Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
+                                          event_length, log_pos, flags, checksum_alg),
+        )
     }
 
     pub fn copy(source: &Header) -> Self  {
@@ -157,13 +262,14 @@ impl Header {
             log_pos: source.log_pos,
             flags: source.flags,
             flags_attr: source.get_flags_attr(),
+            checksum_alg: 0,
             checksum: source.checksum,
             log_file_name,
             gtid_map: source.gtid_map.clone(),
         }
     }
 
-    pub fn copy_and_get(source: &Header, checksum: u32, gtid_map : Vec<u8>) -> Self  {
+    pub fn copy_and_get(source: &Header, checksum: u32, gtid_map : HashMap<u8, String>) -> Self  {
         let log_file_name : String = source.get_log_file_name();
 
         Header {
@@ -174,6 +280,7 @@ impl Header {
             log_pos: source.log_pos,
             flags: source.flags,
             flags_attr: source.get_flags_attr(),
+            checksum_alg: source.checksum_alg,
             checksum,
             log_file_name,
             gtid_map,
@@ -181,28 +288,11 @@ impl Header {
     }
 }
 
-// impl<I: InputBuf> Decode<I> for EventHeader {
-//     fn decode(input: &mut I) -> Result<Self, DecodeError> {
-//         let timestamp = Int4::decode(input)?;
-//         let event_type = Int1::decode(input)?;
-//         let server_id = Int4::decode(input)?;
-//         let event_size = Int4::decode(input)?;
-//         let log_pos = Int4::decode(input)?;
-//         let flags = EventHeaderFlag::decode(input)?;
-//
-//         Ok(Self {
-//             timestamp,
-//             event_type,
-//             server_id,
-//             event_size,
-//             log_pos,
-//             flags,
-//         })
-//     }
-// }
-
 #[cfg(test)]
 mod test {
+    use crate::events::log_context::LogContext;
+    use crate::events::log_position::LogPosition;
+
     #[test]
     fn test() {
         assert_eq!(1, 1);

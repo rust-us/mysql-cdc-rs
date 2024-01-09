@@ -1,20 +1,23 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::{Arc, RwLock};
-use nom::{
-    bytes::complete::{take},
-    combinator::map,
-    multi::{many0},
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
-    IResult, Err};
-use serde::Serialize;
-use common::err::DecodeError::ReError;
+use crate::events::event::Event;
 use crate::events::event_header::Header;
-use crate::events::log_context::LogContext;
+use crate::events::log_context::{ILogContext, LogContext};
 use crate::events::log_event::{LogEvent, QUERY_HEADER_LEN, QUERY_HEADER_MINIMAL_LEN};
 use crate::events::query;
-use crate::QueryStatusVar;
 use crate::utils::extract_string;
+use crate::QueryStatusVar;
+use common::err::DecodeError::ReError;
+use nom::{
+    bytes::complete::take,
+    combinator::map,
+    multi::many0,
+    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
+    Err, IResult,
+};
+use serde::Serialize;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 
 /// The maximum number of updated databases that a status of Query-log-event
 /// can carry. It can redefined within a range [1..
@@ -26,10 +29,10 @@ pub const MAX_DBS_IN_EVENT_MTS: u32 = 16;
 /// status.
 pub const OVER_MAX_DBS_IN_EVENT_MTS: u32 = 254;
 
-pub const SYSTEM_CHARSET_MBMAXLEN: u8   = 3;
-pub const NAME_CHAR_LEN: u8             = 64;
+pub const SYSTEM_CHARSET_MBMAXLEN: u8 = 3;
+pub const NAME_CHAR_LEN: u8 = 64;
 ///Field/table name length
-pub const NAME_LEN: u8                  = (NAME_CHAR_LEN * SYSTEM_CHARSET_MBMAXLEN);
+pub const NAME_LEN: u8 = (NAME_CHAR_LEN * SYSTEM_CHARSET_MBMAXLEN);
 
 /// Max number of possible extra bytes in a replication event compared to a
 /// packet (i.e. a query) sent from client to master; First, an auxiliary
@@ -112,9 +115,6 @@ pub const MAX_SIZE_LOG_EVENT_STATUS:u32 = (1 + 4 /* type, flags2 */
                                                                                        */+ 1 /* sql_require_primary_key */
 ;
 
-
-
-
 /// query event post-header
 pub const Q_THREAD_ID_OFFSET: u8 = 0;
 pub const Q_EXEC_TIME_OFFSET: u8 = 4;
@@ -122,7 +122,6 @@ pub const Q_DB_LEN_OFFSET: u8 = 8;
 pub const Q_ERR_CODE_OFFSET: u8 = 9;
 pub const Q_STATUS_VARS_LEN_OFFSE: u8 = 11;
 pub const Q_DATA_OFFSET: u8 = QUERY_HEADER_LEN;
-
 
 /// 记录更新操作的语句
 ///
@@ -415,24 +414,32 @@ pub struct QueryEvent {
 }
 
 impl QueryEvent {
-
-    pub fn parse<'a>(input: &'a [u8], header: &Header, context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
+    pub fn parse<'a>(
+        input: &'a [u8],
+        header: &Header,
+        context: Rc<RefCell<LogContext>>,
+    ) -> IResult<&'a [u8], QueryEvent> {
         QueryEvent::parse_with_compress(input, &header, false, false, context)
     }
 
-    pub fn parse_with_compress<'a>(input: &'a [u8], header: &Header,
-                                   compatiable_percona: bool, compress: bool,
-                                   shard_context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], QueryEvent> {
-
+    pub fn parse_with_compress<'a>(
+        input: &'a [u8],
+        header: &Header,
+        compatiable_percona: bool,
+        compress: bool,
+        shard_context: Rc<RefCell<LogContext>>,
+    ) -> IResult<&'a [u8], QueryEvent> {
         let context = shard_context.borrow_mut();
 
         let common_header_len = context.get_format_description().common_header_len;
-        let query_post_header_len = context.get_format_description().get_post_header_len(header.get_event_type() as usize);
+        let query_post_header_len = context
+            .get_format_description()
+            .get_post_header_len(header.get_event_type() as usize);
         // event-body 部分长度
-        let mut data_len = header.get_event_length()
-            - (common_header_len + query_post_header_len) as u32;
+        let mut data_len =
+            header.get_event_length() - (common_header_len + query_post_header_len) as u32;
 
-        let (i, thread_id) = le_u32(input)?;  // Q_THREAD_ID_OFFSET
+        let (i, thread_id) = le_u32(input)?; // Q_THREAD_ID_OFFSET
         let (i, execution_time) = le_u32(i)?; // Q_EXEC_TIME_OFFSET
         let (i, schema_length) = le_u8(i)?; // Q_DB_LEN_OFFSET
         let (i, error_code) = le_u16(i)?; // Q_ERR_CODE_OFFSET
@@ -443,11 +450,11 @@ impl QueryEvent {
             let (i, status_vars_len) = le_u16(i)?; // Q_STATUS_VARS_LEN_OFFSET
 
             /*
-            * Check if status variable length is corrupt and will lead to very
-            * wrong data. We could be even more strict and require data_len to
-            * be even bigger, but this will suffice to catch most corruption
-            * errors that can lead to a crash.
-            */
+             * Check if status variable length is corrupt and will lead to very
+             * wrong data. We could be even more strict and require data_len to
+             * be even bigger, but this will suffice to catch most corruption
+             * errors that can lead to a crash.
+             */
             let min = if data_len > MAX_SIZE_LOG_EVENT_STATUS {
                 MAX_SIZE_LOG_EVENT_STATUS
             } else {
@@ -497,17 +504,14 @@ impl QueryEvent {
             - 1
             - 4 /* checksum size */
             ;
-        let (i, query) = map(
-            take(query_len),
-            |s: &[u8]| extract_string(s),
-        )(i)?;
+        let (i, query) = map(take(query_len), |s: &[u8]| extract_string(s))(i)?;
 
         let (i, checksum) = le_u32(i)?;
 
         Ok((
             i,
             QueryEvent {
-                header: Header::copy_and_get(&header, checksum, Vec::new()),
+                header: Header::copy_and_get(&header, checksum, HashMap::new()),
 
                 thread_id,
                 execution_time,
@@ -522,11 +526,16 @@ impl QueryEvent {
         ))
     }
 
-    fn unpack_variables<'a>(raw_vars: &'a [u8], compatiable_percona: bool) -> IResult<&'a [u8], Vec<QueryStatusVar>> {
+    fn unpack_variables<'a>(
+        raw_vars: &'a [u8],
+        compatiable_percona: bool,
+    ) -> IResult<&'a [u8], Vec<QueryStatusVar>> {
         many0(query::parse_status_var)(raw_vars)
     }
 }
 
 impl LogEvent for QueryEvent {
-
+    fn get_type_name(&self) -> String {
+        "QueryEvent".to_string()
+    }
 }

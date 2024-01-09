@@ -1,20 +1,20 @@
+use crate::events::event_header::Header;
+use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_event::LogEvent;
+use crate::events::protocol::table_map_event::TableMapEvent;
+use crate::row::row_data::UpdateRowData;
+use crate::row::row_parser::{parse_head, parse_update_row_data_list};
+use crate::row::rows::RowEventVersion;
+use crate::utils::read_bitmap_little_endian;
+use crate::ExtraData;
+use byteorder::{LittleEndian, ReadBytesExt};
+use bytes::Buf;
+use common::err::DecodeError::ReError;
+use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::rc::Rc;
-use byteorder::{LittleEndian, ReadBytesExt};
-use bytes::Buf;
-use serde::Serialize;
-use common::err::DecodeError::ReError;
-use crate::events::event_header::Header;
-use crate::events::log_context::LogContext;
-use crate::events::log_event::LogEvent;
-use crate::events::protocol::table_map_event::TableMapEvent;
-use crate::ExtraData;
-use crate::row::row_data::{UpdateRowData};
-use crate::row::row_parser::{parse_head, parse_update_row_data_list};
-use crate::row::rows::RowEventVersion;
-use crate::utils::read_bitmap_little_endian;
 
 /// Represents one or many updated rows in row based replication.
 /// Includes versions before and after update.
@@ -49,11 +49,18 @@ pub struct UpdateRowsEvent {
 }
 
 impl UpdateRowsEvent {
-
-    pub fn new(header: Header,
-               table_id: u64,  flags: u16, extra_data_len: u16, extra_data: Vec<ExtraData>,
-               columns_number: usize, before_image_bits: Vec<bool>, after_image_bits: Vec<bool>,
-               rows: Vec<UpdateRowData>, row_version: RowEventVersion) -> Self {
+    pub fn new(
+        header: Header,
+        table_id: u64,
+        flags: u16,
+        extra_data_len: u16,
+        extra_data: Vec<ExtraData>,
+        columns_number: usize,
+        before_image_bits: Vec<bool>,
+        after_image_bits: Vec<bool>,
+        rows: Vec<UpdateRowData>,
+        row_version: RowEventVersion,
+    ) -> Self {
         UpdateRowsEvent {
             header,
             table_id,
@@ -72,13 +79,16 @@ impl UpdateRowsEvent {
     pub fn parse(
         cursor: &mut Cursor<&[u8]>,
         table_map: &HashMap<u64, TableMapEvent>,
-        header: &Header, context: Rc<RefCell<LogContext>>) -> Result<Self, ReError> {
-
+        header: &Header,
+        context: Rc<RefCell<LogContext>>,
+    ) -> Result<Self, ReError> {
         let _context = context.borrow();
-        let post_header_len = _context.get_format_description().get_post_header_len(header.get_event_type() as usize);
+        let post_header_len = _context
+            .get_format_description()
+            .get_post_header_len(header.get_event_type() as usize);
 
         let (table_id, flags, extra_data_len, extra_data, columns_number, version) =
-                    parse_head(cursor, post_header_len)?;
+            parse_head(cursor, post_header_len)?;
 
         let before_image = read_bitmap_little_endian(cursor, columns_number)?;
         let after_image = read_bitmap_little_endian(cursor, columns_number)?;
@@ -100,7 +110,7 @@ impl UpdateRowsEvent {
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
         let e = UpdateRowsEvent::new(
-            Header::copy_and_get(header, checksum, vec![]),
+            Header::copy_and_get(header, checksum, HashMap::new()),
             table_id,
             flags,
             extra_data_len,
@@ -117,5 +127,7 @@ impl UpdateRowsEvent {
 }
 
 impl LogEvent for UpdateRowsEvent {
-
+    fn get_type_name(&self) -> String {
+        "UpdateRowsEvent".to_string()
+    }
 }

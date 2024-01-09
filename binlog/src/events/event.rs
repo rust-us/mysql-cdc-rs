@@ -1,7 +1,9 @@
-use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
 use crate::events::event_header::Header;
+use crate::events::{
+    query, DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, UserVarType,
+};
 
-use serde::Serialize;
+use crate::events::log_event::LogEvent;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
@@ -12,6 +14,9 @@ use crate::events::protocol::rotate_event::RotateEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
+use serde::Serialize;
+use crate::events::protocol::unknown_event::UnknownEvent;
+use crate::events::protocol::v4::start_v3_event::StartV3Event;
 
 ///
 /// Enumeration type for the different types of log events.
@@ -42,22 +47,16 @@ use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
 pub enum Event {
     /// 0
     /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
-    Unknown {
-        header: Header,
-        checksum: u32,
-    },
+    Unknown(UnknownEvent),
     /// 1
     /// 事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
-    StartV3,
+    StartV3(StartV3Event),
 
     /// 2
     Query(QueryEvent),
     /// 3
     /// ref: https://dev.mysql.com/doc/internals/en/stop-event.html
-    Stop {
-        header: Header,
-        checksum: u32,
-    },
+    Stop { header: Header, checksum: u32 },
     /// 4
     /// ref: https://dev.mysql.com/doc/internals/en/rotate-event.html
     Rotate(RotateEvent),
@@ -95,10 +94,7 @@ pub enum Event {
     },
     /// 7
     /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#slave-event
-    Slave {
-        header: Header,
-        checksum: u32,
-    },
+    Slave { header: Header, checksum: u32 },
     /// 8
     /// ref: https://dev.mysql.com/doc/internals/en/create-file-event.html
     CreateFile {
@@ -240,10 +236,7 @@ pub enum Event {
     /// 27
     /// Heartbeat event to be send by master at its idle time to ensure master's online status to slave.
     /// ref: https://dev.mysql.com/doc/internals/en/heartbeat-event.html
-    Heartbeat {
-        header: Header,
-        checksum: u32,
-    },
+    Heartbeat { header: Header, checksum: u32 },
 
     /// 28
     /// In some situations, it is necessary to send over ignorable data to the
@@ -309,39 +302,39 @@ pub enum Event {
 
     /** end marker */
     /// Add new events here - right above this comment! Existing events (except ENUM_END_EVENT) should never change their numbers.
-    ENUM_END_EVENT
+    ENUM_END_EVENT,
 }
 
 impl Event {
     pub fn get_type_name(value: &Event) -> String {
         match value {
-            Event::Unknown{ .. } => "UnknownEvent".to_owned(),
-            Event::StartV3=> "StartV3Event".to_owned(),
-            Event::Query(e)=> "QueryEvent".to_owned(),
-            Event::Stop{ .. } => "StopEvent".to_owned(),
-            Event::Rotate{ .. } => "RotateEvent".to_string(),
-            Event::IntVar{ .. } => "IntVarEvent".to_string(),
-            Event::Load{ .. } => "LoadEvent".to_string(),
-            Event::Slave{ .. } => "SlaveEvent".to_string(),
-            Event::CreateFile{ .. } => "CreateFileEvent".to_string(),
-            Event::AppendBlock{ .. } => "AppendBlockEvent".to_string(),
-            Event::ExecLoad{ .. } => "ExecLoadEvent".to_string(),
-            Event::DeleteFile{ .. } => "DeleteFileEvent".to_string(),
-            Event::NewLoad{ .. } => "NewLoadEvent".to_string(),
-            Event::Rand{ .. } => "RandEvent".to_string(),
-            Event::UserVar{ .. } => "UserVarEvent".to_string(),
+            Event::Unknown { .. } => "UnknownEvent".to_owned(),
+            Event::StartV3 { .. } => "StartV3Event".to_owned(),
+            Event::Query(e) => "QueryEvent".to_owned(),
+            Event::Stop { .. } => "StopEvent".to_owned(),
+            Event::Rotate { .. } => "RotateEvent".to_string(),
+            Event::IntVar { .. } => "IntVarEvent".to_string(),
+            Event::Load { .. } => "LoadEvent".to_string(),
+            Event::Slave { .. } => "SlaveEvent".to_string(),
+            Event::CreateFile { .. } => "CreateFileEvent".to_string(),
+            Event::AppendBlock { .. } => "AppendBlockEvent".to_string(),
+            Event::ExecLoad { .. } => "ExecLoadEvent".to_string(),
+            Event::DeleteFile { .. } => "DeleteFileEvent".to_string(),
+            Event::NewLoad { .. } => "NewLoadEvent".to_string(),
+            Event::Rand { .. } => "RandEvent".to_string(),
+            Event::UserVar { .. } => "UserVarEvent".to_string(),
             Event::FormatDescription(e) => "FormatDescriptionEvent".to_string(),
-            Event::XID{ .. } => "XIDEvent".to_string(),
-            Event::BeginLoadQuery{ .. } => "BeginLoadQueryEvent".to_string(),
-            Event::ExecuteLoadQueryEvent{ .. } => "ExecuteLoadQueryEvent".to_string(),
-            Event::TableMap{ .. } => "TableMapEvent".to_string(),
-            Event::PreGaWriteRowsEvent{ .. } => "PreGaWriteRowsEvent".to_string(),
-            Event::PreGaUpdateRowsEvent{ .. } => "PreGaUpdateRowsEvent".to_string(),
-            Event::PreGaDeleteRowsEvent{ .. } => "PreGaDeleteRowsEvent".to_string(),
-            Event::Incident{ .. } => "IncidentEvent".to_string(),
-            Event::Heartbeat{ .. } => "HeartbeatEvent".to_string(),
-            Event::IgnorableLogEvent{ .. } => "IgnorableLogEvent".to_string(),
-            Event::RowQuery{ .. } => "RowQueryEvent".to_string(),
+            Event::XID { .. } => "XIDEvent".to_string(),
+            Event::BeginLoadQuery { .. } => "BeginLoadQueryEvent".to_string(),
+            Event::ExecuteLoadQueryEvent { .. } => "ExecuteLoadQueryEvent".to_string(),
+            Event::TableMap { .. } => "TableMapEvent".to_string(),
+            Event::PreGaWriteRowsEvent { .. } => "PreGaWriteRowsEvent".to_string(),
+            Event::PreGaUpdateRowsEvent { .. } => "PreGaUpdateRowsEvent".to_string(),
+            Event::PreGaDeleteRowsEvent { .. } => "PreGaDeleteRowsEvent".to_string(),
+            Event::Incident { .. } => "IncidentEvent".to_string(),
+            Event::Heartbeat { .. } => "HeartbeatEvent".to_string(),
+            Event::IgnorableLogEvent { .. } => "IgnorableLogEvent".to_string(),
+            Event::RowQuery { .. } => "RowQueryEvent".to_string(),
             Event::WriteRows { .. } => "WriteRowsEvent".to_string(),
             Event::UpdateRows { .. } => "UpdateRowsEvent".to_string(),
             Event::DeleteRows { .. } => "DeleteRowsEvent".to_string(),

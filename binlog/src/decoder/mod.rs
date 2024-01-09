@@ -4,4 +4,4 @@ pub mod file_binlog_reader;
 
 pub mod event_decoder;
 pub mod event_decoder_impl;
-pub mod binlog_reader_wrapper;
+mod event_parser_dispatcher;

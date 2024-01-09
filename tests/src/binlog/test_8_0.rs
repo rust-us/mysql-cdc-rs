@@ -9,7 +9,7 @@ mod test_normal {
     use binlog::decoder::file_binlog_reader::FileBinlogReader;
     use binlog::events::event::Event;
     use binlog::events::event::Event::{DeleteRows, Query, TableMap, UpdateRows, WriteRows};
-    use binlog::events::event_factory::EventFactory;
+    use binlog::factory::event_factory::{EventFactory, IEventFactory};
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::query_event::QueryEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;

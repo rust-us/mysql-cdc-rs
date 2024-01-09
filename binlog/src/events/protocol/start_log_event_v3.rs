@@ -1,5 +1,5 @@
-use serde::Serialize;
 use crate::events::log_event::LogEvent;
+use serde::Serialize;
 
 /// We could have used SERVER_VERSION_LENGTH, but this introduces an obscure
 /// dependency - if somebody decided to change SERVER_VERSION_LENGTH this
@@ -19,5 +19,7 @@ pub struct StartLogEventV3 {
 }
 
 impl LogEvent for StartLogEventV3 {
-
+    fn get_type_name(&self) -> String {
+        "StartLogEventV3".to_string()
+    }
 }
