@@ -1,26 +1,21 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::rc::Rc;
 use byteorder::{LittleEndian, ReadBytesExt};
+use lazy_static::lazy_static;
 use crate::events::event_header::Header;
-use crate::events::protocol::start_log_event_v3::*;
 
 use crate::b_type::LogEventType::*;
 use crate::b_type::{LogEventType, C_ENUM_END_EVENT};
-use crate::events::checksum_type::{
-    ChecksumType, BINLOG_CHECKSUM_ALG_DESC_LEN, ST_COMMON_PAYLOAD_CHECKSUM_LEN,
-};
+use crate::events::checksum_type::{ChecksumType, BINLOG_CHECKSUM_ALG_DESC_LEN, ST_COMMON_PAYLOAD_CHECKSUM_LEN, BINLOG_CHECKSUM_ALG_UNDEF};
 use crate::events::event::Event::*;
 use crate::events::log_event::*;
 use crate::utils::extract_string;
 use serde::Serialize;
 use common::err::DecodeError::ReError;
-use crate::events::log_context::{ILogContext, LogContext};
-use crate::events::log_position::LogPosition;
-
-//
-// public static final int
+use crate::events::event_raw::HeaderRef;
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
+use crate::events::protocol::table_map_event::TableMapEvent;
+use crate::events::protocol::v4::start_v3_event::*;
 
 /// The number of types we handle in Format_description_log_event
 /// (UNKNOWN_EVENT is not to be handled, it does not exist in binlogs, it
@@ -78,6 +73,11 @@ pub const GTID_HEADER_LEN: u8 = 19;
 pub const GTID_LIST_HEADER_LEN: u8 = 4;
 pub const START_ENCRYPTION_HEADER_LEN: u8 = 0;
 pub const POST_HEADER_LENGTH: u8 = 11;
+
+lazy_static! {
+    static ref CHECK_SUM_VERSION:Vec<u8> = vec![5, 6, 1];
+    static ref CHECK_SUM_VERSION_PRODUCT: u64 = version_product(CHECK_SUM_VERSION.clone());
+}
 
 /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L295-L344
 /// event_data layout: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L387-L416
@@ -354,6 +354,13 @@ impl FormatDescriptionEvent {
             declare: FormatDescriptionDeclare::new(binlog_version),
         }
     }
+}
+
+impl LogEvent for FormatDescriptionEvent {
+    fn get_type_name(&self) -> String {
+        "FormatDescriptionEvent".to_string()
+    }
+
 
     /// format_desc event格式   [startPos : Len]
     /// +=====================================+
@@ -386,10 +393,11 @@ impl FormatDescriptionEvent {
     /// |        | checksum      76+n+5 : 4   |
     /// |        +----------------------------+
     /// +=====================================+
-    pub fn parse<'a>(
+    fn parse<'a>(
         cursor: &mut Cursor<&[u8]>,
-        header: &Header,
-        context: Rc<RefCell<LogContext>>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
     ) -> Result<FormatDescriptionEvent, ReError> {
         // let declare: FormatDescriptionDeclare = context.get_format_description().get_declare();
         let declare: FormatDescriptionDeclare = FormatDescriptionDeclare::new(4);
@@ -411,7 +419,7 @@ impl FormatDescriptionEvent {
         // 一直到事件结尾(去除后面 checksum 和算法)的数组
         // supported_types 要取多少个字节 = header.event_size - 19[header 大小] - (2 + 50 + 4 + 1) - 1[checksum_alg size] - 4[checksum size]
         // 剩下的就是 supported_types 占用的字节数
-        let number_of_event_types = header.event_length
+        let number_of_event_types = header.clone().borrow_mut().event_length
             - (LOG_EVENT_MINIMAL_HEADER_LEN + ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN) as u32
             - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
             // crc
@@ -422,20 +430,26 @@ impl FormatDescriptionEvent {
             post_header_len[i] = cursor.read_u8()?;
         }
 
-        let split_server_version = FormatDescriptionEvent::server_version_split_with_dot(server_version.clone());
-        // let current_pos = cursor.position();
-        // cursor.set_position((header.event_length
-        //     - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
-        //     - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32)
-        //     as u64);
+        let mut checksum_alg = BINLOG_CHECKSUM_ALG_UNDEF;
         let mut checksum_type = ChecksumType::None;
+        let split_server_version = server_version_split_with_dot(server_version.clone());
+        if version_product(split_server_version) >= *CHECK_SUM_VERSION_PRODUCT {
+            let current_pos = cursor.position();
+            cursor.set_position((header.clone().borrow_mut().event_length
+                - LOG_EVENT_HEADER_LEN as u32
+                - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
+                - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32)
+                as u64);
 
-        // let (i, checksum_alg) = cursor.read_u8()?;
-        // checksum_type = ChecksumType::from_code(checksum_alg).unwrap();
+            checksum_alg = cursor.read_u8()?;
+            checksum_type = ChecksumType::from_code(checksum_alg).unwrap();
+
+            cursor.set_position(current_pos);
+        }
 
         let crc = cursor.read_u32::<LittleEndian>()?;
 
-        let header_new: Header = Header::copy_and_get(&header, crc, HashMap::new());
+        let header_new: Header = Header::copy_and_get(header, crc, HashMap::new());
 
         Ok(
             FormatDescriptionEvent {
@@ -451,67 +465,66 @@ impl FormatDescriptionEvent {
             },
         )
     }
-
-    /// 将字符串按照 dot 符号切割，并转换为 mysql标准的版本号数字
-    fn server_version_split_with_dot(server_version: String) -> Vec<u8> {
-        let items: Vec<&str> = server_version.split(".").collect();
-        if items.len() < 3 {
-            return vec![0; 3];
-        }
-
-        let mut split = vec![0; 3];
-
-        for i in 0..3 {
-            let mut j = 0;
-            let v = items[i];
-            for char in v.chars() {
-                if !char.is_ascii_digit() {
-                    break;
-                }
-                j += 1;
-            }
-
-            if j > 0 {
-                let (number_part, last) = v.split_at(j);
-                let _v = number_part.parse::<u8>().unwrap();
-                split[i] = _v;
-            } else {
-                // 非法版本
-                split[0] = 0;
-                split[1] = 0;
-                split[2] = 0;
-            }
-        }
-
-        split
-    }
 }
 
-impl LogEvent for FormatDescriptionEvent {
-    fn get_type_name(&self) -> String {
-        "FormatDescriptionEvent".to_string()
+/// 将字符串按照 dot 符号切割，并转换为 mysql标准的版本号数字
+fn server_version_split_with_dot(server_version: String) -> Vec<u8> {
+    let items: Vec<&str> = server_version.split(".").collect();
+    if items.len() < 3 {
+        return vec![0; 3];
     }
+
+    let mut split = vec![0; 3];
+
+    for i in 0..3 {
+        let mut j = 0;
+        let v = items[i];
+        for char in v.chars() {
+            if !char.is_ascii_digit() {
+                break;
+            }
+            j += 1;
+        }
+
+        if j > 0 {
+            let (number_part, last) = v.split_at(j);
+            let _v = number_part.parse::<u8>().unwrap();
+            split[i] = _v;
+        } else {
+            // 非法版本
+            split[0] = 0;
+            split[1] = 0;
+            split[2] = 0;
+        }
+    }
+
+    split
+}
+
+/// 计算当前 version 的值
+fn version_product(version_split: Vec<u8>) -> u64 {
+    ((version_split[0] as u16 * 256u16 + version_split[1] as u16) as u64 * 256u64 + version_split[2] as u64) as u64
 }
 
 #[cfg(test)]
 mod test {
     use crate::events::log_context::{ILogContext, LogContext};
     use crate::events::log_position::LogPosition;
-    use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
+    use crate::events::protocol::format_description_log_event::{server_version_split_with_dot};
 
     #[test]
     fn test_server_version_split_with_dot() {
         let mut _context:LogContext = LogContext::new(LogPosition::new("AA"));
         _context.set_log_position_with_offset(66);
 
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("192.168.9".to_string()), vec![192,168,9]);
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19-a.16B.9".to_string()), vec![19,16,9]);
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19.16.9a".to_string()), vec![19,16,9]);
+        assert_eq!(server_version_split_with_dot("192.168.9".to_string()), vec![192,168,9]);
+        assert_eq!(server_version_split_with_dot("19-a.16B.9".to_string()), vec![19,16,9]);
+        assert_eq!(server_version_split_with_dot("19.16.9a".to_string()), vec![19,16,9]);
 
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19-a.16B.c9".to_string()), vec![0,0,0]);
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("a19.16.c9".to_string()), vec![0,0,0]);
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("a19.16.9".to_string()), vec![0,16,9]);
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19.a16.9".to_string()), vec![0,0,9]);
-        assert_eq!(FormatDescriptionEvent::server_version_split_with_dot("19.16.a9".to_string()), vec![0,0,0]);
+        assert_eq!(server_version_split_with_dot("19-a.16B.c9".to_string()), vec![0,0,0]);
+        assert_eq!(server_version_split_with_dot("a19.16.c9".to_string()), vec![0,0,0]);
+        assert_eq!(server_version_split_with_dot("a19.16.9".to_string()), vec![0,16,9]);
+        assert_eq!(server_version_split_with_dot("19.a16.9".to_string()), vec![0,0,9]);
+        assert_eq!(server_version_split_with_dot("19.16.a9".to_string()), vec![0,0,0]);
     }
 }

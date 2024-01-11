@@ -11,6 +11,7 @@ use nom::{
 };
 use serde::Serialize;
 use uuid::Uuid;
+use crate::events::event_raw::HeaderRef;
 
 pub const LOGICAL_TIMESTAMP_TYPE_CODE: u8 = 2;
 
@@ -27,7 +28,7 @@ pub struct GtidLogEvent {
 
     /// 16字节
     pub sid: String,
-    /// 8字节, transaction_id
+    /// 8字节, transaction_id， Long
     pub gno: String,
 
     /// logical_timestamp_typecode
@@ -58,7 +59,7 @@ impl GtidLogEvent {
         }
     }
 
-    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], GtidLogEvent> {
+    pub fn parse<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], GtidLogEvent> {
         let (
             i,
             (
@@ -70,10 +71,10 @@ impl GtidLogEvent {
                 sequence_number,
                 checksum,
             ),
-        ) = GtidLogEvent::parse_events_gtid(input, &header)?;
+        ) = GtidLogEvent::parse_events_gtid(input, header.clone())?;
 
         let e = GtidLogEvent {
-            header: Header::copy_and_get(&header, checksum, HashMap::new()),
+            header: Header::copy_and_get(header, checksum, HashMap::new()),
             commit_flag,
             sid: source_id,
             gno: transaction_id,
@@ -87,7 +88,7 @@ impl GtidLogEvent {
 
     pub fn parse_events_gtid<'a>(
         input: &'a [u8],
-        header: &Header,
+        header: HeaderRef,
     ) -> IResult<&'a [u8], (bool, String, String, u8, i64, i64, u32)> {
         // 记录binlog格式:
         // 如果gtid_flags值为1，表示binlog中可能有以statement方式记录的binlog
@@ -142,7 +143,7 @@ impl GtidLogEvent {
             let (i, last_committed) = le_i64(i)?;
             let (i, sequence_number) = le_i64(i)?;
 
-            let remain_len = header.event_length - (19 + 1 + 16 + 8 + 1 + 8 + 8);
+            let remain_len = header.borrow().event_length - (19 + 1 + 16 + 8 + 1 + 8 + 8);
             if remain_len > 4 {
                 let (i, _) = map(take((remain_len - 4) as u8), |s: &[u8]| s.to_vec())(i)?;
                 // eq ==>
@@ -197,10 +198,25 @@ impl GtidLogEvent {
             ))
         }
     }
-}
 
-impl LogEvent for GtidLogEvent {
-    fn get_type_name(&self) -> String {
-        "GtidLogEvent".to_string()
+    pub fn get_last_committed(&self) -> i64 {
+        self.last_committed
+    }
+
+    pub fn get_sequence_number(&self) -> i64 {
+        self.sequence_number
+    }
+
+    pub fn get_gtid_str(&self) -> String {
+        let sid = self.sid.clone();
+        let gno = self.gno.clone();
+
+        format!("{}:{}", sid, gno)
     }
 }
+
+// impl LogEvent for GtidLogEvent {
+//     fn get_type_name(&self) -> String {
+//         "GtidLogEvent".to_string()
+//     }
+// }

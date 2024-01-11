@@ -1,16 +1,16 @@
 use crate::events::checksum_type::ST_COMMON_PAYLOAD_CHECKSUM_LEN;
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::events::log_event::LogEvent;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 use crate::utils::read_variable_len_string;
 use byteorder::{LittleEndian, ReadBytesExt};
 use common::err::DecodeError::ReError;
 use serde::Serialize;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::rc::Rc;
+use crate::events::event_raw::HeaderRef;
+use crate::events::protocol::table_map_event::TableMapEvent;
 
 /// 最后一个rotate event用于说明下一个binlog文件。
 /// Last event in a binlog file which points to next binlog file.
@@ -43,20 +43,27 @@ impl RotateEvent {
             binlog_position,
         }
     }
+}
 
-    pub fn parse(
+impl LogEvent for RotateEvent {
+    fn get_type_name(&self) -> String {
+        "RotateEvent".to_string()
+    }
+
+    fn parse(
         cursor: &mut Cursor<&[u8]>,
-        header: &Header,
-        context: Rc<RefCell<LogContext>>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
     ) -> Result<RotateEvent, ReError> {
         let _context = context.borrow();
         let post_header_len = _context
             .get_format_description()
-            .get_post_header_len(header.get_event_type() as usize);
+            .get_post_header_len(header.borrow().get_event_type() as usize);
 
         let position = cursor.read_u64::<LittleEndian>()?;
 
-        let binlog_filename_len = header.event_length
+        let binlog_filename_len = header.borrow().event_length
             - (LOG_EVENT_HEADER_LEN + post_header_len + ST_COMMON_PAYLOAD_CHECKSUM_LEN) as u32;
         let mut _rows_data_vec = vec![0; binlog_filename_len as usize];
         cursor.read_exact(&mut _rows_data_vec)?;
@@ -67,16 +74,11 @@ impl RotateEvent {
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
+        header.borrow_mut().update_checksum(checksum);
         Ok(RotateEvent::new(
-            Header::copy_and_get(header, checksum, HashMap::new()),
+            Header::copy(header.clone()),
             next_binlog_filename,
             position,
         ))
-    }
-}
-
-impl LogEvent for RotateEvent {
-    fn get_type_name(&self) -> String {
-        "RotateEvent".to_string()
     }
 }

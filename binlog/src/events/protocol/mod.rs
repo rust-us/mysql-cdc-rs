@@ -1,4 +1,3 @@
-pub mod start_log_event_v3;
 pub mod format_description_log_event;
 pub mod previous_gtids_event;
 pub mod anonymous_gtid_log_event;
@@ -11,3 +10,5 @@ pub mod delete_rows_v12_event;
 pub mod rotate_event;
 pub mod unknown_event;
 pub mod v4;
+pub mod stop_event;
+pub mod slave_event;

@@ -10,6 +10,7 @@ members = [
 #    "./memory",
     "tests",
 #    "replay_log",
+#    "replayer",
 ]
 
 [workspace.dependencies]
@@ -33,5 +34,14 @@ log = "0.4.20"
 log4rs = "1.2.0"
 num_enum = "0.7.1"
 byteorder = "1.5.0"
+dashmap = "5.5.3"
 paste = "1.0.14"
 pin-project-lite = "0.2.13"
+
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+futures-util="^0.3.29"
+futures-executor="^0.3.29"
+
+toml = "^0.8.8"

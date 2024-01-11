@@ -1,4 +1,5 @@
 use serde::Serialize;
+use crate::events::gtid_set::MysqlGTIDSet;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct LogPosition {
@@ -7,6 +8,9 @@ pub struct LogPosition {
 
     /// position in file
     position: u64,
+
+    /// gtid 仅在gtid_mode使用，此时file_name和pos无效
+    gtid_set: Option<MysqlGTIDSet>
 }
 
 impl Default for LogPosition {
@@ -14,6 +18,7 @@ impl Default for LogPosition {
         LogPosition {
             file_name: "".to_string(),
             position: 0,
+            gtid_set: None,
         }
     }
 }
@@ -27,6 +32,15 @@ impl LogPosition {
         LogPosition {
             file_name: file_name.to_string(),
             position,
+            gtid_set: None,
+        }
+    }
+
+    pub fn new_with_gtid(file_name: &str, position: u64, gtid_data: MysqlGTIDSet) -> Self {
+        LogPosition {
+            file_name: file_name.to_string(),
+            position,
+            gtid_set: Some(gtid_data),
         }
     }
 
@@ -34,6 +48,7 @@ impl LogPosition {
         LogPosition {
             file_name: pos.get_file_name(),
             position: pos.get_position(),
+            gtid_set: pos.get_gtid_set(),
         }
     }
 
@@ -47,5 +62,9 @@ impl LogPosition {
 
     pub fn get_position(&self) -> u64 {
         self.position
+    }
+
+    pub fn get_gtid_set(&self) -> Option<MysqlGTIDSet> {
+        self.gtid_set.clone()
     }
 }

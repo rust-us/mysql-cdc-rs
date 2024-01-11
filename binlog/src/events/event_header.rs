@@ -1,7 +1,6 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io::Cursor;
-use std::rc::Rc;
 use byteorder::{LittleEndian, ReadBytesExt};
 use nom::{
     bytes::complete::{tag},
@@ -11,10 +10,17 @@ use serde::Serialize;
 use common::err::DecodeError::ReError;
 use crate::b_type::LogEventType::{FORMAT_DESCRIPTION_EVENT, ROTATE_EVENT};
 use crate::events::event_header_flag::EventFlag;
-use crate::events::log_context::{ILogContext, LogContext};
-
+use crate::events::event_raw::HeaderRef;
+use crate::events::gtid_set::MysqlGTIDSet;
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
+use crate::events::protocol::gtid_log_event::GtidLogEvent;
 
 pub const HEADER_LEN: u8 = 4;
+
+pub const GTID_SET_STRING: &str = "gtid_str";
+pub const CURRENT_GTID_STRING: &str = "curt_gtid";
+pub const CURRENT_GTID_SN: &str= "curt_gtid_sn";
+pub const CURRENT_GTID_LAST_COMMIT: &str = "curt_gtid_lct";
 
 /////////////////////////////////////
 ///  EventHeader Header
@@ -88,7 +94,7 @@ pub struct Header {
 
     log_file_name : String,
 
-    pub gtid_map : HashMap<u8, String>,
+    pub gtid_map : HashMap<String, String>,
 }
 
 impl Default for Header {
@@ -135,6 +141,28 @@ impl Header {
         self.checksum = checksum;
     }
 
+    pub fn update_gtid(&mut self, gtid_set: Option<&MysqlGTIDSet>, gtid_event: Option<&GtidLogEvent>) {
+        if gtid_set.is_none() {
+            return;
+        }
+
+        let gtid = gtid_set.unwrap();
+        self.gtid_map.insert(GTID_SET_STRING.to_string(), gtid.to_string());
+
+        if gtid_event.is_none() {
+            return;
+        }
+
+        let e = gtid_event.unwrap();
+        self.gtid_map.insert(CURRENT_GTID_STRING.to_string(), e.get_gtid_str());
+        self.gtid_map.insert(CURRENT_GTID_SN.to_string(), e.get_sequence_number().to_string());
+        self.gtid_map.insert(CURRENT_GTID_LAST_COMMIT.to_string(), e.get_last_committed().to_string());
+    }
+
+    pub fn update_checksum(&mut self, checksum: u32) {
+        self.checksum = checksum;
+    }
+
     pub fn new(log_file_name:String, when: u32,
                event_type: u8, server_id: u32,
                event_length: u32, log_pos: u32,
@@ -172,7 +200,7 @@ impl Header {
     }
 
     /// 解析 header
-    pub fn parse_v4_header(bytes: &[u8], context: Rc<RefCell<LogContext>>) -> Result<Header, ReError> {
+    pub fn parse_v4_header(bytes: &[u8], context: LogContextRef) -> Result<Header, ReError> {
         let mut cursor = Cursor::new(bytes);
         let mut checksum_alg = 0;
 
@@ -251,36 +279,36 @@ impl Header {
         )
     }
 
-    pub fn copy(source: &Header) -> Self  {
-        let log_file_name : String = source.get_log_file_name();
+    pub fn copy(source: HeaderRef) -> Self  {
+        let log_file_name : String = source.borrow().get_log_file_name();
 
         Header {
-            when: source.when,
-            event_type: source.event_type,
-            server_id: source.server_id,
-            event_length: source.event_length,
-            log_pos: source.log_pos,
-            flags: source.flags,
-            flags_attr: source.get_flags_attr(),
-            checksum_alg: 0,
-            checksum: source.checksum,
+            when: source.borrow().when,
+            event_type: source.borrow().event_type,
+            server_id: source.borrow().server_id,
+            event_length: source.borrow().event_length,
+            log_pos: source.borrow().log_pos,
+            flags: source.borrow().flags,
+            flags_attr: source.borrow().get_flags_attr(),
+            checksum_alg: source.borrow().checksum_alg,
+            checksum: source.borrow().checksum,
             log_file_name,
-            gtid_map: source.gtid_map.clone(),
+            gtid_map: source.borrow().gtid_map.clone(),
         }
     }
 
-    pub fn copy_and_get(source: &Header, checksum: u32, gtid_map : HashMap<u8, String>) -> Self  {
-        let log_file_name : String = source.get_log_file_name();
+    pub fn copy_and_get(source: HeaderRef, checksum: u32, gtid_map : HashMap<String, String>) -> Self  {
+        let log_file_name : String = source.borrow().get_log_file_name();
 
         Header {
-            when: source.when,
-            event_type: source.event_type,
-            server_id: source.server_id,
-            event_length: source.event_length,
-            log_pos: source.log_pos,
-            flags: source.flags,
-            flags_attr: source.get_flags_attr(),
-            checksum_alg: source.checksum_alg,
+            when: source.borrow().when,
+            event_type: source.borrow().event_type,
+            server_id: source.borrow().server_id,
+            event_length: source.borrow().event_length,
+            log_pos: source.borrow().log_pos,
+            flags: source.borrow().flags,
+            flags_attr: source.borrow().get_flags_attr(),
+            checksum_alg: source.borrow().checksum_alg,
             checksum,
             log_file_name,
             gtid_map,

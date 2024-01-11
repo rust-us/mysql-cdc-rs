@@ -18,6 +18,7 @@ use crate::{
 };
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
 use crate::column::column_type::ColumnType;
+use crate::events::event_raw::HeaderRef;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
@@ -32,15 +33,7 @@ lazy_static! {
         Arc::new(Mutex::new(HashMap::new()));
 }
 
-pub fn parse_stop<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, checksum) = le_u32(input)?;
-    Ok((i, Event::Stop {
-        header: Header::copy(&header),
-        checksum
-    }))
-}
-
-pub fn parse_intvar<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_intvar<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, e_type) = map(le_u8, |t: u8| match t {
         0x00 => IntVarEventType::InvalidIntEvent,
         0x01 => IntVarEventType::LastInsertIdEvent,
@@ -51,7 +44,7 @@ pub fn parse_intvar<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], E
     Ok((
         i,
         Event::IntVar {
-            header: Header::copy(&header),
+            header: Header::copy(header),
             e_type,
             value,
             checksum,
@@ -61,7 +54,7 @@ pub fn parse_intvar<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], E
 
 fn extract_many_fields<'a>(
     input: &'a [u8],
-    header: &Header,
+    header: HeaderRef,
     num_fields: u32,
     table_name_length: u8,
     schema_length: u8,
@@ -75,7 +68,7 @@ fn extract_many_fields<'a>(
     let (i, schema_name) = map(take(schema_length + 1), |s: &[u8]| extract_string(s))(i)?;
     let (i, file_name) = map(
         take(
-            header.event_length as usize
+            header.borrow_mut().event_length as usize
                 - LOG_EVENT_HEADER_LEN as usize
                 - 25
                 - num_fields as usize
@@ -99,7 +92,7 @@ fn extract_many_fields<'a>(
     ))
 }
 
-pub fn parse_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (
         i,
         (
@@ -132,12 +125,12 @@ pub fn parse_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Eve
         escape_empty: (flags >> 4) % 2 == 1,
     })(i)?;
     let (i, (field_name_lengths, field_names, table_name, schema_name, file_name)) =
-        extract_many_fields(i, &header, num_fields, table_name_length, schema_length)?;
+        extract_many_fields(i, header.clone(), num_fields, table_name_length, schema_length)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
         Event::Load {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             thread_id,
             execution_time,
             skip_lines,
@@ -161,29 +154,21 @@ pub fn parse_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Eve
     ))
 }
 
-pub fn parse_slave<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, checksum) = le_u32(input)?;
-    Ok((i, Event::Slave {
-        header: Header::copy(&header),
-        checksum
-    }))
-}
-
-pub fn parse_file_data<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], (u32, String, u32)> {
+pub fn parse_file_data<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], (u32, String, u32)> {
     let (i, file_id) = le_u32(input)?;
-    let (i, block_data) = map(take(header.event_length - LOG_EVENT_HEADER_LEN as u32 - 4 - 4), |s: &[u8]| {
+    let (i, block_data) = map(take(header.borrow().event_length - LOG_EVENT_HEADER_LEN as u32 - 4 - 4), |s: &[u8]| {
         extract_string(s)
     })(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((i, (file_id, block_data, checksum)))
 }
 
-pub fn parse_create_file<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, (file_id, block_data, checksum)) = parse_file_data(input, &header)?;
+pub fn parse_create_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+    let (i, (file_id, block_data, checksum)) = parse_file_data(input, header.clone())?;
     Ok((
         i,
         Event::CreateFile {
-            header: Header::copy(&header),
+            header: Header::copy(header),
             file_id,
             block_data,
             checksum,
@@ -191,12 +176,12 @@ pub fn parse_create_file<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u
     ))
 }
 
-pub fn parse_append_block<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, (file_id, block_data, checksum)) = parse_file_data(input, &header)?;
+pub fn parse_append_block<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+    let (i, (file_id, block_data, checksum)) = parse_file_data(input, header.clone())?;
     Ok((
         i,
         Event::AppendBlock {
-            header: Header::copy(&header),
+            header: Header::copy(header),
             file_id,
             block_data,
             checksum,
@@ -204,22 +189,22 @@ pub fn parse_append_block<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [
     ))
 }
 
-pub fn parse_exec_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_exec_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     map(
         tuple((le_u16, le_u32)),
         |(file_id, checksum): (u16, u32)| Event::ExecLoad {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             file_id,
             checksum,
         },
     )(input)
 }
 
-pub fn parse_delete_file<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_delete_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     map(
         tuple((le_u16, le_u32)),
         |(file_id, checksum): (u16, u32)| Event::DeleteFile {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             file_id,
             checksum,
         },
@@ -231,7 +216,7 @@ pub fn extract_from_prev<'a>(input: &'a [u8]) -> IResult<&'a [u8], (u8, String)>
     map(take(len), move |s| (len, read_variable_len_string(s, len as usize)))(i)
 }
 
-pub fn parse_new_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_new_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, (thread_id, execution_time, skip_lines, table_name_length, schema_length, num_fields)) =
         tuple((le_u32, le_u32, le_u32, le_u8, le_u8, le_u32))(input)?;
     let (i, (field_term_length, field_term)) = extract_from_prev(i)?;
@@ -246,12 +231,12 @@ pub fn parse_new_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
         ignore: (flags >> 3) % 2 == 1,
     })(i)?;
     let (i, (field_name_lengths, field_names, table_name, schema_name, file_name)) =
-        extract_many_fields(i, &header, num_fields, table_name_length, schema_length)?;
+        extract_many_fields(i, header.clone(), num_fields, table_name_length, schema_length)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
         Event::NewLoad {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             thread_id,
             execution_time,
             skip_lines,
@@ -279,12 +264,12 @@ pub fn parse_new_load<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
     ))
 }
 
-pub fn parse_rand<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_rand<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, (seed1, seed2, checksum)) = tuple((le_u64, le_u64, le_u32))(input)?;
     Ok((
         i,
         Event::Rand {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             seed1,
             seed2,
             checksum,
@@ -293,7 +278,7 @@ pub fn parse_rand<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Eve
 }
 
 
-pub fn parse_user_var<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_user_var<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, name_length) = le_u32(input)?;
     let (i, name) = map(take(name_length), |s: &[u8]| {
         read_variable_len_string(s, name_length as usize)
@@ -304,7 +289,7 @@ pub fn parse_user_var<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
         Ok((
             i,
             Event::UserVar {
-                header: Header::copy(&header),
+                header: Header::copy(header.clone()),
                 name_length,
                 name,
                 is_null,
@@ -341,7 +326,7 @@ pub fn parse_user_var<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
         Ok((
             i,
             Event::UserVar {
-                header: Header::copy(&header),
+                header: Header::copy(header.clone()),
                 name,
                 name_length,
                 is_null,
@@ -356,24 +341,24 @@ pub fn parse_user_var<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
     }
 }
 
-pub fn parse_xid<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_xid<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, (xid, checksum)) = tuple((le_u64, le_u32))(input)?;
     Ok((
         i,
         Event::XID {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             xid,
             checksum,
         },
     ))
 }
 
-pub fn parse_begin_load_query<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
-    let (i, (file_id, block_data, checksum)) = parse_file_data(input, &header)?;
+pub fn parse_begin_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+    let (i, (file_id, block_data, checksum)) = parse_file_data(input, header.clone())?;
     Ok((
         i,
         Event::BeginLoadQuery {
-            header: Header::copy(&header),
+            header: Header::copy(header.clone()),
             file_id,
             block_data,
             checksum,
@@ -381,7 +366,7 @@ pub fn parse_begin_load_query<'a>(input: &'a [u8], header: &Header) -> IResult<&
     ))
 }
 
-pub fn parse_execute_load_query<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_execute_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (
         i,
         (
@@ -404,6 +389,7 @@ pub fn parse_execute_load_query<'a>(input: &'a [u8], header: &Header) -> IResult
         _ => unreachable!(),
     })(i)?;
     let (i, raw_vars) = take(status_vars_length)(i)?;
+    // replace of parse_status_var_cursor
     let (remain, status_vars) = many0(query::parse_status_var)(raw_vars)?;
     assert_eq!(remain.len(), 0);
     let (i, schema) = map(take(schema_length), |s: &[u8]| {
@@ -412,7 +398,7 @@ pub fn parse_execute_load_query<'a>(input: &'a [u8], header: &Header) -> IResult
     let (i, _) = take(1usize)(i)?;
     let (i, query) = map(
         take(
-            header.event_length - LOG_EVENT_HEADER_LEN as u32 - 26 - status_vars_length as u32 - schema_length as u32 - 1 - 4,
+            header.borrow().event_length - LOG_EVENT_HEADER_LEN as u32 - 26 - status_vars_length as u32 - schema_length as u32 - 1 - 4,
         ),
         |s: &[u8]| extract_string(s),
     )(i)?;
@@ -420,7 +406,7 @@ pub fn parse_execute_load_query<'a>(input: &'a [u8], header: &Header) -> IResult
     Ok((
         i,
         Event::ExecuteLoadQueryEvent {
-            header: Header::copy(&header),
+            header: Header::copy(header),
             thread_id,
             execution_time,
             schema_length,
@@ -438,7 +424,7 @@ pub fn parse_execute_load_query<'a>(input: &'a [u8], header: &Header) -> IResult
     ))
 }
 
-pub fn parse_incident<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_incident<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, d_type) = map(le_u16, |t| match t {
         0x0000 => IncidentEventType::None,
         0x0001 => IncidentEventType::LostEvents,
@@ -452,7 +438,7 @@ pub fn parse_incident<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
     Ok((
         i,
         Event::Incident {
-            header: Header::copy(&header),
+            header: Header::copy(header),
             d_type,
             message_length,
             message,
@@ -461,22 +447,22 @@ pub fn parse_incident<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8],
     ))
 }
 
-pub fn parse_heartbeat<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_heartbeat<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, checksum) = le_u32(input)?;
     Ok((i, Event::Heartbeat {
-        header: Header::copy(&header),
+        header: Header::copy(header),
         checksum
     }))
 }
 
-pub fn parse_row_query<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], Event> {
+pub fn parse_row_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
     let (i, length) = le_u8(input)?;
     let (i, query_text) = map(take(length), |s: &[u8]| read_variable_len_string(s, length as usize))(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
         Event::RowQuery {
-            header: Header::copy(&header),
+            header: Header::copy(header),
             length,
             query_text,
             checksum,

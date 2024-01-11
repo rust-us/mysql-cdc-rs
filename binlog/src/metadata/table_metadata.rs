@@ -55,6 +55,25 @@ pub struct TableMetadata {
     pub column_visibility: Option<Vec<bool>>,
 }
 
+impl Default for TableMetadata {
+    fn default() -> Self {
+        TableMetadata {
+            signedness: None,
+            default_charset: None,
+            column_charsets: None,
+            column_names: None,
+            set_string_values: None,
+            enum_string_values: None,
+            geometry_types: None,
+            simple_primary_keys: None,
+            primary_keys_with_prefix: None,
+            enum_and_set_default_charset: None,
+            enum_and_set_column_charsets: None,
+            column_visibility: None,
+        }
+    }
+}
+
 impl TableMetadata {
     pub fn read_extra_metadata<'a>(slice: &'a [u8], column_types: &[u8], shard_column_info_maps: Arc<Mutex<Vec<ColumnInfo>>>) -> Result<Self, ReError> {
         let mut signedness = None;

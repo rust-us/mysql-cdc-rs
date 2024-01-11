@@ -8,7 +8,7 @@ use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_header::{Header, HEADER_LEN};
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
@@ -23,7 +23,7 @@ pub struct FileBinlogReader {
     /// stream 与 source_bytes 的解析器
     decoder: LogEventDecoder,
 
-    context: Rc<RefCell<LogContext>>,
+    context: LogContextRef,
 
     /// stream 与 source_bytes 加载的缓冲区。 在一次BinlogReader中会被多次复用
     payload_buffer: Vec<u8>,
@@ -32,7 +32,7 @@ pub struct FileBinlogReader {
 }
 
 impl BinlogReader<File> for FileBinlogReader {
-    fn new(context: Rc<RefCell<LogContext>>, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
+    fn new(context: LogContextRef, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
         let none = File::create(Path::new("tmp")).unwrap();
 
         Ok(Self {
@@ -46,7 +46,7 @@ impl BinlogReader<File> for FileBinlogReader {
         })
     }
 
-    fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, Rc<RefCell<LogContext>>), ReError> {
+    fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, LogContextRef), ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("test_demo"));
         let context = Rc::new(RefCell::new(_context));
 
@@ -71,7 +71,7 @@ impl BinlogReader<File> for FileBinlogReader {
         self
     }
 
-    fn get_context(&self) -> Rc<RefCell<LogContext>> {
+    fn get_context(&self) -> LogContextRef {
         self.context.clone()
     }
 }
@@ -87,7 +87,8 @@ impl FileBinlogReader {
         // Parse header
         let mut header_buffer = [0; LOG_EVENT_HEADER_LEN as usize];
         self.stream.read_exact(&mut header_buffer)?;
-        let header = Header::parse_v4_header(&header_buffer, self.context.clone()).unwrap();
+        let mut header = Header::parse_v4_header(&header_buffer, self.context.clone()).unwrap();
+        let header_ref = Rc::new(RefCell::new(header.clone()));
 
         // parser payload
         let payload_length = header.event_length as usize - LOG_EVENT_HEADER_LEN as usize;
@@ -97,7 +98,7 @@ impl FileBinlogReader {
             let mut vec: Vec<u8> = vec![0; payload_length];
             self.stream.read_exact(&mut vec)?;
 
-            let (binlog_event, remain_bytes) = decoder.decode_with_slice(&vec, &header, self.context.clone()).unwrap();
+            let (binlog_event, remain_bytes) = decoder.decode_with_slice(&vec, header_ref, self.context.clone()).unwrap();
             assert_eq!(remain_bytes.len(), 0);
 
             Ok((header, binlog_event))
@@ -106,7 +107,7 @@ impl FileBinlogReader {
             let slice = &mut self.payload_buffer[0..payload_length];
             self.stream.read_exact(slice)?;
 
-            let (binlog_event, remain_bytes) = self.decoder.decode_with_slice(slice, &header, self.context.clone()).unwrap();
+            let (binlog_event, remain_bytes) = self.decoder.decode_with_slice(slice, header_ref, self.context.clone()).unwrap();
             assert_eq!(remain_bytes.len(), 0);
 
             Ok((header, binlog_event))

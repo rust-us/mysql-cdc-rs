@@ -25,6 +25,8 @@ pub enum ReError {
     /// branch and we know other branches won't work, so backtrack
     /// as fast as possible
     Failure(String),
+
+    ConfigFileParseErr(String),
 }
 
 impl From<io::Error> for ReError {

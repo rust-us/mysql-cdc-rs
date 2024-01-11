@@ -1,23 +1,17 @@
-use crate::events::event::Event;
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_event::{LogEvent, QUERY_HEADER_LEN, QUERY_HEADER_MINIMAL_LEN};
 use crate::events::query;
-use crate::utils::extract_string;
+use crate::utils::{extract_string};
 use crate::QueryStatusVar;
 use common::err::DecodeError::ReError;
-use nom::{
-    bytes::complete::take,
-    combinator::map,
-    multi::many0,
-    number::complete::{le_i64, le_u16, le_u32, le_u64, le_u8},
-    Err, IResult,
-};
 use serde::Serialize;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::io::{Cursor, Read};
+use byteorder::{LittleEndian, ReadBytesExt};
+use bytes::Buf;
+use crate::events::event_raw::HeaderRef;
+use crate::events::protocol::table_map_event::TableMapEvent;
 
 /// The maximum number of updated databases that a status of Query-log-event
 /// can carry. It can redefined within a range [1..
@@ -414,40 +408,38 @@ pub struct QueryEvent {
 }
 
 impl QueryEvent {
-    pub fn parse<'a>(
-        input: &'a [u8],
-        header: &Header,
-        context: Rc<RefCell<LogContext>>,
-    ) -> IResult<&'a [u8], QueryEvent> {
-        QueryEvent::parse_with_compress(input, &header, false, false, context)
-    }
-
     pub fn parse_with_compress<'a>(
-        input: &'a [u8],
-        header: &Header,
+        cursor: &mut Cursor<&[u8]>,
+        mut header: HeaderRef,
         compatiable_percona: bool,
         compress: bool,
-        shard_context: Rc<RefCell<LogContext>>,
-    ) -> IResult<&'a [u8], QueryEvent> {
+        shard_context: LogContextRef,
+    ) -> Result<QueryEvent, ReError> {
         let context = shard_context.borrow_mut();
 
         let common_header_len = context.get_format_description().common_header_len;
         let query_post_header_len = context
             .get_format_description()
-            .get_post_header_len(header.get_event_type() as usize);
+            .get_post_header_len(header.borrow().get_event_type() as usize);
+
         // event-body 部分长度
         let mut data_len =
-            header.get_event_length() - (common_header_len + query_post_header_len) as u32;
+            header.borrow().get_event_length() - (common_header_len + query_post_header_len) as u32;
 
-        let (i, thread_id) = le_u32(input)?; // Q_THREAD_ID_OFFSET
-        let (i, execution_time) = le_u32(i)?; // Q_EXEC_TIME_OFFSET
-        let (i, schema_length) = le_u8(i)?; // Q_DB_LEN_OFFSET
-        let (i, error_code) = le_u16(i)?; // Q_ERR_CODE_OFFSET
+        // Q_THREAD_ID_OFFSET
+        let thread_id = cursor.read_u32::<LittleEndian>()?;
+        // Q_EXEC_TIME_OFFSET
+        let execution_time = cursor.read_u32::<LittleEndian>()?;
+        // Q_DB_LEN_OFFSET
+        let schema_length = cursor.read_u8()?;
+        // Q_ERR_CODE_OFFSET
+        let error_code = cursor.read_u16::<LittleEndian>()?;
 
         // 5.0 format starts here. Depending on the format, we may or not have
         // affected/warnings etc The remaining post-header to be parsed has length:
-        let (i, status_vars_len) = if query_post_header_len > QUERY_HEADER_MINIMAL_LEN {
-            let (i, status_vars_len) = le_u16(i)?; // Q_STATUS_VARS_LEN_OFFSET
+        let status_vars_len = if query_post_header_len > QUERY_HEADER_MINIMAL_LEN {
+            // Q_STATUS_VARS_LEN_OFFSET
+            let status_vars_len = cursor.read_u16::<LittleEndian>()?;
 
             /*
              * Check if status variable length is corrupt and will lead to very
@@ -460,39 +452,33 @@ impl QueryEvent {
             } else {
                 data_len
             } as u16;
+            if status_vars_len > min {
+                let err = ReError::String("status_vars_length (".to_owned() + (status_vars_len as u16).to_string().as_str() + ") \
+                            > data_len (" + (data_len as u16).to_string().as_str() + ")");
 
-            // todo
-            // if status_vars_len > min {
-            //     let err = ReError::String("status_vars_length (".to_owned() + (status_vars_len as u16).to_string().as_str() + ") > data_len (" + (data_len as u16).to_string().as_str() + ")");
-            //
-            //     return Err(Err::Error(err));
-            // }
+                return Err(err);
+            }
 
-            Ok((i, status_vars_len as u16))
+            status_vars_len
         } else {
-            Ok((input, 0 as u16))
-        }?;
+            0
+        };
 
         // 计算真正的 Variable data部分长度
         data_len -= status_vars_len as u32;
 
-        let (i, raw_vars) = take(status_vars_len)(i)?;
-        let (raw_vars_remain, status_vars) =
-            QueryEvent::unpack_variables(raw_vars, compatiable_percona)?;
-        assert_eq!(raw_vars_remain.len(), 0);
+        /* variable-part: the status vars; only in MySQL 5.0 */
+        let mut _status_vars = vec![0; status_vars_len as usize];
+        cursor.read_exact(&mut _status_vars)?;
+        let mut _raw_vars_cursor = Cursor::new(_status_vars.as_slice());
+        let status_vars =
+            QueryEvent::unpack_variables(&mut _raw_vars_cursor, compatiable_percona)?;
+        assert!(!_raw_vars_cursor.has_remaining());
 
-        let (i, schema) = map(take(schema_length + 1), |s: &[u8]| {
-            String::from_utf8(s[0..schema_length as usize].to_vec()).unwrap()
-        })(i)?;
-        // let (i, _) = take(1usize)(i)?;
-
-        // let mut client_charset_val: u16 = 0;
-        // status_vars.iter()
-        //     .filter(|&var|
-        //         matches!(var, QueryStatusVar::Q_CHARSET_CODE(_,_,_)))
-        //     .for_each(| &QueryStatusVar::Q_CHARSET_CODE(clientCharset, clientCollation, serverCollation)|{
-        //         client_charset_val = clientCharset;
-        //     });
+        /* A 2nd variable part; this is common to all versions */
+        let mut _db_name = vec![0; (schema_length + 1) as usize];
+        cursor.read_exact(&mut _db_name)?;
+        let schema = String::from_utf8(_db_name[0..schema_length as usize].to_vec()).unwrap();
 
         let query_len =
             // header.get_event_length()                       //--
@@ -504,15 +490,14 @@ impl QueryEvent {
             - 1
             - 4 /* checksum size */
             ;
-        let (i, query) = map(take(query_len), |s: &[u8]| extract_string(s))(i)?;
+        let mut _query = vec![0; query_len as usize];
+        cursor.read_exact(&mut _query)?;
+        let query = extract_string(&_query);
 
-        let (i, checksum) = le_u32(i)?;
+        let checksum = cursor.read_u32::<LittleEndian>()?;
 
-        Ok((
-            i,
-            QueryEvent {
-                header: Header::copy_and_get(&header, checksum, HashMap::new()),
-
+        Ok(QueryEvent {
+                header: Header::copy_and_get(header, checksum, HashMap::new()),
                 thread_id,
                 execution_time,
                 schema_length,
@@ -523,19 +508,34 @@ impl QueryEvent {
                 query,
                 checksum,
             },
-        ))
+        )
     }
 
-    fn unpack_variables<'a>(
-        raw_vars: &'a [u8],
-        compatiable_percona: bool,
-    ) -> IResult<&'a [u8], Vec<QueryStatusVar>> {
-        many0(query::parse_status_var)(raw_vars)
+    fn unpack_variables(
+        raw_vars: &mut Cursor<&[u8]>,
+        compatiable_percona: bool) -> Result<Vec<QueryStatusVar>, ReError> {
+        let mut rs = Vec::<QueryStatusVar>::new();
+        while raw_vars.has_remaining() {
+            let it = query::parse_status_var_cursor(raw_vars);
+
+            rs.push(it.unwrap());
+        }
+
+        Ok(rs)
     }
 }
 
 impl LogEvent for QueryEvent {
     fn get_type_name(&self) -> String {
         "QueryEvent".to_string()
+    }
+
+    fn parse<'a>(
+        cursor: &mut Cursor<&[u8]>,
+        mut header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
+    ) -> Result<QueryEvent, ReError> {
+        QueryEvent::parse_with_compress(cursor, header, false, false, context)
     }
 }

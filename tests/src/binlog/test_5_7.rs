@@ -8,12 +8,12 @@ mod test {
     };
     use binlog::column::column_value::ColumnValue::{Blob, Float, Double, Int, String, Decimal};
     use binlog::events::{IntVarEventType, UserVarType};
-    use binlog::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::format_description_log_event::FormatDescriptionEvent;
     use binlog::events::protocol::gtid_log_event::GtidLogEvent;
     use binlog::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
     use binlog::events::protocol::rotate_event::RotateEvent;
+    use binlog::events::protocol::stop_event::StopEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;
     use binlog::events::protocol::update_rows_v12_event::UpdateRowsEvent;
     use binlog::events::protocol::write_rows_v12_event::WriteRowsEvent;
@@ -56,7 +56,7 @@ mod test {
         let (remain, output) = factory.parser_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
-            Stop { .. } => {}
+            Stop(StopEvent { .. })  => {}
             _ => panic!("should be stop event"),
         }
     }
@@ -432,7 +432,7 @@ mod test {
         let (remain, output) = factory.parser_bytes(input).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
-            AnonymousGtidLog(AnonymousGtidLogEvent {
+            AnonymousGtidLog(GtidLogEvent {
                 commit_flag,
                 sid,
                 gno,

@@ -1,4 +1,9 @@
-use crate::events::event::Event;
+use std::collections::HashMap;
+use std::io::Cursor;
+use common::err::DecodeError::ReError;
+use crate::events::event_raw::HeaderRef;
+use crate::events::log_context::LogContextRef;
+use crate::events::protocol::table_map_event::TableMapEvent;
 
 /// 3 is MySQL 4.x; 4 is MySQL 5.0.0. Compared to version 3, version 4 has: -
 /// a different Start_log_event, which includes info about the binary log
@@ -53,4 +58,12 @@ pub const QUERY_HEADER_LEN: u8 = (QUERY_HEADER_MINIMAL_LEN + 2);
 pub trait LogEvent {
     /// 事件名
     fn get_type_name(&self) -> String;
+
+    /// Supports all versions of MariaDB and MySQL 5.5+ (V1 and V2 row events).
+    fn parse(
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
+    ) -> Result<Self, ReError> where Self: Sized;
 }

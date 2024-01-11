@@ -15,6 +15,8 @@ use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
 use serde::Serialize;
+use crate::events::protocol::slave_event::SlaveEvent;
+use crate::events::protocol::stop_event::StopEvent;
 use crate::events::protocol::unknown_event::UnknownEvent;
 use crate::events::protocol::v4::start_v3_event::StartV3Event;
 
@@ -56,7 +58,7 @@ pub enum Event {
     Query(QueryEvent),
     /// 3
     /// ref: https://dev.mysql.com/doc/internals/en/stop-event.html
-    Stop { header: Header, checksum: u32 },
+    Stop(StopEvent),
     /// 4
     /// ref: https://dev.mysql.com/doc/internals/en/rotate-event.html
     Rotate(RotateEvent),
@@ -94,7 +96,7 @@ pub enum Event {
     },
     /// 7
     /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#slave-event
-    Slave { header: Header, checksum: u32 },
+    Slave(SlaveEvent),
     /// 8
     /// ref: https://dev.mysql.com/doc/internals/en/create-file-event.html
     CreateFile {
@@ -270,7 +272,7 @@ pub enum Event {
     GtidLog(GtidLogEvent),
     /// 34
     /// equals GtidLog
-    AnonymousGtidLog(AnonymousGtidLogEvent),
+    AnonymousGtidLog(GtidLogEvent),
     /// 35
     PreviousGtidsLog(PreviousGtidsLogEvent),
 

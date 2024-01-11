@@ -1,5 +1,5 @@
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::row::row_data::UpdateRowData;
@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::rc::Rc;
+use crate::events::event_raw::HeaderRef;
 
 /// Represents one or many updated rows in row based replication.
 /// Includes versions before and after update.
@@ -75,17 +76,23 @@ impl UpdateRowsEvent {
         }
     }
 
-    /// Supports all versions of MariaDB and MySQL 5.5+ (V1 and V2 row events).
-    pub fn parse(
+}
+
+impl LogEvent for UpdateRowsEvent {
+    fn get_type_name(&self) -> String {
+        "UpdateRowsEvent".to_string()
+    }
+
+    fn parse(
         cursor: &mut Cursor<&[u8]>,
-        table_map: &HashMap<u64, TableMapEvent>,
-        header: &Header,
-        context: Rc<RefCell<LogContext>>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
     ) -> Result<Self, ReError> {
         let _context = context.borrow();
         let post_header_len = _context
             .get_format_description()
-            .get_post_header_len(header.get_event_type() as usize);
+            .get_post_header_len(header.borrow_mut().get_event_type() as usize);
 
         let (table_id, flags, extra_data_len, extra_data, columns_number, version) =
             parse_head(cursor, post_header_len)?;
@@ -101,7 +108,7 @@ impl UpdateRowsEvent {
         let mut _rows_data_cursor = Cursor::new(_rows_data_vec.as_slice());
         let rows = parse_update_row_data_list(
             &mut _rows_data_cursor,
-            table_map,
+            table_map.unwrap(),
             table_id,
             &before_image,
             &after_image,
@@ -109,8 +116,9 @@ impl UpdateRowsEvent {
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
+        header.borrow_mut().update_checksum(checksum);
         let e = UpdateRowsEvent::new(
-            Header::copy_and_get(header, checksum, HashMap::new()),
+            Header::copy(header),
             table_id,
             flags,
             extra_data_len,
@@ -123,11 +131,5 @@ impl UpdateRowsEvent {
         );
 
         Ok(e)
-    }
-}
-
-impl LogEvent for UpdateRowsEvent {
-    fn get_type_name(&self) -> String {
-        "UpdateRowsEvent".to_string()
     }
 }

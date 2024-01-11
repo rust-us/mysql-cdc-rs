@@ -14,6 +14,7 @@ pub mod query;
 pub mod checksum_type;
 pub mod log_stat;
 pub mod tracker;
+pub mod gtid_set;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub enum IntVarEventType {

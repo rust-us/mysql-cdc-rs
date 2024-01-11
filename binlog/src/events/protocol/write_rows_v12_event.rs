@@ -1,5 +1,5 @@
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::row::row_data::RowData;
@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::rc::Rc;
+use crate::events::event_raw::HeaderRef;
 
 ///                          Binary_log_event
 ///                                   ^
@@ -96,28 +97,24 @@ impl WriteRowsEvent {
             row_version,
         }
     }
+}
 
-    ///
-    ///
-    /// # Arguments
-    ///
-    /// * `input`:
-    /// * `header`:
-    /// * `context`:
-    /// * `row_event_version`: 事件版本，1 是指WriteRowsEventV1。 2是指MySqlWriteRowsEventV2
-    ///
-    /// returns: Result<(&[u8], WriteRowsV2Event), Err<Error<&[u8]>>>
-    pub fn parse<'a>(
+impl LogEvent for WriteRowsEvent {
+    fn get_type_name(&self) -> String {
+        "WriteRowsEvent".to_string()
+    }
+
+    fn parse<'a>(
         cursor: &mut Cursor<&[u8]>,
-        table_map: &HashMap<u64, TableMapEvent>,
-        header: &Header,
-        context: Rc<RefCell<LogContext>>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
     ) -> Result<Self, ReError> {
         let _context = context.borrow();
         let common_header_len = _context.get_format_description().common_header_len;
         let query_post_header_len = _context
             .get_format_description()
-            .get_post_header_len(header.get_event_type() as usize);
+            .get_post_header_len(header.borrow_mut().get_event_type() as usize);
 
         let (table_id, flags, extra_data_len, extra_data, columns_number, version) =
             parse_head(cursor, query_post_header_len)?;
@@ -131,12 +128,13 @@ impl WriteRowsEvent {
 
         let mut rows_data_cursor = Cursor::new(rows_data_vec.as_slice());
         let rows =
-            parse_row_data_list(&mut rows_data_cursor, table_map, table_id, &columns_present);
+            parse_row_data_list(&mut rows_data_cursor, table_map.unwrap(), table_id, &columns_present);
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
+        header.borrow_mut().update_checksum(checksum);
         let e = WriteRowsEvent::new(
-            Header::copy_and_get(header, checksum, HashMap::new()),
+            Header::copy(header.clone()),
             table_id,
             flags,
             extra_data_len,
@@ -148,11 +146,5 @@ impl WriteRowsEvent {
         );
 
         Ok(e)
-    }
-}
-
-impl LogEvent for WriteRowsEvent {
-    fn get_type_name(&self) -> String {
-        "WriteRowsEvent".to_string()
     }
 }

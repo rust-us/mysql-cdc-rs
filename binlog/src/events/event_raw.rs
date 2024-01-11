@@ -7,9 +7,9 @@ use nom::combinator::map;
 use nom::IResult;
 use serde::Serialize;
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
-use crate::events::protocol::format_description_log_event::{LOG_EVENT_MINIMAL_HEADER_LEN, ST_COMMON_HEADER_LEN_OFFSET};
-use crate::factory::event_factory::EventFactory;
+use crate::events::log_context::{ILogContext, LogContextRef};
+
+pub type HeaderRef = Rc<RefCell<Header>>;
 
 /////////////////////////////////////
 ///  Event Data
@@ -17,7 +17,7 @@ use crate::factory::event_factory::EventFactory;
 #[derive(Debug, Serialize, Clone)]
 #[cfg_attr(feature = "serde", serde::Serialize, serde::DeSerialize)]
 pub struct EventRaw {
-    pub header: Header,
+    pub header: HeaderRef,
 
     // payload_data_without_crc
     pub payload: Vec<u8>,
@@ -29,7 +29,7 @@ pub struct EventRaw {
 impl EventRaw {
     pub fn new(header: Header) -> Self {
         EventRaw {
-            header,
+            header: Rc::new(RefCell::new(header)),
             payload: Vec::with_capacity(32),
             has_crc: false,
         }
@@ -37,18 +37,14 @@ impl EventRaw {
 
     pub fn new_with_payload(header: Header, payload: Vec<u8>, has_crc: bool) -> Self {
         EventRaw {
-            header,
+            header: Rc::new(RefCell::new(header)),
             payload,
             has_crc,
         }
     }
 
-    pub fn get_header(&self) -> &Header {
-        &self.header
-    }
-
-    pub fn get_header_ref(&self) -> Rc<&Header> {
-        Rc::new(&self.header)
+    pub fn get_header(&self) -> HeaderRef {
+        self.header.clone()
     }
 
     pub fn get_payload(&self) -> &[u8] {
@@ -59,7 +55,7 @@ impl EventRaw {
 impl EventRaw {
 
     /// input &[u8] 转为 Vec<EventRaw>， 并返回剩余数组
-    pub fn steam_to_event_raw<'a>(input: &'a [u8], context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], Vec<EventRaw>> {
+    pub fn steam_to_event_raw<'a>(input: &'a [u8], context: LogContextRef) -> IResult<&'a [u8], Vec<EventRaw>> {
         let header_len = context.borrow_mut().get_format_description().common_header_len as usize;
         let mut event_raws = Vec::<EventRaw>::new();
 
@@ -83,7 +79,7 @@ impl EventRaw {
     }
 
     /// 提前计算crc的slice
-    fn slice(slice: &[u8], header_len: usize, context: Rc<RefCell<LogContext>>) -> (EventRaw, &[u8]) {
+    fn slice(slice: &[u8], header_len: usize, context: LogContextRef) -> (EventRaw, &[u8]) {
         let mut i = slice;
 
         // try parser
@@ -106,7 +102,7 @@ impl EventRaw {
     }
 
     /// 不提前计算crc的popup
-    fn popup<'a>(bytes: &'a [u8], header_len: usize, context: Rc<RefCell<LogContext>>) -> IResult<&'a [u8], EventRaw> {
+    fn popup<'a>(bytes: &'a [u8], header_len: usize, context: LogContextRef) -> IResult<&'a [u8], EventRaw> {
         let header_bytes = &bytes[0..header_len];
 
         let header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();

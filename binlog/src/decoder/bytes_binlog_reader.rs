@@ -9,7 +9,7 @@ use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_raw::EventRaw;
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
 
 /// Reads binlog events from a stream.
@@ -23,7 +23,7 @@ pub struct BytesBinlogReader {
     /// stream 与 source_bytes 的解析器
     decoder: LogEventDecoder,
 
-    context: Rc<RefCell<LogContext>>,
+    context: LogContextRef,
 
     event_raw_iter: Arc<IntoIter<EventRaw>>,
 
@@ -45,7 +45,7 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
     /// ```
     ///
     /// ```
-    fn new(context: Rc<RefCell<LogContext>>, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
+    fn new(context: LogContextRef, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
         let event_raw_list = Vec::new();
 
         Ok(Self {
@@ -58,7 +58,7 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
         })
     }
 
-    fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, Rc<RefCell<LogContext>>), ReError> {
+    fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, LogContextRef), ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
         let context = Rc::new(RefCell::new(_context));
 
@@ -82,7 +82,7 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
         self
     }
 
-    fn get_context(&self) -> Rc<RefCell<LogContext>> {
+    fn get_context(&self) -> LogContextRef {
         self.context.clone()
     }
 }

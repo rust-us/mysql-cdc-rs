@@ -6,11 +6,9 @@ use nom::{
     number::complete::{le_u16, le_u32, le_u8},
     IResult,
 };
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{BufRead, Cursor, Read};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::io::{Cursor, Read};
+use std::sync::{Arc, Mutex};
 
 use common::err::DecodeError::ReError;
 use serde::Serialize;
@@ -18,13 +16,13 @@ use serde::Serialize;
 use crate::column::column_type::ColumnType;
 use crate::decoder::event_decoder_impl::TABLE_MAP;
 use crate::decoder::event_decoder_impl::TABLE_MAP_META;
-use crate::events::log_context::{ILogContext, LogContext};
-use crate::events::log_event::LogEvent;
+use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::metadata::table_metadata::TableMetadata;
 use crate::{
     events::event_header::Header,
     utils::{pu64, read_fixed_len_string, read_len_enc_num},
 };
+use crate::events::event_raw::HeaderRef;
 
 /// The event has table defition for row events.
 /// <a href="https://github.com/mysql/mysql-server/blob/mysql-cluster-8.0.22/libbinlogevents/include/rows_event.h#L521">See more</a>
@@ -97,6 +95,26 @@ pub struct ColumnInfo {
     array: bool,
 }
 
+impl Default for TableMapEvent {
+    fn default() -> Self {
+        TableMapEvent {
+            header: Header::default(),
+            table_id: 0,
+            flags: 0,
+            schema_length: 0,
+            database_name: "".to_string(),
+            table_name_length: 0,
+            table_name: "".to_string(),
+            columns_number: 0,
+            column_types: vec![],
+            column_metadata: vec![],
+            column_metadata_type: vec![],
+            null_bitmap: vec![],
+            table_metadata: Some(TableMetadata::default()),
+        }
+    }
+}
+
 impl TableMapEvent {
     pub fn get_table_id(&self) -> u64 {
         self.table_id
@@ -111,15 +129,16 @@ impl TableMapEvent {
 impl TableMapEvent {
     pub fn parse<'a>(
         input: &'a [u8],
-        header: &Header,
-        context: Rc<RefCell<LogContext>>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
     ) -> IResult<&'a [u8], TableMapEvent> {
         let _context = context.borrow();
 
         let common_header_len = _context.get_format_description().common_header_len;
         let query_post_header_len = _context
             .get_format_description()
-            .get_post_header_len(header.get_event_type() as usize);
+            .get_post_header_len(header.borrow_mut().get_event_type() as usize);
 
         let mut column_info_maps: Vec<ColumnInfo> = Vec::new();
 
@@ -137,7 +156,7 @@ impl TableMapEvent {
         let mut current_event_body_pos = 0u32;
         // event-body 部分长度
         let data_len =
-            header.get_event_length() - (common_header_len + query_post_header_len) as u32;
+            header.borrow_mut().get_event_length() - (common_header_len + query_post_header_len) as u32;
 
         // Database name is null terminated
         let (i, (schema_length, schema)) = read_fixed_len_string(i)?;
@@ -227,7 +246,7 @@ impl TableMapEvent {
         }
 
         let e = TableMapEvent {
-            header: Header::copy_and_get(&header, checksum, HashMap::new()),
+            header: Header::copy_and_get(header, checksum, HashMap::new()),
             table_id,
             flags,
             schema_length,
@@ -509,8 +528,8 @@ impl ColumnInfo {
     }
 }
 
-impl LogEvent for TableMapEvent {
-    fn get_type_name(&self) -> String {
-        "TableMapEvent".to_string()
-    }
-}
+// impl LogEvent for TableMapEvent {
+//     fn get_type_name(&self) -> String {
+//         "TableMapEvent".to_string()
+//     }
+// }

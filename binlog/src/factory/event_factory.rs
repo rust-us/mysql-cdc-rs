@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::io::Cursor;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
@@ -14,18 +13,17 @@ use crate::decoder::bytes_binlog_reader::BytesBinlogReader;
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_raw::EventRaw;
-use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext};
+use crate::events::gtid_set::MysqlGTIDSet;
+use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
 
 pub trait IEventFactory {
     /// 初始化 binlog 解析器
     fn new(skip_magic_buffer: bool) -> EventFactory;
 
+    fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: MysqlGTIDSet) -> EventFactory;
 
-    /// 得到 EventFactory 实例后， BinlogReader 的上下文信息
-    fn get_context(&self) -> Rc<RefCell<LogContext>>;
-
+    fn dump();
 
     /// 从 bytes 读取 binlog
     ///
@@ -48,29 +46,28 @@ pub trait IEventFactory {
 
     /// 从 BlockIterator 读取 binlog
     fn parser_iter_with_block(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>);
+
+    /// 得到 EventFactory 实例后， BinlogReader 的上下文信息
+    fn get_context(&self) -> LogContextRef;
 }
 
 pub struct EventFactory {
     reader: Arc<RwLock<BytesBinlogReader>>,
 
-    context: Rc<RefCell<LogContext>>,
+    context: LogContextRef,
 }
 
 impl IEventFactory for EventFactory {
     fn new(skip_magic_buffer: bool) -> EventFactory {
-        let _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
-        let context = Rc::new(RefCell::new(_context));
-
-        let reader = BytesBinlogReader::new(context.clone(), skip_magic_buffer).unwrap();
-
-        EventFactory {
-            reader: Arc::new(RwLock::new(reader)),
-            context
-        }
+        EventFactory::_new(skip_magic_buffer, None)
     }
 
-    fn get_context(&self) -> Rc<RefCell<LogContext>> {
-        self.context.clone()
+    fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: MysqlGTIDSet) -> EventFactory {
+        EventFactory::_new(skip_magic_buffer, Some(gtid_set))
+    }
+
+    fn dump() {
+        todo!()
     }
 
     fn parser_bytes<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], Vec<Event>> {
@@ -130,12 +127,36 @@ impl IEventFactory for EventFactory {
             };
         }
     }
+
+    // dump
+    fn get_context(&self) -> LogContextRef {
+        self.context.clone()
+    }
 }
 
 impl EventFactory {
 
+    fn _new(skip_magic_buffer: bool, gtid_set: Option<MysqlGTIDSet>) -> EventFactory {
+
+        let _context:LogContext = if gtid_set.is_some() {
+            // 将gtid传输至context中，供decode使用
+            LogContext::new_with_gtid(LogPosition::new("BytesBinlogReader"), gtid_set.unwrap())
+        } else {
+            LogContext::new(LogPosition::new("BytesBinlogReader"))
+        };
+
+        let context = Rc::new(RefCell::new(_context));
+
+        let reader = BytesBinlogReader::new(context.clone(), skip_magic_buffer).unwrap();
+
+        EventFactory {
+            reader: Arc::new(RwLock::new(reader)),
+            context
+        }
+    }
+
     ///EventRaw 转为 Event
-    pub fn event_raw_to_event(raw: &EventRaw, context: Rc<RefCell<LogContext>>) -> Result<Event, ReError> {
+    pub fn event_raw_to_event(raw: &EventRaw, context: LogContextRef) -> Result<Event, ReError> {
         let mut decoder = LogEventDecoder::new();
         let rs = decoder.decode_with_raw(&raw, context);
 

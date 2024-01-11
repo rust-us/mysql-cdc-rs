@@ -18,7 +18,7 @@ Parsed events matrix:
 
 | Hex  | Event Name               | Support             | Tested           | Noted |
 |------|--------------------------|---------------------|------------------|-------|
-| 0x01 | UNKNOWN_EVENT            | support and         | not tested       |       |
+| 0x00 | UNKNOWN_EVENT            | support and         | not tested       |       |
 | 0x01 | START_EVENT_V3           | too old and support | not tested       |       |
 | 0x02 | QUERY_EVENT              | support             | tested           |       |
 | 0x03 | STOP_EVENT               | support             | not tested       |       |

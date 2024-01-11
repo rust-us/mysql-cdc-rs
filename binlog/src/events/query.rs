@@ -1,3 +1,5 @@
+use std::io::{Cursor, Read};
+use byteorder::{LittleEndian, ReadBytesExt};
 use nom::{
     bytes::complete::take,
     combinator::map,
@@ -7,9 +9,10 @@ use nom::{
 };
 use nom::number::complete::le_u24;
 use serde::Serialize;
+use common::err::DecodeError::ReError;
 use crate::events::protocol::query_event::{MAX_DBS_IN_EVENT_MTS, OVER_MAX_DBS_IN_EVENT_MTS};
 
-use crate::utils::{read_variable_len_string, extract_string, pu32, read_null_term_string};
+use crate::utils::{read_variable_len_string, extract_string, pu32, read_null_term_string, read_null_term_string_with_cursor};
 
 /// 状态的类型. not more than 256 values (1 byte).
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
@@ -314,6 +317,168 @@ pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar
             let (i, when_sec_part) = le_u24(i)?;
             // }
             Ok((i, QueryStatusVar::Q_WSREP_SKIP_READONLY_CHECKS))
+        },
+        __ => {
+            /* That's why you must write status vars in growing order of code  */
+            log::error!("Query_log_event has unknown status vars (first has code: {:?}), skipping the rest of them", code);
+
+            unreachable!()
+        },
+    }
+}
+
+pub fn parse_status_var_cursor(raw_vars: &mut Cursor<&[u8]>) -> Result<QueryStatusVar, ReError> {
+    let code = raw_vars.read_u8()?;
+    // let code =
+
+    match code {
+        0x00 => { // Q_FLAGS2_CODE
+            let code = raw_vars.read_u32::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_FLAGS2_CODE(code, Q_FLAGS2_CODE_VAL::from(code)))
+        }
+        0x01 => { // Q_SQL_MODE_CODE
+            let code = raw_vars.read_u64::<LittleEndian>()?; // when sql_mode is ulonglong
+            Ok(QueryStatusVar::Q_SQL_MODE_CODE(code, Q_SQL_MODE_CODE_VAL::from(code)))
+        }
+        0x02 => { //Q_CATALOG, for 5.0.x where 0<=x<=3 masters
+            let len = raw_vars.read_u8()?;
+
+            let mut s = vec![0; len as usize];
+            raw_vars.read_exact(&mut s)?;
+            let val = read_variable_len_string(&s, len as usize);
+
+            let term = raw_vars.read_u8()?;
+            assert_eq!(term, 0x00);
+            Ok(QueryStatusVar::Q_CATALOG(val))
+        }
+        0x03 => { // Q_AUTO_INCREMENT
+            let incr = raw_vars.read_u16::<LittleEndian>()?;
+            let offset = raw_vars.read_u16::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_AUTO_INCREMENT(incr, offset))
+        }
+        0x04 => { // Q_CHARSET_CODE
+            // Charset: 6 byte character set flag.
+            // 1-2 = character set client
+            // 3-4 = collation client
+            // 5-6 = collation server
+
+            let client = raw_vars.read_u16::<LittleEndian>()?;
+            let conn = raw_vars.read_u16::<LittleEndian>()?;
+            let server = raw_vars.read_u16::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_CHARSET_CODE(client, conn, server))
+        }
+        0x05 => { // Q_TIME_ZONE_CODE
+            let len = raw_vars.read_u8()?;
+
+            let mut s = vec![0; len as usize];
+            raw_vars.read_exact(&mut s)?;
+            let tz = extract_string(&s);
+
+            Ok(QueryStatusVar::Q_TIME_ZONE_CODE(tz))
+        }
+        0x06 => { // Q_CATALOG_NZ_CODE
+            let len = raw_vars.read_u8()?;
+
+            let mut s = vec![0; len as usize];
+            raw_vars.read_exact(&mut s)?;
+            let val = extract_string(&s);
+
+            Ok(QueryStatusVar::Q_CATALOG_NZ_CODE(val))
+        }
+        0x07 => { // Q_LC_TIME_NAMES_CODE
+            let v = raw_vars.read_u16::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_LC_TIME_NAMES_CODE(v))
+        },
+        0x08 => { // Q_CHARSET_DATABASE_CODE
+            let v = raw_vars.read_u16::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_CHARSET_DATABASE_CODE(v))
+        },
+        0x09 => { // Q_TABLE_MAP_FOR_UPDATE_CODE => 9
+            let v = raw_vars.read_u64::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_TABLE_MAP_FOR_UPDATE_CODE(v))
+        },
+        0x0a => { // Q_MASTER_DATA_WRITTEN_CODE => 10
+            let v = raw_vars.read_u32::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_MASTER_DATA_WRITTEN_CODE(v))
+        },
+        0x0b => { // Q_INVOKERS => 11
+            let user_len = raw_vars.read_u8()?;
+
+            let mut s = vec![0; user_len as usize];
+            raw_vars.read_exact(&mut s)?;
+            let user = read_variable_len_string(&s, user_len as usize);
+
+            let host_len = raw_vars.read_u8()?;
+            let mut sh = vec![0; host_len as usize];
+            raw_vars.read_exact(&mut sh)?;
+            let host = read_variable_len_string(&sh, host_len as usize);
+
+            Ok(QueryStatusVar::Q_INVOKERS(user, host))
+        }
+        0x0c => { // Q_UPDATED_DB_NAMES => 12
+            let mut mts_accessed_dbs = raw_vars.read_u8()?;
+
+            /**
+             * Notice, the following check is positive also in case
+             * of the master's MAX_DBS_IN_EVENT_MTS > the slave's
+             * one and the event contains e.g the master's MAX_DBS_IN_EVENT_MTS db:s.
+             */
+            if mts_accessed_dbs > MAX_DBS_IN_EVENT_MTS as u8 {
+                mts_accessed_dbs = OVER_MAX_DBS_IN_EVENT_MTS as u8;
+                return Ok(QueryStatusVar::Q_UPDATED_DB_NAMES(Vec::with_capacity(0)));
+            }
+
+            let mut mts_accessed_db_names = Vec::<String>::new();
+            for count in 0..mts_accessed_dbs as usize {
+                let rs = read_null_term_string_with_cursor(raw_vars);
+                mts_accessed_db_names.push(rs.unwrap());
+            }
+            Ok(QueryStatusVar::Q_UPDATED_DB_NAMES(mts_accessed_db_names))
+        }
+        0x0d => { // Q_MICROSECONDS => 13
+            // map(pu32, |val| QueryStatusVar::Q_MICROSECONDS(val))(i)
+            let val = raw_vars.read_u24::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_MICROSECONDS(val))
+        },
+        // Q_COMMIT_TS => 14, Q_COMMIT_TS2 => 15 unused now
+        0x10 => { // Q_EXPLICIT_DEFAULTS_FOR_TIMESTAMP => 16
+            // thd->variables.explicit_defaults_for_timestamp
+            let explicit_defaults_for_timestamp = raw_vars.read_u8()?;
+            Ok(QueryStatusVar::Q_EXPLICIT_DEFAULTS_FOR_TIMESTAMP(explicit_defaults_for_timestamp))
+        },
+        0x11 => { // Q_DDL_LOGGED_WITH_XID => 17
+            /// ddl_xid is BigInteger
+            let ddl_xid = raw_vars.read_u64::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_DDL_LOGGED_WITH_XID(ddl_xid))
+        },
+        0x12 => { // Q_DEFAULT_COLLATION_FOR_UTF8MB4 => 18
+            let default_collation_for_utf8mb4_number = raw_vars.read_u16::<LittleEndian>()?;
+            Ok(QueryStatusVar::Q_DEFAULT_COLLATION_FOR_UTF8MB4(default_collation_for_utf8mb4_number))
+        },
+        0x13 => { // Q_SQL_REQUIRE_PRIMARY_KEY => 19
+            let sql_require_primary_key = raw_vars.read_u8()?;
+            Ok(QueryStatusVar::Q_SQL_REQUIRE_PRIMARY_KEY(sql_require_primary_key))
+        },
+        0x14 => { // Q_DEFAULT_TABLE_ENCRYPTION => 20
+            let default_table_encryption = raw_vars.read_u8()?;
+            Ok(QueryStatusVar::Q_DEFAULT_TABLE_ENCRYPTION(default_table_encryption))
+        },
+        0x15 => { // Q_DDL_SKIP_REWRITE => 21
+            let binlog_ddl_skip_rewrite = raw_vars.read_u8()?;
+            Ok(QueryStatusVar::Q_DDL_SKIP_REWRITE(binlog_ddl_skip_rewrite))
+        },
+        128 => { // Q_WSREP_SKIP_READONLY_CHECKS => 128
+            // https://github.com/alibaba/canal/issues/4940
+            // percona 和 mariadb各自扩展mysql binlog的格式后有冲突
+            // 需要精确识别一下数据库类型做兼容处理
+            // if (compatiablePercona) {
+            //     // percona 8.0.31
+            //     // Q_WSREP_SKIP_READONLY_CHECKS *start++ = 1;
+            //     let (i, _) = le_u8(i)?;
+            // } else {
+            let when_sec_part = raw_vars.read_u24::<LittleEndian>()?;
+            // }
+            Ok(QueryStatusVar::Q_WSREP_SKIP_READONLY_CHECKS)
         },
         __ => {
             /* That's why you must write status vars in growing order of code  */

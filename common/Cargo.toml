@@ -14,10 +14,13 @@ lru = { workspace = true }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 nom = { workspace = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
-serde_yaml = { workspace = true, optional = true }
-lazy_static = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+
+futures-util = { workspace = true }
+futures-executor = { workspace = true }
+tracing = { workspace = true }
+
 
 log = "0.4.20"
 log4rs = "1.2.0"

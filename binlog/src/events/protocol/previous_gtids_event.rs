@@ -6,6 +6,7 @@ use crate::events::log_event::LogEvent;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_MINIMAL_HEADER_LEN;
 use nom::{bytes::complete::take, combinator::map, number::complete::le_u32, IResult};
 use serde::Serialize;
+use crate::events::event_raw::HeaderRef;
 
 /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/control_events.h#L1073-L1103
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
@@ -20,8 +21,8 @@ pub struct PreviousGtidsLogEvent {
 }
 
 impl PreviousGtidsLogEvent {
-    pub fn parse<'a>(input: &'a [u8], header: &Header) -> IResult<&'a [u8], PreviousGtidsLogEvent> {
-        let gtid_sets_len = header.event_length
+    pub fn parse<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], PreviousGtidsLogEvent> {
+        let gtid_sets_len = header.borrow().event_length
             - (LOG_EVENT_MINIMAL_HEADER_LEN + /*buf_size len*/4 + /*checksum len*/ST_COMMON_PAYLOAD_CHECKSUM_LEN)
                 as u32;
         let (i, gtid_sets) = map(take(gtid_sets_len), |s: &[u8]| s.to_vec())(input)?;
@@ -29,7 +30,7 @@ impl PreviousGtidsLogEvent {
         let (i, buf_size) = le_u32(i)?;
 
         let (i, checksum) = le_u32(i)?;
-        let header_new = Header::copy_and_get(&header, checksum, HashMap::new());
+        let header_new = Header::copy_and_get(header, checksum, HashMap::new());
 
         Ok((
             i,
@@ -43,8 +44,8 @@ impl PreviousGtidsLogEvent {
     }
 }
 
-impl LogEvent for PreviousGtidsLogEvent {
-    fn get_type_name(&self) -> String {
-        "PreviousGtidsLogEvent".to_string()
-    }
-}
+// impl LogEvent for PreviousGtidsLogEvent {
+//     fn get_type_name(&self) -> String {
+//         "PreviousGtidsLogEvent".to_string()
+//     }
+// }
