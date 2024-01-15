@@ -16,7 +16,7 @@ use crate::{
     events::event_header::Header,
     utils::{extract_string, read_null_term_string, read_variable_len_string},
 };
-use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, query, UserVarType};
+use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, OptFlags, query, UserVarType};
 use crate::column::column_type::ColumnType;
 use crate::events::event_raw::HeaderRef;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
@@ -31,25 +31,6 @@ lazy_static! {
 
     pub static ref TABLE_MAP_EVENT: Arc<Mutex<HashMap<u64, TableMapEvent>>> =
         Arc::new(Mutex::new(HashMap::new()));
-}
-
-pub fn parse_intvar<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
-    let (i, e_type) = map(le_u8, |t: u8| match t {
-        0x00 => IntVarEventType::InvalidIntEvent,
-        0x01 => IntVarEventType::LastInsertIdEvent,
-        0x02 => IntVarEventType::InsertIdEvent,
-        _ => unreachable!(),
-    })(input)?;
-    let (i, (value, checksum)) = tuple((le_u64, le_u32))(i)?;
-    Ok((
-        i,
-        Event::IntVar {
-            header: Header::copy(header),
-            e_type,
-            value,
-            checksum,
-        },
-    ))
 }
 
 fn extract_many_fields<'a>(

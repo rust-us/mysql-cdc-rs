@@ -4,13 +4,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::vec::IntoIter;
 use common::err::DecodeError::ReError;
-use crate::decoder::binlog_decoder::BinlogReader;
+use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_raw::EventRaw;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
+use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
 /// Reads binlog events from a stream.
 #[derive(Debug, Clone)]
@@ -30,7 +31,7 @@ pub struct BytesBinlogReader {
     eof: bool,
 }
 
-impl BinlogReader<&[u8]> for BytesBinlogReader {
+impl BinlogReader<&[u8], Event> for BytesBinlogReader {
     ///
     ///
     /// # Arguments
@@ -67,19 +68,29 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
         Ok((decoder, context))
     }
 
-    fn read_events(mut self, stream: &[u8]) -> Self {
+    fn read_events(&mut self, stream: &[u8]) -> Box<dyn Iterator<Item=Result<Event, ReError>>> {
         self.source_bytes = if !self.skip_magic_buffer {
             let (i, _) = Header::check_start(stream).unwrap();
+            self.skip_magic_buffer = true;
+
             i.to_vec()
         } else {
             stream.to_vec()
         };
 
         let (remaining_bytes, event_raws) = EventRaw::steam_to_event_raw(&self.source_bytes, self.context.clone()).unwrap();
-        self.source_bytes = remaining_bytes.to_vec();
-        self.event_raw_iter = Arc::new(event_raws.into_iter());
+        self.source_bytes = remaining_bytes;
+        self.event_raw_iter = Arc::new(event_raws.clone().into_iter());
 
-        self
+        Box::new(BytesBinlogReaderIterator {
+            index: 0,
+            source_bytes: self.source_bytes.clone(),
+            skip_magic_buffer: self.skip_magic_buffer,
+            decoder: self.decoder.clone(),
+            context: self.context.clone(),
+            event_raws,
+            eof: self.eof,
+        })
     }
 
     fn get_context(&self) -> LogContextRef {
@@ -88,42 +99,62 @@ impl BinlogReader<&[u8]> for BytesBinlogReader {
 }
 
 impl BytesBinlogReader {
-    fn read_event(&mut self, raw: &EventRaw) -> Result<Event, ReError> {
-        let (binlog_event, remain_bytes) = self.decoder.decode_with_raw(&raw, self.context.clone()).unwrap();
-        assert_eq!(remain_bytes.len(), 0);
-
-        Ok(binlog_event)
-    }
-
     pub fn get_source_bytes(&self) -> Vec<u8> {
         self.source_bytes.clone()
     }
 }
 
-/// Iterator
-impl Iterator for BytesBinlogReader {
+
+struct BytesBinlogReaderIterator {
+    index: usize,
+
+    /// 源内容。在读取结束后也可能会包含读取结束时的剩余字节。用于追加下一次请求中或者直接返回
+    source_bytes: Vec<u8>,
+
+    skip_magic_buffer: bool,
+
+    /// stream 与 source_bytes 的解析器
+    decoder: LogEventDecoder,
+
+    context: LogContextRef,
+
+    event_raws: Vec<EventRaw>,
+
+    eof: bool,
+}
+
+impl Iterator for BytesBinlogReaderIterator {
     type Item = Result<Event, ReError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let it = Arc::get_mut(&mut self.event_raw_iter).unwrap();
-        let event_raw = it.next();
-
-        if event_raw.is_none() {
+        if self.index >= self.event_raws.len() {
+            self.eof = true;
             return None;
         }
 
-        let result = self.read_event(&event_raw.unwrap());
-        self.context.borrow_mut().log_stat_add();
+        let event_raw = &self.event_raws[self.index];
 
-        if let Err(error) = &result {
-            if let ReError::IoError(io_error) = error {
-                if let ErrorKind::UnexpectedEof = io_error.kind() {
-                    self.eof = true;
-                    return None;
+        let result = self.decoder.decode_with_raw(&event_raw, self.context.clone());
+
+        match result {
+            Err(error) => {
+                if let ReError::IoError(io_error) = &error {
+                    if let ErrorKind::UnexpectedEof = io_error.kind() {
+                        self.eof = true;
+                        None
+                    } else {
+                        Some(Err(error))
+                    }
+                } else {
+                    Some(Err(error))
                 }
+            },
+            Ok(data) => {
+                self.index += 1;
+                self.context.borrow_mut().log_stat_add();
+
+                Some(Ok(data))
             }
         }
-
-        Some(result)
     }
 }

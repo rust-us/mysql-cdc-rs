@@ -106,7 +106,7 @@ impl Default for Header {
             event_length: 0,
             log_pos: 0,
             flags: 0,
-            flags_attr: Default::default(),
+            flags_attr: EventFlag::default(),
             checksum_alg: 0,
             checksum: 0,
             log_file_name: "".to_string(),

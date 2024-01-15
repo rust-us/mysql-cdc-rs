@@ -3,4 +3,5 @@ pub mod codec;
 pub mod parse;
 pub mod log;
 pub mod err;
-mod server;
+pub mod server;
+pub mod model;

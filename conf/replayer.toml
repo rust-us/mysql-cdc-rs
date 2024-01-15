@@ -1,0 +1,16 @@
+# RC mysql configuration
+[rc_mysql]
+# rc multi address
+addr = ["127.0.0.1:3001"]
+username = "root"
+password = "Aa123456"
+# raft shard stats fresh, min: 5s, max: 60s
+raft_stats_fresh_interval_ms = 60000
+
+[binlog]
+binlog_path = "/tmp"
+file = "mysql-bin.000005"
+position = 0
+
+[core]
+max_memory = "256MB"

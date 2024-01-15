@@ -1,12 +1,9 @@
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
 use bytes::Buf;
-use nom::IResult;
-use nom::bytes::complete::take;
-use nom::combinator::map;
-use common::err::DecodeError::ReError;
+use tracing::{debug, instrument};
+use common::err::DecodeError::{Needed, ReError};
 use crate::decoder::binlog_decoder::BinlogReader;
 use crate::decoder::bytes_binlog_reader::BytesBinlogReader;
 
@@ -32,27 +29,21 @@ pub trait IEventFactory {
     /// * `input`:
     /// * `skip_magic_buffer`:  是否跳过magic_number. true 表明已经跳过了（也就是说bytes中不存在magic_buffer）。 false指仍需执行 magic_number校验
     ///
-    /// returns: Result<(&[u8], Vec<Event, Global>), Err<Error<&[u8]>>>
+    ///                 剩余字节
+    /// returns: Result<(&[u8], Vec<Event>), ReError>
     ///
-    /// # Examples
-    ///
-    /// ```
-    ///
-    /// ```
-    fn parser_bytes<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], Vec<Event>>;
+    fn parser_bytes(&mut self, input: &[u8], options: &EventFactoryOption) -> Result<(Vec<u8>, Vec<Event>), ReError>;
 
     /// 从 Iterator 读取 binlog
-    fn parser_iter(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>);
-
-    /// 从 BlockIterator 读取 binlog
-    fn parser_iter_with_block(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>);
+    fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventFactoryOption);
 
     /// 得到 EventFactory 实例后， BinlogReader 的上下文信息
     fn get_context(&self) -> LogContextRef;
 }
 
+#[derive(Debug)]
 pub struct EventFactory {
-    reader: Arc<RwLock<BytesBinlogReader>>,
+    reader: BytesBinlogReader,
 
     context: LogContextRef,
 }
@@ -70,58 +61,69 @@ impl IEventFactory for EventFactory {
         todo!()
     }
 
-    fn parser_bytes<'a>(&self, input: &'a [u8]) -> IResult<&'a [u8], Vec<Event>> {
-        let mut reader = self.reader.write().unwrap();
+    #[instrument]
+    fn parser_bytes(&mut self, input: &[u8], options: &EventFactoryOption) -> Result<(Vec<u8>, Vec<Event>), ReError> {
         let context = &self.context;
 
-        let iter = reader.clone().read_events(input);
-        let remaing_bytes = &iter.get_source_bytes();
+        let iter = self.reader.read_events(input);
+        let remaing_bytes = self.reader.get_source_bytes();
 
         let mut events = Vec::new();
-        for result in iter {
+        for result in iter.into_iter() {
             let e = result.unwrap();
 
-            println!("============================ {}, process_count:{}.", Event::get_type_name(&e),
+            if options.is_debug() {
+                debug!("event: {}, process_count: {:?}", Event::get_type_name(&e),
                      context.borrow().log_stat_process_count());
+            }
+
             events.push(e);
         }
 
         // 取出剩余字节
-        let rm = if remaing_bytes.len() != 0 {
-            &input[remaing_bytes.len()..input.len()]
-        } else {
-            let (i, bytes) = map(take(input.len()), |s: &[u8]| s)(input)?;
-            i
-        };
-
-        Ok((rm, events))
+        let remaing = Vec::from(remaing_bytes.as_slice());
+        Ok((remaing, events))
     }
 
-    fn parser_iter(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>) {
-        for i in iter {
-            let bytes = match i {
-                Ok(bytes) => {
-                    // bytes
-                    println!("get: {:?}", bytes);
+    fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventFactoryOption) {
+        let mut remaing = Vec::new();
 
-                    self.parser_bytes(&*bytes).expect("TODO: panic message");
+        for item in iter {
+            match item {
+                Ok(bytes) => {
+                    let mut parser_bytes = Vec::<u8>::new();
+                    if remaing.len() > 0 {
+                        parser_bytes.extend(&remaing);
+                        remaing.clear();
+                    }
+                    parser_bytes.extend(bytes);
+
+                    let rs = self.parser_bytes(&parser_bytes, options);
+                    if rs.is_ok() {
+                        let (mut r, event_list) = rs.unwrap();
+                        if r.len() > 0 {
+                            remaing.append(&mut r);
+                        }
+
+                        // event_list 异步往下走， 所有权往下移。
+                        if !event_list.is_empty() {
+                            if options.is_debug() {
+                                debug!("event_list: {:?}", event_list);
+                            }
+
+                            // todo
+                        }
+                    } else {
+                        println!("binlog parser error");
+
+                        // todo
+                        break;
+                    }
                 },
                 Err(e) => {
-                    println!("error");
-                    break;
-                },
-            };
-        }
-    }
+                    println!("iter get error");
 
-    fn parser_iter_with_block(&self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>) {
-        for i in iter {
-            let bytes = match i {
-                Ok(bytes) => {
-                    self.parser_bytes(&*bytes).expect("TODO: panic message");
-                },
-                Err(e) => {
-                    println!("error");
+                    // todo
                     break;
                 },
             };
@@ -150,7 +152,7 @@ impl EventFactory {
         let reader = BytesBinlogReader::new(context.clone(), skip_magic_buffer).unwrap();
 
         EventFactory {
-            reader: Arc::new(RwLock::new(reader)),
+            reader,
             context
         }
     }
@@ -158,23 +160,52 @@ impl EventFactory {
     ///EventRaw 转为 Event
     pub fn event_raw_to_event(raw: &EventRaw, context: LogContextRef) -> Result<Event, ReError> {
         let mut decoder = LogEventDecoder::new();
-        let rs = decoder.decode_with_raw(&raw, context);
 
-        match rs {
-            Err(e) => {
-                // 中途的解析错误暂时忽略。后续再处理
-                // todo
-                println!("中途的解析错误暂时忽略。后续再处理： {:?}", e);
-                Err(ReError::Error(String::from("中途的解析错误暂时忽略。后续再处理")))
-            },
-            Ok(e) => {
-                assert_eq!(e.1.len(), 0);
-                Ok(e.0)
-            }
-        }
+        decoder.decode_with_raw(&raw, context)
     }
 }
 
+#[derive(Debug)]
+pub struct EventFactoryOption {
+    /// 是否为 debug。 true 为阻debug模式，  false 为正常模式
+    debug: bool,
+
+    /// 是否为阻塞式。 true 为阻塞， false 为非阻塞
+    blocked: bool,
+}
+
+impl EventFactoryOption {
+    pub fn new(debug: bool, blocked: bool,) -> Self {
+        EventFactoryOption {
+            debug,
+            blocked,
+        }
+    }
+
+    pub fn debug() -> Self {
+        EventFactoryOption ::new(true, false)
+    }
+
+    pub fn blocked() -> Self {
+        EventFactoryOption ::new(false, true)
+    }
+}
+
+impl Default for EventFactoryOption {
+    fn default() -> Self {
+        EventFactoryOption::new(false, false)
+    }
+}
+
+impl EventFactoryOption {
+    pub fn is_debug(&self) -> bool {
+        self.debug
+    }
+
+    pub fn is_blocked(&self) -> bool {
+        self.blocked
+    }
+}
 
 #[cfg(test)]
 mod test {

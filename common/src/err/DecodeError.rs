@@ -3,7 +3,6 @@ use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use hex::FromHexError;
-use nom::error;
 
 #[derive(Debug)]
 pub enum ReError {
@@ -16,6 +15,8 @@ pub enum ReError {
     String(String),
 
     /// Byte code is incomplete
+    /// 此错误用于binlog编解码过程中的异常处理，包含：
+    ///     编解码进行中、已完成、格式错误等， 由 Needed 产生为具体的错误信息描述
     Incomplete(Needed),
 
     /// The parser had an error (recoverable)
@@ -27,6 +28,8 @@ pub enum ReError {
     Failure(String),
 
     ConfigFileParseErr(String),
+    RcMysqlUrlErr(String),
+    RcMysqlQueryErr(String),
 }
 
 impl From<io::Error> for ReError {
@@ -75,6 +78,7 @@ pub enum Needed {
 
     InvalidUtf8,
 
+    /// 被忽略的异常。
     MissingNull,
 
     InvalidData(String),

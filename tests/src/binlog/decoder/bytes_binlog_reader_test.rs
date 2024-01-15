@@ -6,10 +6,11 @@ use binlog::events::event::Event;
 fn test_read_events() {
     let input = include_bytes!("../../../events/5.7/15_format_desc/log.bin");
 
-    let (reader, context) = BytesBinlogReader::new_without_context(false).unwrap();
+    let (mut reader, context) = BytesBinlogReader::new_without_context(false).unwrap();
 
     let mut idx = 0;
-    for result in reader.read_events(input) {
+    let iter = reader.read_events(input);
+    for result in iter.into_iter() {
         let event = result.unwrap();
         println!("============================ {}", Event::get_type_name(&event));
 

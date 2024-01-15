@@ -3,36 +3,37 @@
 mod test_normal {
     use std::fs::{File, OpenOptions};
     use std::path::Path;
-    use log::debug;
+    use tracing::debug;
     use binlog::column::column_value::ColumnValue::{BigInt, Int, MediumInt, SmallInt, TinyInt};
     use binlog::decoder::binlog_decoder::BinlogReader;
     use binlog::decoder::file_binlog_reader::FileBinlogReader;
     use binlog::events::event::Event;
     use binlog::events::event::Event::{DeleteRows, Query, TableMap, UpdateRows, WriteRows};
-    use binlog::factory::event_factory::{EventFactory, IEventFactory};
+    use binlog::factory::event_factory::{EventFactory, EventFactoryOption, IEventFactory};
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::query_event::QueryEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;
     use binlog::events::protocol::update_rows_v12_event::UpdateRowsEvent;
     use binlog::events::protocol::write_rows_v12_event::WriteRowsEvent;
     use binlog::row::row_data::{RowData, UpdateRowData};
-    use common::log::log_factory::LogFactory;
+    use common::log::tracing_factory::TracingFactory;
 
     #[test]
     fn test() {
-        LogFactory::init_log(true);
+        TracingFactory::init_log(true);
 
-        println!("test");
+        debug!("test");
     }
 
     #[test]
     fn test_query_default() {
         let file = load_read_only_file("/home/fengyang/fengyang/workspace/test_data/8.0/02_query/binlog.000001");
-        let (reader, context) =
+        let (mut reader, context) =
             FileBinlogReader::new_without_context(false).unwrap();
 
         let mut output = Vec::<Event>::new();
-        for result in reader.read_events(file) {
+        let iter = reader.read_events(file);
+        for result in iter.into_iter() {
             let (header, event) = match result {
                 Ok((header, event)) => {
                     (header, event)
@@ -71,8 +72,8 @@ mod test_normal {
     #[test]
     fn test_table_map_event_write_rows_log_event() {
         let input = include_bytes!("../../events/8.0/19_30_Table_map_event_Write_rows_log_event/binlog.000018");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
 
         match output.get(8).unwrap() {
             TableMap(TableMapEvent{
@@ -108,8 +109,8 @@ mod test_normal {
     #[test]
     fn test_update_rows_log_event() {
         let input = include_bytes!("../../events/8.0/31_update_rows_v2/binlog.000001");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
 
         // values
         let before_update: RowData = RowData {
@@ -180,8 +181,8 @@ mod test_normal {
     #[test]
     fn test_delete_rows_log_event() {
         let input = include_bytes!("../../events/8.0/32_delete_rows_v2/binlog.000001");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
 
         // values
         let delete: RowData = RowData {

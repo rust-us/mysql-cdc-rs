@@ -1,20 +1,21 @@
 use crate::events::event_header::Header;
-use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
-use crate::events::log_event::LogEvent;
+use crate::events::log_context::{ILogContext, LogContextRef};
+use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::row::row_data::RowData;
-use crate::row::row_parser::{parse_head, parse_row_data_list, TABLE_MAP_NOT_FOUND};
+use crate::row::row_parser::{parse_head, parse_row_data_list};
 use crate::row::rows;
-use crate::row::rows::RowEventVersion;
-use crate::utils::{read_bitmap_little_endian, read_bitmap_little_endian_bits};
+use crate::row::rows::{RowEventVersion, STMT_END_F};
+use crate::utils::{read_bitmap_little_endian};
 use byteorder::{LittleEndian, ReadBytesExt};
 use bytes::Buf;
-use common::err::DecodeError::ReError;
+use common::err::DecodeError::{Needed, ReError};
 use serde::Serialize;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::rc::Rc;
+use dashmap::mapref::one::Ref;
+use crate::column::column_type::ColumnType;
+use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 
 ///                          Binary_log_event
@@ -69,8 +70,12 @@ pub struct WriteRowsEvent {
     /// 存储插入的数据
     pub rows: Vec<RowData>,
 
-    // event-body部分 for Rows_event END
+    /// event-body部分 for Rows_event END
     row_version: RowEventVersion,
+
+    /// The table the rows belong to
+    table: Option<TableMapEvent>,
+    json_column_count: u32,
 }
 
 impl WriteRowsEvent {
@@ -95,7 +100,50 @@ impl WriteRowsEvent {
             columns_present,
             rows,
             row_version,
+            table: None,
+            json_column_count: 0,
         }
+    }
+}
+
+impl RowsLogEvent for WriteRowsEvent {
+    fn fill_assembly_table(&mut self, context: LogContextRef) -> Result<bool, ReError> {
+        let table_id = self.table_id;
+
+        {
+            let mut context_borrow = context.borrow_mut();
+
+            let table: Option<Ref<u64, TableMapEvent>>  = context_borrow.get_table(&table_id);
+
+            if table.is_none() {
+                return Err(ReError::Incomplete(Needed::InvalidData(
+                    format!("not found tableId error, tableId: {}", table_id)
+                )));
+            }
+
+            let new_table = TableMapEvent::copy(table.unwrap().value());
+            self.table = Some(new_table.clone());
+
+            // end of statement check
+            if (self.flags & STMT_END_F as u16) != 0 {
+                // Now is safe to clear ignored map (clear_tables will also delete original table map events stored in the map).
+                context_borrow.clear_all_table();
+            }
+
+            let mut json_column_count = 0;
+            let column_count = new_table.get_columns_number();
+            let column_metadata_type = new_table.get_column_metadata_type();
+            assert_eq!(column_count as usize, column_metadata_type.len());
+
+            for clolumn_type in column_metadata_type {
+                if clolumn_type == ColumnType::Json {
+                    json_column_count += 1;
+                }
+            }
+            self.json_column_count = json_column_count;
+        }
+
+        Ok(true)
     }
 }
 
@@ -104,7 +152,7 @@ impl LogEvent for WriteRowsEvent {
         "WriteRowsEvent".to_string()
     }
 
-    fn parse<'a>(
+    fn parse(
         cursor: &mut Cursor<&[u8]>,
         header: HeaderRef,
         context: LogContextRef,

@@ -8,9 +8,10 @@ use crate::b_type::LogEventType::*;
 use crate::b_type::{LogEventType, C_ENUM_END_EVENT};
 use crate::events::checksum_type::{ChecksumType, BINLOG_CHECKSUM_ALG_DESC_LEN, ST_COMMON_PAYLOAD_CHECKSUM_LEN, BINLOG_CHECKSUM_ALG_UNDEF};
 use crate::events::event::Event::*;
-use crate::events::log_event::*;
+use crate::events::declare::log_event::*;
 use crate::utils::extract_string;
 use serde::Serialize;
+use tracing::error;
 use common::err::DecodeError::ReError;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
@@ -143,7 +144,7 @@ impl FormatDescriptionDeclare {
                 fdv: FormatDescriptionsVersion::V3_23,
             },
             _ => {
-                log::error!("unexpected binlog_version: {:x}", binlog_version);
+                error!("unexpected binlog_version: {:x}", binlog_version);
                 unreachable!();
             }
         }
@@ -393,7 +394,7 @@ impl LogEvent for FormatDescriptionEvent {
     /// |        | checksum      76+n+5 : 4   |
     /// |        +----------------------------+
     /// +=====================================+
-    fn parse<'a>(
+    fn parse(
         cursor: &mut Cursor<&[u8]>,
         header: HeaderRef,
         context: LogContextRef,

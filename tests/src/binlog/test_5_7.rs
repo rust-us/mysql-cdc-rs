@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod test {
+    use tracing::debug;
     use binlog::column;
     use binlog::events::event::Event::{
         AnonymousGtidLog, BeginLoadQuery, DeleteRows, ExecuteLoadQueryEvent, FormatDescription,
@@ -7,25 +8,26 @@ mod test {
         UpdateRows, UserVar, WriteRows, XID,
     };
     use binlog::column::column_value::ColumnValue::{Blob, Float, Double, Int, String, Decimal};
-    use binlog::events::{IntVarEventType, UserVarType};
+    use binlog::events::{UserVarType};
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::format_description_log_event::FormatDescriptionEvent;
     use binlog::events::protocol::gtid_log_event::GtidLogEvent;
+    use binlog::events::protocol::int_var_event::{IntVarEvent, IntVarEventType};
     use binlog::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
     use binlog::events::protocol::rotate_event::RotateEvent;
     use binlog::events::protocol::stop_event::StopEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;
     use binlog::events::protocol::update_rows_v12_event::UpdateRowsEvent;
     use binlog::events::protocol::write_rows_v12_event::WriteRowsEvent;
-    use binlog::factory::event_factory::{EventFactory, IEventFactory};
+    use binlog::factory::event_factory::{EventFactory, EventFactoryOption, IEventFactory};
     use binlog::row::row_data::{RowData, UpdateRowData};
-    use common::log::log_factory::LogFactory;
+    use common::log::tracing_factory::TracingFactory;
 
     #[test]
     fn test() {
-        LogFactory::init_log(true);
+        TracingFactory::init_log(true);
 
-        println!("test");
+        debug!("test");
 
         // 文件的内容
         let bytes = include_bytes!("../../data/spanish.in");
@@ -37,8 +39,8 @@ mod test {
     fn test_query() {
         let mut input = include_bytes!("../../events/5.7/02_query/log.bin");
 
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::debug()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(3).unwrap() {
             Query { .. } => {}
@@ -50,10 +52,10 @@ mod test {
     fn test_stop() {
         let mut input = include_bytes!("../../events/5.7/03_stop/log.bin");
         println!("println： {:?}", input);
-        log::info!("log： read {:?} bytes", input);
+        debug!("log： read {:?} bytes", input);
 
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
             Stop(StopEvent { .. })  => {}
@@ -64,8 +66,8 @@ mod test {
     #[test]
     fn test_rotate() {
         let input = include_bytes!("../../events/5.7/04_rotate/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
             Rotate(RotateEvent {
@@ -83,11 +85,11 @@ mod test {
     #[test]
     fn test_intvar() {
         let input = include_bytes!("../../events/5.7/05_intvar/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
-            IntVar { e_type, value, .. } => {
+            IntVar(IntVarEvent { e_type, value, .. })  => {
                 assert_eq!(e_type, &IntVarEventType::LastInsertIdEvent);
                 assert_eq!(*value, 0);
             }
@@ -98,8 +100,8 @@ mod test {
     #[test]
     fn test_rand() {
         let input = include_bytes!("../../events/5.7/13_rand/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
             Rand { seed1, seed2, .. } => {
@@ -113,8 +115,8 @@ mod test {
     #[test]
     fn test_user_var() {
         let input = include_bytes!("../../events/5.7/14_user_var/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         // TODO need to test other types & null var
         match output.get(9).unwrap() {
@@ -170,8 +172,8 @@ mod test {
     #[test]
     fn test_format_desc() {
         let input = include_bytes!("../../events/5.7/15_format_desc/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         assert_eq!(output.len(), 3);
         match output.get(0).unwrap() {
@@ -192,8 +194,8 @@ mod test {
     #[test]
     fn test_xid() {
         let input = include_bytes!("../../events/5.7/16_xid/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(10).unwrap() {
             XID { xid, .. } => {
@@ -210,8 +212,8 @@ mod test {
 
         // TODO need to test more column types
         let input = include_bytes!("../../events/5.7/19_table_map/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
             TableMap(TableMapEvent {
@@ -237,8 +239,8 @@ mod test {
     #[test]
     fn test_row_query() {
         let input = include_bytes!("../../events/5.7/29_row_query/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(8).unwrap() {
             RowQuery { query_text, .. } => assert_eq!(
@@ -252,8 +254,8 @@ mod test {
     #[test]
     fn test_begin_load_query_and_exec_load_query() {
         let input = include_bytes!("../../events/5.7/17_18_load/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(4).unwrap() {
             BeginLoadQuery {
@@ -290,11 +292,11 @@ mod test {
     #[test]
     fn test_write_rows_v2() {
         let input = include_bytes!("../../events/5.7/30_write_rows_v2/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
 
-        let row_data = RowData::new(vec![
+        let row_data = RowData::new_with_cells(vec![
             Some(column::column_value::ColumnValue::BigInt(1)),
             Some(column::column_value::ColumnValue::String(
                 "abcde".to_string(),
@@ -319,8 +321,8 @@ mod test {
     #[test]
     fn test_update_rows_v2() {
         let input = include_bytes!("../../events/5.7/31_update_rows_v2/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         let update_row = output.get(5).unwrap();
         let abc = "abc".to_string();
         let xd = "xd".to_string();
@@ -373,8 +375,8 @@ mod test {
     #[test]
     fn test_delete_rows_v2() {
         let input = include_bytes!("../../events/5.7/32_delete_rows_v2/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(16).unwrap() {
             DeleteRows(DeleteRowsEvent {
@@ -400,8 +402,8 @@ mod test {
     #[test]
     fn test_gtid() {
         let input = include_bytes!("../../events/5.7/33_35_gtid_prev_gtid/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
             GtidLog(GtidLogEvent {
@@ -428,8 +430,8 @@ mod test {
     #[test]
     fn test_anonymous_gtid() {
         let input = include_bytes!("../../events/5.7/34_anonymous_gtid/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(2).unwrap() {
             AnonymousGtidLog(GtidLogEvent {
@@ -455,8 +457,8 @@ mod test {
     #[test]
     fn test_previous_gtid() {
         let input = include_bytes!("../../events/5.7/33_35_gtid_prev_gtid/log.bin");
-        let factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input).unwrap();
+        let mut factory = EventFactory::new(false);
+        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
         assert_eq!(remain.len(), 0);
         match output.get(1).unwrap() {
             PreviousGtidsLog(PreviousGtidsLogEvent { gtid_sets, .. }) => {

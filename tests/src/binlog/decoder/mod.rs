@@ -1,3 +1,2 @@
-mod file_binlog_reader_test;
 mod bytes_binlog_reader_test;
 mod binlog_reader_wrapper_test;

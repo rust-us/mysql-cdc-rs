@@ -1,14 +1,13 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ops::Add;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock};
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
 use nom::ExtendInto;
 use serde::Serialize;
 use crate::events::gtid_set::MysqlGTIDSet;
-use crate::events::log_event::LogEvent;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::log_position::LogPosition;
 use crate::events::log_stat::LogStat;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
@@ -37,8 +36,11 @@ pub trait ILogContext {
     fn is_compatiable_percona(&self) -> bool;
 
     /// get TableMapEvent maps with table_id, Clone Data
-    fn get_map_of_table(&self, table_id: &u64) -> Option<Ref<u64, TableMapEvent>>;
+    fn get_table(&self, table_id: &u64) -> Option<Ref<u64, TableMapEvent>>;
     fn put_table(&mut self, table_id: u64, table_map_event: TableMapEvent);
+    /// 清空 map_of_table 集合
+    fn clear_all_table(&mut self);
+    fn get_table_len(&self) -> usize;
 
     fn get_gtid_set_as_mut(&mut self) -> Option<&mut MysqlGTIDSet>;
     fn get_gtid_set(&self) -> Option<&MysqlGTIDSet>;
@@ -150,7 +152,7 @@ impl ILogContext for LogContext {
         self.compatiable_percona
     }
 
-    fn get_map_of_table(&self, table_id: &u64) -> Option<Ref<u64, TableMapEvent>> {
+    fn get_table(&self, table_id: &u64) -> Option<Ref<u64, TableMapEvent>> {
         if self.map_of_table.contains_key(table_id) {
             let ref_: Ref<u64, TableMapEvent>  = self.map_of_table.get(table_id).unwrap();
 
@@ -162,6 +164,22 @@ impl ILogContext for LogContext {
 
     fn put_table(&mut self, table_id: u64, table_map_event: TableMapEvent) {
         self.map_of_table.insert(table_id, table_map_event);
+    }
+
+    fn clear_all_table(&mut self) {
+        if self.map_of_table.is_empty() {
+            return;
+        }
+
+        self.map_of_table.clear();
+    }
+
+    fn get_table_len(&self) -> usize {
+        if self.map_of_table.is_empty() {
+            return 0;
+        }
+
+        self.map_of_table.len()
     }
 
     fn get_gtid_set_as_mut(&mut self) -> Option<&mut MysqlGTIDSet> {
@@ -257,12 +275,20 @@ mod test {
         e.table_name = String::from("t1");
 
         context.put_table(1, e);
+        assert_eq!(context.get_table_len(), 1);
 
-        let item: Option<Ref<u64, TableMapEvent>> = context.get_map_of_table(&1);
-        assert!(item.is_some());
-        assert_eq!(item.unwrap().table_name.as_str(), "t1");
+        {
+            let item: Option<Ref<u64, TableMapEvent>> = context.get_table(&1);
+            assert!(item.is_some());
+            assert_eq!(item.unwrap().table_name.as_str(), "t1");
+        }
 
-        let item2: Option<Ref<u64, TableMapEvent>> = context.get_map_of_table(&2);
-        assert!(item2.is_none());
+        {
+            let item2: Option<Ref<u64, TableMapEvent>> = context.get_table(&2);
+            assert!(item2.is_none());
+        }
+
+        context.clear_all_table();
+        assert_eq!(context.get_table_len(), 0);
     }
 }

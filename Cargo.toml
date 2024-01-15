@@ -5,12 +5,7 @@
 members = [
     "common",
     "binlog",
-#    "slave",
-#    "./raft",
-#    "./memory",
     "tests",
-#    "replay_log",
-#    "replayer",
 ]
 
 [workspace.dependencies]
@@ -29,6 +24,7 @@ structopt = "0.3.16"
 bitflags = { version = "2.4.1", features = [] }
 nom = "7"
 lazy_static = "1.4.0"
+flatbuffers = "23.5.26"
 
 log = "0.4.20"
 log4rs = "1.2.0"
@@ -45,3 +41,5 @@ futures-util="^0.3.29"
 futures-executor="^0.3.29"
 
 toml = "^0.8.8"
+mysql_common = "^0.30.6"
+

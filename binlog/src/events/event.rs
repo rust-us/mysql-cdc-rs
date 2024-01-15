@@ -1,10 +1,9 @@
 use crate::events::event_header::Header;
 use crate::events::{
-    query, DupHandlingFlags, EmptyFlags, IncidentEventType, IntVarEventType, OptFlags, UserVarType,
+    query, DupHandlingFlags, EmptyFlags, IncidentEventType, OptFlags, UserVarType,
 };
 
-use crate::events::log_event::LogEvent;
-use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
@@ -15,6 +14,7 @@ use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
 use serde::Serialize;
+use crate::events::protocol::int_var_event::IntVarEvent;
 use crate::events::protocol::slave_event::SlaveEvent;
 use crate::events::protocol::stop_event::StopEvent;
 use crate::events::protocol::unknown_event::UnknownEvent;
@@ -47,31 +47,19 @@ use crate::events::protocol::v4::start_v3_event::StartV3Event;
 /// +=====================================+
 #[derive(Debug, Serialize, Clone)]
 pub enum Event {
-    /// 0
-    /// ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
+    /// 0, ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
     Unknown(UnknownEvent),
-    /// 1
     /// 事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
     StartV3(StartV3Event),
 
-    /// 2
     Query(QueryEvent),
-    /// 3
     /// ref: https://dev.mysql.com/doc/internals/en/stop-event.html
     Stop(StopEvent),
-    /// 4
     /// ref: https://dev.mysql.com/doc/internals/en/rotate-event.html
     Rotate(RotateEvent),
-    /// 5
-    /// ref: https://dev.mysql.com/doc/internals/en/intvar-event.html
-    IntVar {
-        header: Header,
-        e_type: IntVarEventType,
-        value: u64,
-        checksum: u32,
-    },
-    /// 6
-    /// ref: https://dev.mysql.com/doc/internals/en/load-event.html
+    /// 5, ref: https://dev.mysql.com/doc/internals/en/intvar-event.html
+    IntVar(IntVarEvent),
+    /// 6, ref: https://dev.mysql.com/doc/internals/en/load-event.html
     Load {
         header: Header,
         thread_id: u32,

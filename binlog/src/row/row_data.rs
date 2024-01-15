@@ -8,9 +8,31 @@ pub struct RowData {
     pub cells: Vec<Option<ColumnValue>>,
 }
 
+impl Default for RowData {
+    fn default() -> Self {
+        RowData::new()
+    }
+}
+
 impl RowData {
-    pub fn new(cells: Vec<Option<ColumnValue>>) -> Self {
+    pub fn new() -> Self {
+        Self {
+            cells: Vec::new()
+        }
+    }
+
+    pub fn new_with_cells(cells: Vec<Option<ColumnValue>>) -> Self {
         Self { cells }
+    }
+}
+
+impl RowData {
+    pub fn insert(&mut self, index: usize, cell: Option<ColumnValue>) {
+        self.cells.insert(index, cell);
+    }
+
+    pub fn push(&mut self, cell: Option<ColumnValue>) {
+        self.cells.push(cell);
     }
 }
 

@@ -13,6 +13,7 @@ pub mod metadata;
 pub mod column;
 pub mod row;
 pub mod factory;
+pub mod dump;
 
 pub use events::{
     query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar},

@@ -1,7 +1,7 @@
 use crate::events::checksum_type::ST_COMMON_PAYLOAD_CHECKSUM_LEN;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContextRef};
-use crate::events::log_event::LogEvent;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 use crate::utils::read_variable_len_string;
 use byteorder::{LittleEndian, ReadBytesExt};

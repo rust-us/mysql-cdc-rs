@@ -22,6 +22,7 @@ use crate::{
     events::event_header::Header,
     utils::{pu64, read_fixed_len_string, read_len_enc_num},
 };
+use crate::events::BuildType;
 use crate::events::event_raw::HeaderRef;
 
 /// The event has table defition for row events.
@@ -53,11 +54,11 @@ pub struct TableMapEvent {
     /// len encoded integer
     columns_number: u64,
 
-    /// Gets column types of the changed table
+    /// Gets column types of the changed table 字段类型的枚举值， 与  column_metadata_type 对应
     column_types: Vec<u8>,
-
-    /// Gets columns metadata
+    /// Gets columns metadata meta 值
     pub column_metadata: Vec<u16>,
+    /// Gets columns metadata 字段类型， 每个枚举的值与column_types 对应
     pub column_metadata_type: Vec<ColumnType>,
 
     /// Gets columns nullability
@@ -65,6 +66,9 @@ pub struct TableMapEvent {
 
     /// Gets table metadata for MySQL 5.6+
     pub table_metadata: Option<TableMetadata>,
+
+    /// 构造来源： BINLOG、DUMP
+    pub build_type: BuildType,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
@@ -111,6 +115,7 @@ impl Default for TableMapEvent {
             column_metadata_type: vec![],
             null_bitmap: vec![],
             table_metadata: Some(TableMetadata::default()),
+            build_type: BuildType::BINLOG,
         }
     }
 }
@@ -120,13 +125,45 @@ impl TableMapEvent {
         self.table_id
     }
 
+    pub fn get_columns_number(&self) -> u64 {
+        self.columns_number
+    }
+
     /// Gets column types of the changed table
     pub fn get_column_types(&self) -> Vec<u8> {
         self.column_types.clone()
     }
+
+    /// Gets column types of the changed table
+    pub fn get_column_metadata_type(&self) -> Vec<ColumnType> {
+        self.column_metadata_type.clone()
+    }
 }
 
 impl TableMapEvent {
+    pub fn new(header: Header, table_id: u64, flags: u16, schema_length: u8, schema: String,
+               table_name_length: u8, table_name: String, column_count: u64,
+               column_types: Vec<u8>, column_metadata: Vec<u16>, column_metadata_type: Vec<ColumnType>,
+               null_bitmap: Vec<u8>, table_metadata: Option<TableMetadata>) -> TableMapEvent {
+
+        TableMapEvent {
+            header,
+            table_id,
+            flags,
+            schema_length,
+            database_name: schema,
+            table_name_length,
+            table_name,
+            columns_number: column_count,
+            column_types,
+            column_metadata,
+            column_metadata_type,
+            null_bitmap,
+            table_metadata,
+            build_type: BuildType::BINLOG,
+        }
+    }
+
     pub fn parse<'a>(
         input: &'a [u8],
         header: HeaderRef,
@@ -245,8 +282,10 @@ impl TableMapEvent {
             mapping.insert(table_id, column_metadata_val.clone());
         }
 
+        // todo  column_info
+        header.borrow_mut().update_checksum(checksum);
         let e = TableMapEvent {
-            header: Header::copy_and_get(header, checksum, HashMap::new()),
+            header: Header::copy(header),
             table_id,
             flags,
             schema_length,
@@ -259,6 +298,7 @@ impl TableMapEvent {
             column_metadata_type: column_metadata,
             null_bitmap,
             table_metadata,
+            build_type: BuildType::BINLOG,
         };
 
         Ok((i, e))
@@ -395,6 +435,7 @@ impl TableMapEvent {
                     _size += 2;
                     (source, x, ColumnType::String)
                 }
+                // 类型的默认 meta 值， 包含 Tiny, Short, Int24, Long, LongLong...
                 _ => (source, 0, column_type.clone()),
             };
             metadata[idx] = meta;
@@ -436,6 +477,24 @@ impl TableMapEvent {
         }
 
         Ok(result)
+    }
+
+    pub fn copy(source: &TableMapEvent) -> Self  {
+        TableMapEvent::new(
+            source.header.clone(),
+            source.table_id.clone(),
+            source.flags.clone(),
+            source.schema_length.clone(),
+            source.database_name.clone(),
+            source.table_name_length.clone(),
+            source.table_name.clone(),
+            source.columns_number.clone(),
+            source.column_types.clone(),
+            source.column_metadata.clone(),
+            source.column_metadata_type.clone(),
+            source.null_bitmap.clone(),
+            source.table_metadata.clone(),
+        )
     }
 }
 

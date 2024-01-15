@@ -1,24 +1,26 @@
 use std::io::Cursor;
-use nom::bytes::complete::take;
-use nom::combinator::map;
-use nom::IResult;
+use tracing::error;
+use common::err::DecodeError::{Needed, ReError};
 use crate::b_type::LogEventType;
 use crate::decoder::event_decoder::LogEventDecoder;
 use crate::decoder::event_decoder_impl::{parse_append_block, parse_begin_load_query,
                                          parse_create_file, parse_delete_file, parse_exec_load,
                                          parse_execute_load_query, parse_heartbeat, parse_incident,
-                                         parse_intvar, parse_load, parse_new_load, parse_rand, parse_row_query,
+                                         parse_load, parse_new_load, parse_rand, parse_row_query,
                                          parse_user_var, parse_xid, TABLE_MAP_EVENT};
 use crate::events::checksum_type::ChecksumType;
 use crate::events::event::Event;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::{ILogContext, LogContextRef};
-use crate::events::log_event::LogEvent;
+use crate::events::declare::log_event::LogEvent;
+use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::log_position::LogPosition;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
+use crate::events::protocol::ignorable_log_event::IgnorableLogEvent;
+use crate::events::protocol::int_var_event::IntVarEvent;
 use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
 use crate::events::protocol::rotate_event::RotateEvent;
@@ -31,8 +33,8 @@ use crate::events::protocol::v4::start_v3_event::StartV3Event;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
 
 /// Parsing and processing of each event
-pub fn event_parse_diapatcher<'a>(event_decoder: &mut LogEventDecoder, slice: &'a [u8], mut header: HeaderRef,
-                                  mut context: LogContextRef) -> IResult<&'a [u8], Event> {
+pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8], mut header: HeaderRef,
+                                  mut context: LogContextRef) -> Result<Event, ReError> {
     let checksum_type = &event_decoder.checksum_type;
     // Consider verifying checksum
     let mut cursor = match checksum_type {
@@ -47,14 +49,13 @@ pub fn event_parse_diapatcher<'a>(event_decoder: &mut LogEventDecoder, slice: &'
     let type_ = LogEventType::from(b_type);
 
     let has_gtid = context.borrow().get_gtid_set().is_some();
-    let (remaining_bytes, binlog_event) = match type_ {
+    let binlog_event = match type_ {
         LogEventType::UNKNOWN_EVENT => {
             let event = UnknownEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
             /* updating position in context */
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::Unknown(event)))
+            Ok(Event::Unknown(event))
         },
 
         // 1 START_EVENT_V3事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
@@ -62,8 +63,7 @@ pub fn event_parse_diapatcher<'a>(event_decoder: &mut LogEventDecoder, slice: &'
             let e = StartV3Event::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::StartV3(e)))
+            Ok(Event::StartV3(e))
         },
 
         LogEventType::QUERY_EVENT => {
@@ -74,52 +74,71 @@ pub fn event_parse_diapatcher<'a>(event_decoder: &mut LogEventDecoder, slice: &'
                 context.borrow().get_gtid_log_event()
             );
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::Query(event)))
+            Ok(Event::Query(event))
         },
 
         LogEventType::STOP_EVENT => {
             let e = StopEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::Stop(e)))
+            Ok(Event::Stop(e))
         },
 
         LogEventType::ROTATE_EVENT => {
             let event = RotateEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
             context.borrow_mut().set_log_position(LogPosition::new_with_position(&event.get_file_name(), *&event.get_binlog_position()));
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::Rotate(event)))
+            Ok(Event::Rotate(event))
         },
 
         LogEventType::INTVAR_EVENT => {
-            parse_intvar(slice, header)
+            let event = IntVarEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+            // context.borrow_mut().set_log_position(LogPosition::new_with_position(&event.get_file_name(), *&event.get_binlog_position()));
+
+            Ok(Event::IntVar(event))
         },
-        LogEventType::LOAD_EVENT => parse_load(slice, header),
+
+        LogEventType::LOAD_EVENT => {
+            let (a, e) = parse_load(slice, header).unwrap();
+            Ok(e)
+        },
 
         LogEventType::SLAVE_EVENT => {
             // can never happen (unused event)， also unsupported SLAVE_EVENT
-
             let e = SlaveEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::Slave(e)))
+            Ok(Event::Slave(e))
         },
 
-        LogEventType::CREATE_FILE_EVENT => parse_create_file(slice, header),
-        LogEventType::APPEND_BLOCK_EVENT => parse_append_block(slice, header),  // 9
-        LogEventType::EXEC_LOAD_EVENT => parse_exec_load(slice, header),     // 10
-        LogEventType::DELETE_FILE_EVENT => parse_delete_file(slice, header),   // 11
-        LogEventType::NEW_LOAD_EVENT => parse_new_load(slice, header),      // 12
+        LogEventType::CREATE_FILE_EVENT => {
+            let (a, e) = parse_create_file(slice, header).unwrap();
+            Ok(e)
+        },
+        LogEventType::APPEND_BLOCK_EVENT => {
+            let (a, e) = parse_append_block(slice, header).unwrap();
+            Ok(e)
+        },  // 9
+        LogEventType::EXEC_LOAD_EVENT => {
+            let (a, e) = parse_exec_load(slice, header).unwrap();
+            Ok(e)
+        },     // 10
+        LogEventType::DELETE_FILE_EVENT => {
+            let (a, e) = parse_delete_file(slice, header).unwrap();
+            Ok(e)
+        },   // 11
+        LogEventType::NEW_LOAD_EVENT => {
+            let (a, e) = parse_new_load(slice, header).unwrap();
+            Ok(e)
+        },      // 12
         LogEventType::RAND_EVENT => {   // 13
-            parse_rand(slice, header)
+            let (a, e) = parse_rand(slice, header).unwrap();
+            Ok(e)
             // header.put_gtid
         },
         LogEventType::USER_VAR_EVENT => {    // 14
-            parse_user_var(slice, header)
+            let (a, e) = parse_user_var(slice, header).unwrap();
+            Ok(e)
             // header.put_gtid
         },
 
@@ -128,124 +147,162 @@ pub fn event_parse_diapatcher<'a>(event_decoder: &mut LogEventDecoder, slice: &'
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
             context.borrow_mut().set_format_description(event.clone());
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::FormatDescription(event)))
+            Ok(Event::FormatDescription(event))
         },
 
         LogEventType::XID_EVENT => { // 16
-            parse_xid(slice, header)
+            let (a, e) = parse_xid(slice, header).unwrap();
+            Ok(e)
             // header.put_gtid
         },
-        LogEventType::BEGIN_LOAD_QUERY_EVENT => parse_begin_load_query(slice, header),      // 17
-        LogEventType::EXECUTE_LOAD_QUERY_EVENT => parse_execute_load_query(slice, header),    // 18
+        LogEventType::BEGIN_LOAD_QUERY_EVENT => {
+            let (a, e) = parse_begin_load_query(slice, header).unwrap();
+            Ok(e)
+        },      // 17
+        LogEventType::EXECUTE_LOAD_QUERY_EVENT => {
+            let (a, e) = parse_execute_load_query(slice, header).unwrap();
+            Ok(e)
+        },    // 18
 
         LogEventType::TABLE_MAP_EVENT => {     // 19
-            let (i, event) = TableMapEvent::parse(slice, header.clone(), context.clone(), None)?;
+            let (i, event) = TableMapEvent::parse(slice, header.clone(), context.clone(), None).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
             context.borrow_mut().put_table(event.get_table_id(), event.clone());
 
-            Ok((i, Event::TableMap(event)))
+            Ok(Event::TableMap(event))
         },
 
-        // 20, PreGaWriteRowsEvent， unreachable
-        // 21, PreGaUpdateRowsEvent， unreachable
-        // 22, PreGaDeleteRowsEvent， unreachable
-        // LogEventType::PRE_GA_WRITE_ROWS_EVENT..=LogEventType::PRE_GA_DELETE_ROWS_EVENT => unreachable!(),
+        // 20, 21, 22
+        LogEventType::PRE_GA_WRITE_ROWS_EVENT |
+        LogEventType::PRE_GA_UPDATE_ROWS_EVENT |
+        LogEventType::PRE_GA_DELETE_ROWS_EVENT => {
+            format!("Skipping unsupported PRE_GA_UPDATE_ROWS_EVENT from: {}.", header.borrow().get_log_pos());
 
-        LogEventType::INCIDENT_EVENT => parse_incident(slice, header),      // 26
-        LogEventType::HEARTBEAT_LOG_EVENT => parse_heartbeat(slice, header),     // 27
-        // 28 IgnorableLogEvent
+            Ok(Event::IgnorableLogEvent)
+        },
+
+        LogEventType::INCIDENT_EVENT => {
+            let (a, e) = parse_incident(slice, header).unwrap();
+            Ok(e)
+        },      // 26
+        LogEventType::HEARTBEAT_LOG_EVENT => {
+            let (a, e) = parse_heartbeat(slice, header).unwrap();
+            Ok(e)
+        },     // 27
+
+        LogEventType::IGNORABLE_LOG_EVENT => {    // 28
+            // do nothing , just ignore log event
+            let event_ignore = IgnorableLogEvent::parse(&mut cursor,
+                                                  header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+
+            Ok(Event::IgnorableLogEvent)
+        },
+
         LogEventType::ROWS_QUERY_LOG_EVENT => {   // 29
-            parse_row_query(slice, header)
+            let (a, e) = parse_row_query(slice, header).unwrap();
+            Ok(e)
             // header.put_gtid
         },
 
-        // Rows events used in MariaDB and MySQL from 5.1.15 to 5.6.
-        // 23, LogEventType::WRITE_ROWS_EVENT_V1， 24, UpdateRowsEventV1， 25, DeleteRowsEventV1
-        // MySQL specific events. Rows events used only in MySQL from 5.6 to 8.0.
+        // Rows events used in MariaDB and MySQL from 5.1.15 to 5.6: LogEventType::WRITE_ROWS_EVENT_V1(23)， UpdateRowsEventV1(24)， DeleteRowsEventV1(25)
+        // MySQL specific events. Rows events used only in MySQL from 5.6 to 8.0: WRITE_ROWS_EVENT, UPDATE_ROWS_EVENT, DELETE_ROWS_EVENT
         LogEventType::WRITE_ROWS_EVENT_V1 | // 23
         LogEventType::WRITE_ROWS_EVENT => { // 30
-            let event = WriteRowsEvent::parse(&mut cursor,
-                                              header.clone(), context.clone(), Some(&event_decoder.table_map));
+            let mut event = WriteRowsEvent::parse(&mut cursor,
+                                                  header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            event.fill_assembly_table(context.clone()).unwrap();
+
             header.borrow_mut().update_gtid(
                 context.borrow().get_gtid_set(),
                 context.borrow().get_gtid_log_event()
             );
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::WriteRows(event.unwrap())))
+            Ok(Event::WriteRows(event))
         },
+
         LogEventType::UPDATE_ROWS_EVENT_V1 | // 24
         LogEventType::UPDATE_ROWS_EVENT => { // 31
-            let event = UpdateRowsEvent::parse(&mut cursor,
-                                               header.clone(), context.clone(), Some(&event_decoder.table_map));
+            let mut event = UpdateRowsEvent::parse(&mut cursor,
+                                               header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            event.fill_assembly_table(context.clone()).unwrap();
             header.borrow_mut().update_gtid(
                 context.borrow().get_gtid_set(),
                 context.borrow().get_gtid_log_event()
             );
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::UpdateRows(event.unwrap())))
+            Ok(Event::UpdateRows(event))
         },
+
         LogEventType::DELETE_ROWS_EVENT_V1 | // 25
         LogEventType::DELETE_ROWS_EVENT => { // 32
-            let event = DeleteRowsEvent::parse(&mut cursor,
-                                               header.clone(), context.clone(), Some(&event_decoder.table_map));
+            let mut event = DeleteRowsEvent::parse(&mut cursor,
+                                               header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            event.fill_assembly_table(context.clone()).unwrap();
             header.borrow_mut().update_gtid(
                 context.borrow().get_gtid_set(),
                 context.borrow().get_gtid_log_event()
             );
 
-            let (i, bytes) = map(take(slice.len()), |s: &[u8]| s)(slice)?;
-            Ok((i, Event::DeleteRows(event.unwrap())))
+            Ok(Event::DeleteRows(event))
         },
 
         LogEventType::GTID_LOG_EVENT => { // 33
-            let (i, event) = GtidLogEvent::parse(slice, header.clone())?;
+            let (i, event) = GtidLogEvent::parse(slice, header.clone()).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            if has_gtid {
-                context.borrow_mut().update_gtid_set(event.get_gtid_str());
+            {
+                if has_gtid {
+                    context.borrow_mut().update_gtid_set(event.get_gtid_str());
 
-                // update latest gtid
-                header.borrow_mut().update_gtid(
-                    Some(context.borrow().get_gtid_set().unwrap()),
-                    context.borrow().get_gtid_log_event()
-                );
+                    // update latest gtid
+                    header.borrow_mut().update_gtid(
+                        Some(context.borrow().get_gtid_set().unwrap()),
+                        context.borrow().get_gtid_log_event()
+                    );
+                }
             }
 
             // update current gtid event to context
             context.borrow_mut().set_gtid_log_event(event.clone());
 
-            Ok((i, Event::GtidLog(event)))
+            Ok(Event::GtidLog(event))
         },
+
         LogEventType::ANONYMOUS_GTID_LOG_EVENT => { // 34
-            let (i, event) = AnonymousGtidLogEvent::parse(slice, header.clone())?;
+            let (i, event) = AnonymousGtidLogEvent::parse(slice, header.clone()).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            if has_gtid {
-                context.borrow_mut().update_gtid_set(event.get_gtid_str());
+            {
+                if has_gtid {
+                    context.borrow_mut().update_gtid_set(event.get_gtid_str());
 
-                // update latest gtid
-                header.borrow_mut().update_gtid(
-                    Some(context.borrow().get_gtid_set().unwrap()),
-                    context.borrow().get_gtid_log_event()
-                );
+                    // update latest gtid
+                    header.borrow_mut().update_gtid(
+                        Some(context.borrow().get_gtid_set().unwrap()),
+                        context.borrow().get_gtid_log_event()
+                    );
+                }
             }
 
             context.borrow_mut().set_gtid_log_event(event.clone());
 
-            Ok((i, Event::AnonymousGtidLog(event)))
+            Ok(Event::AnonymousGtidLog(event))
         },
+
         LogEventType::PREVIOUS_GTIDS_LOG_EVENT => {  // 35
-            let (i, event) = PreviousGtidsLogEvent::parse(slice, header.clone())?;
+            let (i, event) = PreviousGtidsLogEvent::parse(slice, header.clone()).unwrap();
             context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
 
-            Ok((i, Event::PreviousGtidsLog(event)))
+            Ok(Event::PreviousGtidsLog(event))
         },
+
         // TRANSACTION_CONTEXT_EVENT 36
         // VIEW_CHANGE_EVENT  37
         // XA_PREPARE_LOG_EVENT  38
@@ -257,20 +314,32 @@ pub fn event_parse_diapatcher<'a>(event_decoder: &mut LogEventDecoder, slice: &'
         // HEARTBEAT_LOG_EVENT_V2
         // ENUM_END_EVENT
         t @ _ => {
-            log::error!("unexpected event type: {:x}", t.as_val());
-            unreachable!();
+            let code = t.as_val();
+
+            error!("unexpected event type: {:x}", code);
+            return Err(ReError::Incomplete(Needed::InvalidData(
+                format!("unexpected event type: {}", code)
+            )));
         }
-    }?;
+    };
 
-    if let Event::FormatDescription(x) = &binlog_event {
-        event_decoder.checksum_type = x.get_checksum_type();
+    match binlog_event {
+        Ok(e) => {
+            if let Event::FormatDescription(x) = &e {
+                event_decoder.checksum_type = x.get_checksum_type();
+            }
+
+            if let Event::TableMap(e) = &e {
+                //todo: optimize
+                event_decoder.table_map.insert(e.table_id, e.clone());
+                // 兼容
+                TABLE_MAP_EVENT.lock().unwrap().insert(e.table_id, e.clone());
+            }
+
+            return Ok(e);
+        },
+        Err(err) => {
+            Err(err)
+        }
     }
-
-    if let Event::TableMap(e) = &binlog_event {
-        event_decoder.table_map.insert(e.table_id, e.clone()); //todo: optimize
-        // 兼容
-        TABLE_MAP_EVENT.lock().unwrap().insert(e.table_id, e.clone());
-    }
-
-    Ok((remaining_bytes, binlog_event))
 }

@@ -1,11 +1,8 @@
 use std::cell::RefCell;
-use std::io::Cursor;
 use std::rc::Rc;
 use bytes::Buf;
-use nom::bytes::complete::take;
-use nom::combinator::map;
-use nom::IResult;
-use serde::Serialize;
+use common::err::DecodeError::{Needed, ReError};
+use common::err::DecodeError::ReError::Incomplete;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContextRef};
 
@@ -14,7 +11,7 @@ pub type HeaderRef = Rc<RefCell<Header>>;
 /////////////////////////////////////
 ///  Event Data
 /////////////////////////////////////
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", serde::Serialize, serde::DeSerialize)]
 pub struct EventRaw {
     pub header: HeaderRef,
@@ -55,66 +52,93 @@ impl EventRaw {
 impl EventRaw {
 
     /// input &[u8] 转为 Vec<EventRaw>， 并返回剩余数组
-    pub fn steam_to_event_raw<'a>(input: &'a [u8], context: LogContextRef) -> IResult<&'a [u8], Vec<EventRaw>> {
+    pub fn steam_to_event_raw(input: &[u8], context: LogContextRef) -> Result<(Vec<u8>, Vec<EventRaw>), ReError> {
         let header_len = context.borrow_mut().get_format_description().common_header_len as usize;
         let mut event_raws = Vec::<EventRaw>::new();
 
         if input.len() < header_len {
-            return Ok((input, event_raws));
+            return Ok((Vec::from(input), event_raws));
         }
 
-        let mut bytes : &[u8] = input;
+        let mut bytes : Vec<u8> = Vec::from(input);
+        let mut no_enough_data = false;
         loop {
-            if bytes.len() < header_len {
+            if no_enough_data || (bytes.len() < header_len) {
                 return Ok((bytes, event_raws));
             }
 
-            // let (raw, remaining) = EventFactory::slice(i1, header_len);
-            let (remaining, raw) = EventRaw::popup(bytes, header_len, context.clone())?;
+            let rs = EventRaw::popup(bytes.as_slice(), header_len, context.clone());
 
-            event_raws.push(raw);
-            bytes = remaining;
+            match rs {
+                Ok((remaining, raw)) => {
+                    event_raws.push(raw);
+                    bytes = remaining;
+                },
+                Err(e) => {
+                    match &e {
+                        Incomplete(need) => {
+                            match need {
+                                Needed::NoEnoughData => {
+                                    no_enough_data = true;
+                                },
+                                _ => {
+                                    return Err(e);
+                                }
+                            }
+                        },
+                        _ => {
+                            return Err(e)
+                        }
+                    };
+                }
+            };
         }
         // loop end
     }
-
-    /// 提前计算crc的slice
-    fn slice(slice: &[u8], header_len: usize, context: LogContextRef) -> (EventRaw, &[u8]) {
-        let mut i = slice;
-
-        // try parser
-        let header_bytes = &i[0..header_len];
-        let mut header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();
-        let event_len = header.event_length as usize;
-
-        let payload_data = &i[header_len..event_len];
-
-        let payload_data_without_crc_bytes = &payload_data[0..payload_data.len()-4];
-        let crc_bytes = &payload_data[payload_data.len()-4..payload_data.len()];
-
-        let mut cursor = Cursor::new(crc_bytes);
-        let checksum = cursor.get_u32_le();
-        header.set_checksum(checksum);
-
-        let raw = EventRaw::new_with_payload(header, payload_data_without_crc_bytes.to_vec(), false);
-
-        (raw, &i[event_len..])
-    }
+    //
+    // /// 提前计算crc的slice
+    // fn slice(slice: &[u8], header_len: usize, context: LogContextRef) -> (EventRaw, &[u8]) {
+    //     let mut i = slice;
+    //
+    //     // try parser
+    //     let header_bytes = &i[0..header_len];
+    //     let mut header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();
+    //     let event_len = header.event_length as usize;
+    //
+    //     let payload_data = &i[header_len..event_len];
+    //
+    //     let payload_data_without_crc_bytes = &payload_data[0..payload_data.len()-4];
+    //     let crc_bytes = &payload_data[payload_data.len()-4..payload_data.len()];
+    //
+    //     let mut cursor = Cursor::new(crc_bytes);
+    //     let checksum = cursor.get_u32_le();
+    //     header.set_checksum(checksum);
+    //
+    //     let raw = EventRaw::new_with_payload(header, payload_data_without_crc_bytes.to_vec(), false);
+    //
+    //     (raw, &i[event_len..])
+    // }
 
     /// 不提前计算crc的popup
-    fn popup<'a>(bytes: &'a [u8], header_len: usize, context: LogContextRef) -> IResult<&'a [u8], EventRaw> {
+    fn popup(bytes: &[u8], header_len: usize, context: LogContextRef) -> Result<(Vec<u8>, EventRaw), ReError> {
         let header_bytes = &bytes[0..header_len];
 
         let header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();
         let event_len = header.event_length;
 
-        let remaining = &bytes[header_len..];
+        if bytes.len() < event_len as usize {
+            return Err(ReError::Incomplete(Needed::NoEnoughData));
+        }
+
+        let remaining: &[u8] = &bytes[header_len..];
         let payload_len = event_len - header_len as u32;
-        let (remaining, payload_data) = map(take(payload_len), |s: &[u8]| s.to_vec())(remaining)?;
 
-        let raw = EventRaw::new_with_payload(header, payload_data, true);
+        let payload_data = &remaining[0..(payload_len as usize)];
+        let remained = Vec::from(&remaining[(payload_len as usize)..]);
 
-        Ok((remaining, raw))
+        let raw = EventRaw::new_with_payload(header, payload_data.to_vec(), true);
+
+        Ok((remained, raw))
     }
 }
 

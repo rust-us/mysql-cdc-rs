@@ -6,10 +6,18 @@ use serde::Deserialize;
 
 use crate::err::DecodeError::ReError;
 
-#[derive(Debug, Deserialize)]
 pub struct Config {
-    binlog: BinlogConfig,
-    rc_mysql: RcMySQL,
+
+    pub core: RepConfig,
+
+    max_memory: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepConfig {
+    pub binlog: BinlogConfig,
+    pub rc_mysql: RcMySQL,
+    pub core: CoreConfig,
 }
 
 /// Binlog 配置
@@ -28,17 +36,34 @@ pub struct BinlogConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct RcMySQL {
-    addr: Vec<String>,
-    username: String,
-    password: String,
+    pub addr: Vec<String>,
+    pub username: String,
+    pub password: String,
+    pub raft_stats_fresh_interval_ms: Option<u64>,
 }
 
-pub fn read_config<P: AsRef<Path>>(path: P) -> Result<Config, ReError> {
+#[derive(Debug, Deserialize)]
+pub struct CoreConfig {
+    max_memory: Option<String>,
+}
+
+pub fn read_config<P: AsRef<Path>>(path: P) -> Result<RepConfig, ReError> {
     let mut file = File::open(path.as_ref())?;
     let mut s = String::new();
     let _ = file.read_to_string(&mut s);
     toml::from_str(s.as_str())
         .map_err(|e| ReError::ConfigFileParseErr(e.to_string()))
+}
+
+impl Config {
+
+    pub fn create(core: RepConfig) -> Self {
+        Self {
+            core,
+            max_memory: 0,
+        }
+    }
+
 }
 
 #[cfg(test)]

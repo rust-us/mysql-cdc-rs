@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::events::event_header::Header;
-use crate::events::log_event::LogEvent;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use nom::IResult;
 use serde::Serialize;

@@ -1,12 +1,13 @@
 
 #[cfg(test)]
 mod test {
-    use common::log::log_factory::LogFactory;
+    use tracing::debug;
+    use common::log::tracing_factory::TracingFactory;
 
     #[test]
     fn test() {
-        LogFactory::init_log(true);
+        TracingFactory::init_log(true);
 
-        println!("test");
+        debug!("test");
     }
 }

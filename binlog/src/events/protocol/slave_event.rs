@@ -6,7 +6,7 @@ use common::err::DecodeError::ReError;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
-use crate::events::log_event::LogEvent;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]

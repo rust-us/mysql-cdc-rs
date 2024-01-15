@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+pub mod declare;
 pub mod protocol;
 
 pub mod event;
@@ -7,7 +8,6 @@ pub mod event_raw;
 pub mod event_header_flag;
 pub mod event_header;
 pub mod log_context;
-pub mod log_event;
 pub mod log_position;
 pub mod query;
 
@@ -15,13 +15,6 @@ pub mod checksum_type;
 pub mod log_stat;
 pub mod tracker;
 pub mod gtid_set;
-
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub enum IntVarEventType {
-    InvalidIntEvent,
-    LastInsertIdEvent,
-    InsertIdEvent,
-}
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct EmptyFlags {
@@ -62,4 +55,11 @@ pub struct OptFlags {
     pub opt_enclosed: bool,
     pub replace: bool,
     pub ignore: bool,
+}
+
+/// 数据的构造来源
+#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
+pub enum BuildType {
+    BINLOG = 0,
+    DUMP = 1,
 }

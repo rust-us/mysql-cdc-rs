@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use crate::events::checksum_type::ST_COMMON_PAYLOAD_CHECKSUM_LEN;
 use crate::events::event::Event;
 use crate::events::event_header::Header;
-use crate::events::log_event::LogEvent;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_MINIMAL_HEADER_LEN;
 use nom::{bytes::complete::take, combinator::map, number::complete::le_u32, IResult};
 use serde::Serialize;

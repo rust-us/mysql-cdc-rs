@@ -1,6 +1,6 @@
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
-use crate::events::log_event::{LogEvent, QUERY_HEADER_LEN, QUERY_HEADER_MINIMAL_LEN};
+use crate::events::declare::log_event::{LogEvent, QUERY_HEADER_LEN, QUERY_HEADER_MINIMAL_LEN};
 use crate::events::query;
 use crate::utils::{extract_string};
 use crate::QueryStatusVar;
@@ -530,7 +530,7 @@ impl LogEvent for QueryEvent {
         "QueryEvent".to_string()
     }
 
-    fn parse<'a>(
+    fn parse(
         cursor: &mut Cursor<&[u8]>,
         mut header: HeaderRef,
         context: LogContextRef,

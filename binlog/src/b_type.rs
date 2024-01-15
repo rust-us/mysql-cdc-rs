@@ -1,3 +1,4 @@
+use tracing::error;
 
 pub const C_ENUM_END_EVENT: isize = 171;
 
@@ -240,7 +241,7 @@ impl From<u8> for LogEventType {
             171 => LogEventType::ENUM_END_EVENT,// 171
 
             t @ _ => {
-                log::error!("unexpected event type: {:x}", t);
+                error!("unexpected event type: {:x}", t);
                 unreachable!();
             }
         }

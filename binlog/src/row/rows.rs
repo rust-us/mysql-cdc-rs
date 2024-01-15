@@ -1,5 +1,6 @@
 use nom::{bytes::complete::take, combinator::map, number::complete::le_u8, IResult};
 use serde::Serialize;
+use tracing::error;
 use crate::utils::extract_string;
 
 /// Last event of a statement
@@ -116,7 +117,7 @@ pub fn parse_extra_data<'a>(input: &'a [u8]) -> IResult<&'a [u8], ExtraData> {
     let (i, d_type) = map(le_u8, |t: u8| match t {
         0x00 => ExtraDataType::RW_V_EXTRAINFO_TAG,
         _ => {
-            log::error!("unknown extra data type {}", t);
+            error!("unknown extra data type {}", t);
             unreachable!()
         }
     })(input)?;
@@ -127,7 +128,7 @@ pub fn parse_extra_data<'a>(input: &'a [u8]) -> IResult<&'a [u8], ExtraData> {
         0x41 => ExtraDataFormat::OPEN2,
         0xff => ExtraDataFormat::MULTI,
         _ => {
-            log::error!("unknown extract data format {}", fmt);
+            error!("unknown extract data format {}", fmt);
             unreachable!()
         }
     })(i)?;

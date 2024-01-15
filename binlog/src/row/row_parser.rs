@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Cursor, ErrorKind, Read, Seek, SeekFrom};
 use byteorder::{LittleEndian, ReadBytesExt};
+use tracing::error;
 use common::err::DecodeError::ReError;
 use crate::column::column_parser::{parse_bit, parse_blob, parse_date, parse_date_time, parse_date_time2, parse_string, parse_time, parse_time2, parse_timestamp, parse_timestamp2, parse_year};
 use crate::column::column_type::ColumnType;
@@ -8,7 +9,7 @@ use crate::column::column_value::ColumnValue;
 use crate::decoder::event_decoder_impl::TABLE_MAP_EVENT;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::{ExtraData, ExtraDataFormat, Flags, Payload};
-use crate::events::log_event::EXTRA_ROW_INFO_HDR_BYTES;
+use crate::events::declare::log_event::EXTRA_ROW_INFO_HDR_BYTES;
 use crate::events::protocol::format_description_log_event::ROWS_HEADER_LEN_V2;
 use crate::row::actual_string_type::get_actual_string_type;
 use crate::row::decimal::parse_decimal;
@@ -218,7 +219,7 @@ fn parse_row(
         }
     }
 
-    Ok(RowData::new(row))
+    Ok(RowData::new_with_cells(row))
 }
 
 /// Gets number of bits set in a bitmap.
@@ -288,7 +289,7 @@ fn parse_extra_data<'a>(cursor: &mut Cursor<&[u8]>) -> Result<ExtraData, ReError
     let d_type = match dt {
         0x00 => ExtraDataType::RW_V_EXTRAINFO_TAG,
         _ => {
-            log::error!("unknown extra data type {}", dt);
+            error!("unknown extra data type {}", dt);
             unreachable!()
         }
     };
@@ -303,7 +304,7 @@ fn parse_extra_data<'a>(cursor: &mut Cursor<&[u8]>) -> Result<ExtraData, ReError
         0x41 => ExtraDataFormat::OPEN2,
         0xff => ExtraDataFormat::MULTI,
         _ => {
-            log::error!("unknown extract data format {}", fmt);
+            error!("unknown extract data format {}", fmt);
             unreachable!()
         }
     };

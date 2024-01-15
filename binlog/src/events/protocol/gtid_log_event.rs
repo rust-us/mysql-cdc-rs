@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use crate::events::event::Event;
 use crate::events::event_header::Header;
-use crate::events::log_event::LogEvent;
 use nom::number::complete::be_u64;
 use nom::{
     bytes::complete::take,

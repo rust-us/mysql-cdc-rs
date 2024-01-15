@@ -8,6 +8,7 @@ use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_header::{Header, HEADER_LEN};
+use crate::events::event_raw::EventRaw;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
@@ -16,7 +17,6 @@ use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 #[derive(Debug)]
 pub struct FileBinlogReader {
     stream: File,
-    is_symlink: bool,
 
     skip_magic_buffer: bool,
 
@@ -31,13 +31,13 @@ pub struct FileBinlogReader {
     eof: bool,
 }
 
-impl BinlogReader<File> for FileBinlogReader {
+impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
     fn new(context: LogContextRef, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
         let none = File::create(Path::new("tmp")).unwrap();
 
         Ok(Self {
             stream: none,
-            is_symlink: false,
+            // is_symlink: false,
             skip_magic_buffer,
             decoder: LogEventDecoder::new(),
             payload_buffer: vec![0; PAYLOAD_BUFFER_SIZE],
@@ -55,20 +55,28 @@ impl BinlogReader<File> for FileBinlogReader {
         Ok((rs, context))
     }
 
-    fn read_events(mut self, mut source: File) -> Self {
+    fn read_events(&mut self, mut source: File) -> Box<dyn Iterator<Item=Result<(Header, Event), ReError>>> {
         if !self.skip_magic_buffer {
             // Parse magic
             let mut magic_buffer = vec![0; HEADER_LEN as usize];
             // read exactly HEADER_LEN bytes
             source.read_exact(&mut magic_buffer).unwrap();
             let (i, _) = Header::check_start(magic_buffer.as_slice()).unwrap();
+            self.skip_magic_buffer = true;
             assert_eq!(i.len(), 0);
         }
 
-        self.is_symlink = true;
-        self.stream = source;
+        self.stream = source.try_clone().unwrap();
 
-        self
+        Box::new(FileBinlogReaderIterator {
+            index: 0,
+            stream: source,
+            skip_magic_buffer: self.skip_magic_buffer,
+            decoder: self.decoder.clone(),
+            context: self.context.clone(),
+            payload_buffer: self.payload_buffer.clone(),
+            eof: self.eof,
+        })
     }
 
     fn get_context(&self) -> LogContextRef {
@@ -76,12 +84,26 @@ impl BinlogReader<File> for FileBinlogReader {
     }
 }
 
-impl FileBinlogReader {
-    fn read_event(&mut self) -> Result<(Header, Event), ReError> {
-        if !self.is_symlink {
-            return Err(ReError::Incomplete(Needed::NoEnoughData));
-        }
+struct FileBinlogReaderIterator {
+    index: usize,
 
+    stream: File,
+
+    skip_magic_buffer: bool,
+
+    /// stream 与 source_bytes 的解析器
+    decoder: LogEventDecoder,
+
+    context: LogContextRef,
+
+    /// stream 与 source_bytes 加载的缓冲区。 在一次BinlogReader中会被多次复用
+    payload_buffer: Vec<u8>,
+
+    eof: bool,
+}
+
+impl FileBinlogReaderIterator {
+    fn read_event(&mut self) -> Result<(Header, Event), ReError> {
         let mut decoder = &mut self.decoder;
 
         // Parse header
@@ -98,8 +120,7 @@ impl FileBinlogReader {
             let mut vec: Vec<u8> = vec![0; payload_length];
             self.stream.read_exact(&mut vec)?;
 
-            let (binlog_event, remain_bytes) = decoder.decode_with_slice(&vec, header_ref, self.context.clone()).unwrap();
-            assert_eq!(remain_bytes.len(), 0);
+            let binlog_event = decoder.decode_with_slice(&vec, header_ref, self.context.clone()).unwrap();
 
             Ok((header, binlog_event))
         } else {
@@ -107,8 +128,7 @@ impl FileBinlogReader {
             let slice = &mut self.payload_buffer[0..payload_length];
             self.stream.read_exact(slice)?;
 
-            let (binlog_event, remain_bytes) = self.decoder.decode_with_slice(slice, header_ref, self.context.clone()).unwrap();
-            assert_eq!(remain_bytes.len(), 0);
+            let binlog_event = self.decoder.decode_with_slice(slice, header_ref, self.context.clone()).unwrap();
 
             Ok((header, binlog_event))
         }
@@ -116,28 +136,32 @@ impl FileBinlogReader {
 }
 
 
-/// Iterator
-impl Iterator for FileBinlogReader {
+impl Iterator for FileBinlogReaderIterator {
     type Item = Result<(Header, Event), ReError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.read_event();
-        self.context.borrow_mut().log_stat_add();
 
-        if let Err(error) = &result {
-            if let ReError::IoError(io_error) = error {
-                // 文件读到了最后, is IoError(Error { kind: UnexpectedEof, message: "failed to fill whole buffer" })
-                if let ErrorKind::UnexpectedEof = io_error.kind() {
-                    self.eof = true;
-                    return None;
+        return match result {
+            Err(error) => {
+                if let ReError::IoError(io_error) = &error {
+                    // 文件读到了最后, is IoError(Error { kind: UnexpectedEof, message: "failed to fill whole buffer" })
+                    if let ErrorKind::UnexpectedEof = io_error.kind() {
+                        self.eof = true;
+                        None
+                    } else {
+                        Some(Err(error))
+                    }
                 } else {
-                    println!("{:?}", error);
+                    Some(Err(error))
                 }
-            } else {
-                println!("{:?}", error);
+            },
+            Ok(data) => {
+                self.index += 1;
+                self.context.borrow_mut().log_stat_add();
+
+                Some(Ok(data))
             }
         }
-
-        Some(result)
     }
 }

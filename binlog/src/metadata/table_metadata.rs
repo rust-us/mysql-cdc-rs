@@ -1,8 +1,6 @@
-use std::cell::RefCell;
 use std::io;
 use std::io::{Cursor, Read};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use byteorder::ReadBytesExt;
 use nom::Parser;
 use serde::Serialize;
@@ -57,24 +55,42 @@ pub struct TableMetadata {
 
 impl Default for TableMetadata {
     fn default() -> Self {
-        TableMetadata {
-            signedness: None,
-            default_charset: None,
-            column_charsets: None,
-            column_names: None,
-            set_string_values: None,
-            enum_string_values: None,
-            geometry_types: None,
-            simple_primary_keys: None,
-            primary_keys_with_prefix: None,
-            enum_and_set_default_charset: None,
-            enum_and_set_column_charsets: None,
-            column_visibility: None,
-        }
+        TableMetadata::new(
+            None, None, None, None, None, None, None, None, None, None, None, None
+        )
     }
 }
 
 impl TableMetadata {
+    pub fn new(signedness: Option<Vec<bool>>,
+               default_charset: Option<DefaultCharset>,
+               column_charsets: Option<Vec<u32>>,
+               column_names: Option<Vec<String>>,
+               set_string_values: Option<Vec<Vec<String>>>,
+               enum_string_values: Option<Vec<Vec<String>>>,
+               geometry_types: Option<Vec<u32>>,
+               simple_primary_keys: Option<Vec<u32>>,
+               primary_keys_with_prefix: Option<Vec<(u32, u32)>>,
+               enum_and_set_default_charset: Option<DefaultCharset>,
+               enum_and_set_column_charsets: Option<Vec<u32>>,
+               column_visibility: Option<Vec<bool>>) -> Self {
+
+        TableMetadata {
+            signedness,
+            default_charset,
+            column_charsets,
+            column_names,
+            set_string_values,
+            enum_string_values,
+            geometry_types,
+            simple_primary_keys,
+            primary_keys_with_prefix,
+            enum_and_set_default_charset,
+            enum_and_set_column_charsets,
+            column_visibility,
+        }
+    }
+
     pub fn read_extra_metadata<'a>(slice: &'a [u8], column_types: &[u8], shard_column_info_maps: Arc<Mutex<Vec<ColumnInfo>>>) -> Result<Self, ReError> {
         let mut signedness = None;
         let mut default_charset = None;
@@ -189,7 +205,7 @@ impl TableMetadata {
             }
         }
 
-        Ok(Self {
+        Ok(TableMetadata::new(
             signedness,
             default_charset,
             column_charsets,
@@ -202,7 +218,7 @@ impl TableMetadata {
             enum_and_set_default_charset,
             enum_and_set_column_charsets,
             column_visibility,
-        })
+        ))
     }
 }
 

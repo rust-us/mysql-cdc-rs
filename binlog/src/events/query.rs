@@ -9,6 +9,7 @@ use nom::{
 };
 use nom::number::complete::le_u24;
 use serde::Serialize;
+use tracing::error;
 use common::err::DecodeError::ReError;
 use crate::events::protocol::query_event::{MAX_DBS_IN_EVENT_MTS, OVER_MAX_DBS_IN_EVENT_MTS};
 
@@ -320,7 +321,7 @@ pub fn parse_status_var<'a>(input: &'a [u8]) -> IResult<&'a [u8], QueryStatusVar
         },
         __ => {
             /* That's why you must write status vars in growing order of code  */
-            log::error!("Query_log_event has unknown status vars (first has code: {:?}), skipping the rest of them", code);
+            error!("Query_log_event has unknown status vars (first has code: {:?}), skipping the rest of them", code);
 
             unreachable!()
         },
@@ -482,7 +483,7 @@ pub fn parse_status_var_cursor(raw_vars: &mut Cursor<&[u8]>) -> Result<QueryStat
         },
         __ => {
             /* That's why you must write status vars in growing order of code  */
-            log::error!("Query_log_event has unknown status vars (first has code: {:?}), skipping the rest of them", code);
+            error!("Query_log_event has unknown status vars (first has code: {:?}), skipping the rest of them", code);
 
             unreachable!()
         },
