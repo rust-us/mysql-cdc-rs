@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use common::err::decode_error::ReError;
 use serde::Serialize;
+use common::column::column_type::ColumnType;
 
-use crate::column::column_type::ColumnType;
 use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::metadata::table_metadata::TableMetadata;
 use crate::{

@@ -16,18 +16,11 @@ pub mod factory;
 pub mod dump;
 pub mod relay_log;
 pub mod binlog_server;
-pub mod binlog_options;
 pub mod alias;
-pub mod starting_strategy;
-pub mod cli;
 
-pub use events::{
-    query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar},
-};
+pub use events::query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar};
 
-pub use row::{
-    rows::{ExtraData, ExtraDataFormat, Flags, Payload}
-};
+pub use row::rows::{ExtraData, ExtraDataFormat, Flags, Payload};
 
 pub const NULL_TERMINATOR: u8 = 0;
 

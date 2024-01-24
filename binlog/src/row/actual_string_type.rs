@@ -1,4 +1,5 @@
-use crate::column::column_type::ColumnType;
+
+use common::column::column_type::ColumnType;
 
 /// Parses actual string type
 /// See: https://bugs.mysql.com/bug.php?id=37426

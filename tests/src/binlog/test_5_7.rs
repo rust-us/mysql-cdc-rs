@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod test {
     use tracing::debug;
+    use binlog::alias::mysql::events::gtid_log_event::GtidLogEvent;
     use binlog::column;
     use binlog::events::event::Event::{
         AnonymousGtidLog, BeginLoadQuery, DeleteRows, ExecuteLoadQueryEvent, FormatDescription,
@@ -11,7 +12,6 @@ mod test {
     use binlog::events::{UserVarType};
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::format_description_log_event::FormatDescriptionEvent;
-    use binlog::events::protocol::gtid_log_event::GtidLogEvent;
     use binlog::events::protocol::int_var_event::{IntVarEvent, IntVarEventType};
     use binlog::alias::mysql::events::previous_gtids_event::PreviousGtidsLogEvent;
     use binlog::alias::mysql::gtid::gtid::Gtid;

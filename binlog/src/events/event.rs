@@ -21,8 +21,6 @@ use crate::events::protocol::unknown_event::UnknownEvent;
 use crate::events::protocol::v4::start_v3_event::StartV3Event;
 use crate::events::protocol::xid_event::XidLogEvent;
 
-pub const FIRST_EVENT_POSITION: usize = 4;
-
 ///
 /// Enumeration type for the different types of log events.
 ///

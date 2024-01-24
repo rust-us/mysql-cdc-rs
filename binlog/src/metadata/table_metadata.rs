@@ -5,7 +5,7 @@ use byteorder::ReadBytesExt;
 use nom::Parser;
 use serde::Serialize;
 use common::err::decode_error::ReError;
-use crate::column::column_type::ColumnType;
+use common::column::column_type::ColumnType;
 use crate::events::protocol::table_map_event::{ColumnInfo, get_real_type};
 use crate::metadata::default_charset::DefaultCharset;
 use crate::metadata::metadata_type::MetadataType;

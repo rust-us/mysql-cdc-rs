@@ -1,9 +1,11 @@
-use crate::alias::mysql::gtid::gtid_set::GtidSet;
-use crate::events::event::FIRST_EVENT_POSITION;
-use crate::starting_strategy::StartingStrategy;
+use serde::Serialize;
+use binlog::alias::mysql::gtid::gtid_set::GtidSet;
+use crate::binlog::starting_strategy::StartingStrategy;
+
+pub const FIRST_EVENT_POSITION: usize = 4;
 
 /// Replication options used when client connects to the server.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Clone)]
 pub struct BinlogOptions {
     /// Binary log file name.
     /// The value is automatically changed on the RotateEvent.
@@ -65,4 +67,15 @@ impl BinlogOptions {
         }
     }
 
+    pub fn update_filename(&mut self, filename: String) -> bool {
+        self.filename = filename;
+
+        true
+    }
+
+    pub fn update_position(&mut self, position: u32) -> bool {
+        self.position = position;
+
+        true
+    }
 }

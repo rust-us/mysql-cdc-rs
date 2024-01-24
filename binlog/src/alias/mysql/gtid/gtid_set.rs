@@ -108,9 +108,9 @@ impl GtidSet {
 }
 
 impl GtidSet {
-    /// 取得所有权
-    pub fn into_map(self) -> BTreeMap<String, UuidSet> {
-        self.uuid_sets
+    /// 获取uuid set 的map
+    pub fn uuid_sets(& self) -> &BTreeMap<String, UuidSet> {
+        &self.uuid_sets
     }
 
     /// Adds a gtid value to the GtidSet.

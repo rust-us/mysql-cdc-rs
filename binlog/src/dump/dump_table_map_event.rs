@@ -1,5 +1,5 @@
 use serde::Serialize;
-use crate::column::column_type::ColumnType;
+use common::column::column_type::ColumnType;
 use crate::events::BuildType;
 
 /// dump insert 数据之前声明的表结构信息

@@ -15,7 +15,6 @@ bytes = { workspace = true }
 byteorder = { workspace = true }
 dashmap = { workspace = true }
 thiserror = { workspace = true }
-structopt = { workspace = true }
 bitflags = { workspace = true }
 nom = { workspace = true }
 lazy_static = { workspace = true }

@@ -1,5 +1,5 @@
 use serde::Serialize;
-use crate::column::column_value::ColumnValue;
+use common::column::column_value::ColumnValue;
 
 /// Represents an inserted or deleted row in row based replication.
 #[derive(Debug, Serialize, PartialEq, Clone)]

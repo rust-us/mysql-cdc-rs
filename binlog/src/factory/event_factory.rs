@@ -175,6 +175,12 @@ impl EventFactory {
     }
 }
 
+impl Default for EventFactory {
+    fn default() -> Self {
+        EventFactory::new(true)
+    }
+}
+
 #[derive(Debug)]
 pub struct EventReaderOption {
     /// 是否为 debug。 true 为阻debug模式，  false 为正常模式

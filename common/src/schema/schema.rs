@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use log::debug;
 
 use mysql_common::Row;
 use num_enum::{IntoPrimitive, TryFromPrimitive};

@@ -1,4 +1,6 @@
-#[derive(Clone, Copy, PartialEq, Debug)]
+use serde::Serialize;
+
+#[derive(Clone, Copy, Serialize, PartialEq, Debug)]
 pub enum StartingStrategy {
     FromStart,
     FromEnd,

@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use dashmap::mapref::one::Ref;
-use crate::column::column_type::ColumnType;
+use common::column::column_type::ColumnType;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 

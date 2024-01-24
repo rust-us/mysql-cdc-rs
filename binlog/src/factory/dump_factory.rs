@@ -1,4 +1,4 @@
-use crate::column::column_type::ColumnType;
+use common::column::column_type::ColumnType;
 use crate::dump::dump_table_map_event::DumpTableMapEvent;
 use crate::dump::dump_write_rows_event::DumpWriteRowsEvent;
 use crate::row::row_data::RowData;

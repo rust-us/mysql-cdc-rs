@@ -62,3 +62,5 @@ Parsed events matrix:
 
 # debug model
 add `-- --nocapture`
+
+# How to Use

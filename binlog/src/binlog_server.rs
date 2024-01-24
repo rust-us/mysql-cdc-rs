@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use common::lifecycle::lifecycle::Lifecycle;
-use crate::column::column_type::ColumnType;
+use common::column::column_type::ColumnType;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
 lazy_static! {
