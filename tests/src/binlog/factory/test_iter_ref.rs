@@ -1,4 +1,4 @@
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 
 /// 不转移所有权的 Iter
 pub struct TestRefIter {

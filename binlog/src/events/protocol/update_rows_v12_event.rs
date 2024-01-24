@@ -9,7 +9,7 @@ use crate::utils::read_bitmap_little_endian;
 use crate::ExtraData;
 use byteorder::{LittleEndian, ReadBytesExt};
 use bytes::Buf;
-use common::err::DecodeError::{Needed, ReError};
+use common::err::decode_error::{Needed, ReError};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};

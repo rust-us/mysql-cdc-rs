@@ -17,21 +17,8 @@ use crate::{
     utils::{extract_string, read_null_term_string, read_variable_len_string},
 };
 use crate::events::{DupHandlingFlags, EmptyFlags, IncidentEventType, OptFlags, query, UserVarType};
-use crate::column::column_type::ColumnType;
 use crate::events::event_raw::HeaderRef;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
-use crate::events::protocol::table_map_event::TableMapEvent;
-
-lazy_static! {
-    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColumnType >>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
-    pub static ref TABLE_MAP_META: Arc<Mutex<HashMap<u64, Vec<u16 >>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
-    pub static ref TABLE_MAP_EVENT: Arc<Mutex<HashMap<u64, TableMapEvent>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-}
 
 fn extract_many_fields<'a>(
     input: &'a [u8],
@@ -320,18 +307,6 @@ pub fn parse_user_var<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8
             },
         ))
     }
-}
-
-pub fn parse_xid<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
-    let (i, (xid, checksum)) = tuple((le_u64, le_u32))(input)?;
-    Ok((
-        i,
-        Event::XID {
-            header: Header::copy(header.clone()),
-            xid,
-            checksum,
-        },
-    ))
 }
 
 pub fn parse_begin_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {

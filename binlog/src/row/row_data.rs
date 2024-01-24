@@ -5,6 +5,7 @@ use crate::column::column_value::ColumnValue;
 #[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct RowData {
     /// Column values of the changed row.
+    /// 该列存在值则为 Some(xx)， 不存在之则为None 即可
     pub cells: Vec<Option<ColumnValue>>,
 }
 

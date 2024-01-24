@@ -28,8 +28,17 @@ pub enum ReError {
     Failure(String),
 
     ConfigFileParseErr(String),
+
+
+    TableSchemaIntoErr(String),
     RcMysqlUrlErr(String),
     RcMysqlQueryErr(String),
+
+    MysqlQueryErr(String),
+
+    OpTableNotExistErr(String),
+    OpSchemaNotExistErr(String),
+    OpMetadataErr(String),
 }
 
 impl From<io::Error> for ReError {

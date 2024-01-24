@@ -10,18 +10,17 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use serde::Serialize;
 
 use crate::column::column_type::ColumnType;
-use crate::decoder::event_decoder_impl::TABLE_MAP;
-use crate::decoder::event_decoder_impl::TABLE_MAP_META;
 use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::metadata::table_metadata::TableMetadata;
 use crate::{
     events::event_header::Header,
     utils::{pu64, read_fixed_len_string, read_len_enc_num},
 };
+use crate::binlog_server::{TABLE_MAP, TABLE_MAP_META};
 use crate::events::BuildType;
 use crate::events::event_raw::HeaderRef;
 
@@ -61,7 +60,7 @@ pub struct TableMapEvent {
     /// Gets columns metadata 字段类型， 每个枚举的值与column_types 对应
     pub column_metadata_type: Vec<ColumnType>,
 
-    /// Gets columns nullability
+    /// Gets columns nullability， 用于标识某一列是否允许为 null
     pub null_bitmap: Vec<u8>,
 
     /// Gets table metadata for MySQL 5.6+

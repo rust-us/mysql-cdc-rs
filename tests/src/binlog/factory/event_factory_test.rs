@@ -6,7 +6,7 @@ mod test {
     use tracing::debug;
     use binlog::events::event::Event;
     use binlog::events::event_raw::EventRaw;
-    use binlog::factory::event_factory::{EventFactory, EventFactoryOption, IEventFactory};
+    use binlog::factory::event_factory::{EventFactory, EventReaderOption, IEventFactory};
     use binlog::events::event_header::Header;
     use binlog::events::log_context::{ILogContext, LogContext};
     use binlog::events::log_position::LogPosition;
@@ -64,7 +64,7 @@ mod test {
 
         let mut factory = EventFactory::new(false);
 
-        let (remaing, event_list) = factory.parser_bytes(&part1, &EventFactoryOption::default()).unwrap();
+        let (remaing, event_list) = factory.parser_bytes(&part1, &EventReaderOption::default()).unwrap();
         assert_eq!(remaing.len(), 75);
         assert_eq!(event_list.len(), 3);
     }
@@ -93,9 +93,60 @@ mod test {
 
         let mut factory = EventFactory::new(false);
 
-        factory.parser_iter(iter.iter(), &EventFactoryOption::debug());
+        factory.parser_iter(iter.iter(), &EventReaderOption::debug());
 
         // 总计4个事件
-        assert_eq!(factory.get_context().borrow().log_stat_process_count(), 4);
+        let binding = factory.get_context();
+        let context = binding.borrow();
+        let format_description = context.get_format_description();
+        let log_position_binding = context.get_log_position();
+        let log_position = log_position_binding.read().unwrap();
+        let log_stat_binding = context.get_log_stat();
+        let log_stat = log_stat_binding.read().unwrap();
+        assert_eq!(context.get_log_stat_process_count(), 4);
+        assert_eq!(log_position.get_position(), 369);
+    }
+
+    /// 验证上下文指针的正确性
+    #[test]
+    fn test_context_position_check() {
+        TracingFactory::init_log(true);
+
+        let bytes = include_bytes!("../../../events/8.0/02_query_bigger/binlog.000733");
+
+        let len = bytes.len();
+        assert_eq!(len, 7843);
+
+        // 0- 1000， len 1000
+        let part1 = Vec::from(&bytes[0..1000]);
+        assert_eq!(part1.len(), 1000);
+        // 1000 - 2500， len 1500
+        let part2 = Vec::from(&bytes[1000..2500]);
+        assert_eq!(part2.len(), 1500);
+        // 2500 - 3915， len 1415
+        let part3 = Vec::from(&bytes[2500..]);
+        assert_eq!(part3.len(), 5343);
+
+        let mut data_iter = Vec::new();
+        data_iter.push(part1);
+        data_iter.push(part2);
+        data_iter.push(part3);
+
+        let iter = TestOwenerIter::new(data_iter);
+        let mut factory = EventFactory::new(false);
+
+        factory.parser_iter(iter.iter(), &EventReaderOption::debug());
+
+        // 总计4个事件
+        let binding = factory.get_context();
+        let context = binding.borrow();
+        let format_description = context.get_format_description();
+        let log_position_binding = context.get_log_position();
+        let log_position = log_position_binding.read().unwrap();
+        let log_stat_binding = context.get_log_stat();
+        let log_stat = log_stat_binding.read().unwrap();
+
+        assert_eq!(context.get_log_stat_process_count(), 42);
+        assert_eq!(log_position.get_position(), len as u64);
     }
 }

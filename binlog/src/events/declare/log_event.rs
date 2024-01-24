@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::Cursor;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
 use crate::events::protocol::table_map_event::TableMapEvent;

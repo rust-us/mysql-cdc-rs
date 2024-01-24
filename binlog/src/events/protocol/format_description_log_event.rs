@@ -12,7 +12,7 @@ use crate::events::declare::log_event::*;
 use crate::utils::extract_string;
 use serde::Serialize;
 use tracing::error;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -516,7 +516,7 @@ mod test {
     #[test]
     fn test_server_version_split_with_dot() {
         let mut _context:LogContext = LogContext::new(LogPosition::new("AA"));
-        _context.set_log_position_with_offset(66);
+        _context.update_log_position_with_offset(66);
 
         assert_eq!(server_version_split_with_dot("192.168.9".to_string()), vec![192,168,9]);
         assert_eq!(server_version_split_with_dot("19-a.16B.9".to_string()), vec![19,16,9]);

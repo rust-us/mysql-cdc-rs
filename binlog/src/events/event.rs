@@ -6,19 +6,22 @@ use crate::events::{
 use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
-use crate::events::protocol::gtid_log_event::GtidLogEvent;
-use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
+use crate::alias::mysql::events::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
 use crate::events::protocol::rotate_event::RotateEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
 use serde::Serialize;
+use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::int_var_event::IntVarEvent;
 use crate::events::protocol::slave_event::SlaveEvent;
 use crate::events::protocol::stop_event::StopEvent;
 use crate::events::protocol::unknown_event::UnknownEvent;
 use crate::events::protocol::v4::start_v3_event::StartV3Event;
+use crate::events::protocol::xid_event::XidLogEvent;
+
+pub const FIRST_EVENT_POSITION: usize = 4;
 
 ///
 /// Enumeration type for the different types of log events.
@@ -172,11 +175,7 @@ pub enum Event {
     /// 15
     FormatDescription(FormatDescriptionEvent),
     /// 16
-    XID {
-        header: Header,
-        xid: u64,
-        checksum: u32,
-    },
+    XID(XidLogEvent),
     /// 17
     /// ref: https://dev.mysql.com/doc/internals/en/begin-load-query-event.html
     BeginLoadQuery {

@@ -14,6 +14,12 @@ pub mod column;
 pub mod row;
 pub mod factory;
 pub mod dump;
+pub mod relay_log;
+pub mod binlog_server;
+pub mod binlog_options;
+pub mod alias;
+pub mod starting_strategy;
+pub mod cli;
 
 pub use events::{
     query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar},
@@ -33,3 +39,4 @@ mod test {
         println!("binlog lib test:{}", 0x21);
     }
 }
+

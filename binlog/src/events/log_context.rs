@@ -6,44 +6,45 @@ use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
 use nom::ExtendInto;
 use serde::Serialize;
-use crate::events::gtid_set::MysqlGTIDSet;
+use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
+use crate::alias::mysql::gtid::gtid_set::GtidSet;
 use crate::events::declare::log_event::LogEvent;
-use crate::events::log_position::LogPosition;
-use crate::events::log_stat::LogStat;
+use crate::events::log_position::{LogPosition, LogPositionRef};
+use crate::events::log_stat::{LogStat, LogStatRef};
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
-use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
 pub trait ILogContext {
     fn new(log_position: LogPosition) -> LogContext;
 
-    fn new_with_gtid(log_position: LogPosition, gtid_set: MysqlGTIDSet) -> LogContext;
+    fn new_with_gtid(log_position: LogPosition, gtid_set: GtidSet) -> LogContext;
 
     fn new_with_format_description(log_position: LogPosition, log_stat: LogStat,
-                                   format_description: FormatDescriptionEvent, gtid_set: Option<MysqlGTIDSet>) -> LogContext;
+                                   format_description: FormatDescriptionEvent, gtid_set: Option<GtidSet>) -> LogContext;
 
-    fn set_format_description(&mut self, fd: FormatDescriptionEvent);
     fn get_format_description(&self) -> Arc<FormatDescriptionEvent>;
+    fn set_format_description(&mut self, fd: FormatDescriptionEvent);
 
+    fn get_log_position(&self) -> LogPositionRef;
     fn set_log_position(&mut self, log_pos: LogPosition);
-    fn get_log_position(&self) -> Arc<RwLock<LogPosition>>;
-    fn set_log_position_with_offset(&mut self, pos: u32);
+    fn update_log_position_with_offset(&mut self, pos: u32);
 
-    fn log_stat_add(&mut self);
-    fn log_stat_process_count(&self) -> u64;
+    fn get_log_stat(&self) -> LogStatRef;
+    fn update_log_stat_add(&mut self);
+    fn get_log_stat_process_count(&self) -> u64;
 
-    fn set_compatiable_percona(&mut self, compatiable_percona: bool);
     fn is_compatiable_percona(&self) -> bool;
+    fn set_compatiable_percona(&mut self, compatiable_percona: bool);
 
+    fn get_table_len(&self) -> usize;
     /// get TableMapEvent maps with table_id, Clone Data
     fn get_table(&self, table_id: &u64) -> Option<Ref<u64, TableMapEvent>>;
     fn put_table(&mut self, table_id: u64, table_map_event: TableMapEvent);
     /// 清空 map_of_table 集合
     fn clear_all_table(&mut self);
-    fn get_table_len(&self) -> usize;
 
-    fn get_gtid_set_as_mut(&mut self) -> Option<&mut MysqlGTIDSet>;
-    fn get_gtid_set(&self) -> Option<&MysqlGTIDSet>;
+    fn get_gtid_set_as_mut(&mut self) -> Option<&mut GtidSet>;
+    fn get_gtid_set(&self) -> Option<&GtidSet>;
 
     /// gtid_set 数据更新
     fn update_gtid_set(&mut self, gtid_var: String);
@@ -63,10 +64,10 @@ pub struct LogContext {
     format_description: Arc<FormatDescriptionEvent>,
 
     /// binlog position
-    log_position: Arc<RwLock<LogPosition>>,
+    log_position: LogPositionRef,
 
     /// binlog monitor and stat
-    log_stat: Arc<RwLock<LogStat>>,
+    log_stat: LogStatRef,
 
     /// is compatiable , default value is false
     compatiable_percona: bool,
@@ -74,7 +75,7 @@ pub struct LogContext {
     /// TableMapEvent maps with table_id
     map_of_table: Arc<DashMap<u64, TableMapEvent>>,
 
-    gtid_set: Option<MysqlGTIDSet>,
+    gtid_set: Option<GtidSet>,
 
     /// save current gtid log event
     pub gtid_log_event: Option<GtidLogEvent>,
@@ -99,12 +100,12 @@ impl ILogContext for LogContext {
         LogContext::new_with_format_description(log_position, LogStat::default(), FormatDescriptionEvent::default(), None)
     }
 
-    fn new_with_gtid(log_position: LogPosition, gtid_set: MysqlGTIDSet) -> LogContext {
+    fn new_with_gtid(log_position: LogPosition, gtid_set: GtidSet) -> LogContext {
         LogContext::new_with_format_description(log_position, LogStat::default(), FormatDescriptionEvent::default(), Some(gtid_set))
     }
 
     fn new_with_format_description(log_position: LogPosition, log_stat: LogStat,
-                                       format_description: FormatDescriptionEvent, gtid_set: Option<MysqlGTIDSet>) -> LogContext {
+                                   format_description: FormatDescriptionEvent, gtid_set: Option<GtidSet>) -> LogContext {
         LogContext {
             format_description: Arc::new(format_description),
             log_position: Arc::new(RwLock::new(log_position)),
@@ -116,40 +117,52 @@ impl ILogContext for LogContext {
         }
     }
 
+    fn get_format_description(&self) -> Arc<FormatDescriptionEvent> {
+        self.format_description.clone()
+    }
+
     fn set_format_description(&mut self, fd: FormatDescriptionEvent) {
         self.format_description = Arc::new(fd);
     }
 
-    fn get_format_description(&self) -> Arc<FormatDescriptionEvent> {
-        self.format_description.clone()
+    fn get_log_position(&self) -> LogPositionRef {
+        self.log_position.clone()
     }
 
     fn set_log_position(&mut self, log_pos: LogPosition) {
         self.log_position = Arc::new(RwLock::new(log_pos));
     }
 
-    fn get_log_position(&self) -> Arc<RwLock<LogPosition>> {
-        self.log_position.clone()
-    }
-
-    fn set_log_position_with_offset(&mut self, pos: u32) {
+    fn update_log_position_with_offset(&mut self, pos: u32) {
         self.log_position.write().unwrap().set_position(pos as u64);
     }
 
-    fn log_stat_add(&mut self) {
+    fn get_log_stat(&self) -> LogStatRef {
+        self.log_stat.clone()
+    }
+
+    fn update_log_stat_add(&mut self) {
         self.log_stat.write().unwrap().add();
     }
 
-    fn log_stat_process_count(&self) -> u64 {
+    fn get_log_stat_process_count(&self) -> u64 {
         self.log_stat.read().unwrap().clone().get_process_count()
+    }
+
+    fn is_compatiable_percona(&self) -> bool{
+        self.compatiable_percona
     }
 
     fn set_compatiable_percona(&mut self, compatiable_percona: bool) {
         self.compatiable_percona = compatiable_percona;
     }
 
-    fn is_compatiable_percona(&self) -> bool{
-        self.compatiable_percona
+    fn get_table_len(&self) -> usize {
+        if self.map_of_table.is_empty() {
+            return 0;
+        }
+
+        self.map_of_table.len()
     }
 
     fn get_table(&self, table_id: &u64) -> Option<Ref<u64, TableMapEvent>> {
@@ -174,15 +187,7 @@ impl ILogContext for LogContext {
         self.map_of_table.clear();
     }
 
-    fn get_table_len(&self) -> usize {
-        if self.map_of_table.is_empty() {
-            return 0;
-        }
-
-        self.map_of_table.len()
-    }
-
-    fn get_gtid_set_as_mut(&mut self) -> Option<&mut MysqlGTIDSet> {
+    fn get_gtid_set_as_mut(&mut self) -> Option<&mut GtidSet> {
         if self.gtid_set.is_none() {
             return None;
         }
@@ -190,7 +195,7 @@ impl ILogContext for LogContext {
         self.gtid_set.as_mut()
     }
 
-    fn get_gtid_set(&self) -> Option<&MysqlGTIDSet> {
+    fn get_gtid_set(&self) -> Option<&GtidSet> {
         if self.gtid_set.is_none() {
             return None;
         }
@@ -201,7 +206,7 @@ impl ILogContext for LogContext {
     fn update_gtid_set(&mut self, gtid_var: String) {
         if self.gtid_set.is_some() {
             let mut _tmp = self.gtid_set.clone().unwrap();
-            _tmp.update_gtid_set(gtid_var);
+            _tmp.add_gtid_str(gtid_var);
             self.gtid_set = Some(_tmp.clone());
         }
     }
@@ -232,7 +237,7 @@ impl ILogContext for LogContext {
 #[cfg(test)]
 mod test {
     use dashmap::mapref::one::Ref;
-    use crate::events::gtid_set::MysqlGTIDSet;
+    use crate::alias::mysql::gtid::gtid_set::GtidSet;
     use crate::events::log_context::{ILogContext, LogContext};
     use crate::events::log_position::LogPosition;
     use crate::events::protocol::table_map_event::TableMapEvent;
@@ -240,7 +245,7 @@ mod test {
     #[test]
     fn test() {
         let mut _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
-        _context.set_log_position_with_offset(66);
+        _context.update_log_position_with_offset(66);
 
         assert_eq!("Current server_version:5.0, Current binlog_version:4, Current Binlog File: BytesBinlogReader, Current position: 66, Total process_count:0",
                    _context.stat_fmt());
@@ -250,8 +255,8 @@ mod test {
     fn test_update_gtid_set() {
         let mut context:LogContext = LogContext::new_with_gtid(
             LogPosition::new("BytesBinlogReader"),
-            MysqlGTIDSet::parse(String::from("726757ad-4455-11e8-ae04-0242ac110002:1-3:4")));
-        context.set_log_position_with_offset(66);
+            GtidSet::parse(String::from("726757ad-4455-11e8-ae04-0242ac110002:1-3:4")).unwrap());
+        context.update_log_position_with_offset(66);
 
         assert!(context.gtid_set.is_some());
 
@@ -266,8 +271,8 @@ mod test {
     fn test_xxx_map_of_table() {
         let mut context:LogContext = LogContext::new_with_gtid(
             LogPosition::new("BytesBinlogReader"),
-            MysqlGTIDSet::parse(String::from("726757ad-4455-11e8-ae04-0242ac110002:1-3:4")));
-        context.set_log_position_with_offset(66);
+            GtidSet::parse(String::from("726757ad-4455-11e8-ae04-0242ac110002:1-3:4")).unwrap());
+        context.update_log_position_with_offset(66);
 
         let mut e = TableMapEvent::default();
         e.table_id = 1;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
@@ -33,7 +33,7 @@ impl LogEvent for StopEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
-    ) -> Result<StopEvent, ReError> {
+    ) -> Result<StopEvent, ReError> where Self: Sized {
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
         header.borrow_mut().update_checksum(checksum);

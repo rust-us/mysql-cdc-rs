@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use bytes::Buf;
-use common::err::DecodeError::{Needed, ReError};
-use common::err::DecodeError::ReError::Incomplete;
+use common::err::decode_error::{Needed, ReError};
+use common::err::decode_error::ReError::Incomplete;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContextRef};
 

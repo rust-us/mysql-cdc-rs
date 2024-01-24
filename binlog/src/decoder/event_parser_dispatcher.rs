@@ -1,13 +1,15 @@
 use std::io::Cursor;
 use tracing::error;
-use common::err::DecodeError::{Needed, ReError};
+use common::err::decode_error::{Needed, ReError};
+use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
 use crate::b_type::LogEventType;
+use crate::binlog_server::TABLE_MAP_EVENT;
 use crate::decoder::event_decoder::LogEventDecoder;
 use crate::decoder::event_decoder_impl::{parse_append_block, parse_begin_load_query,
                                          parse_create_file, parse_delete_file, parse_exec_load,
                                          parse_execute_load_query, parse_heartbeat, parse_incident,
                                          parse_load, parse_new_load, parse_rand, parse_row_query,
-                                         parse_user_var, parse_xid, TABLE_MAP_EVENT};
+                                         parse_user_var};
 use crate::events::checksum_type::ChecksumType;
 use crate::events::event::Event;
 use crate::events::event_raw::HeaderRef;
@@ -18,10 +20,9 @@ use crate::events::log_position::LogPosition;
 use crate::events::protocol::anonymous_gtid_log_event::AnonymousGtidLogEvent;
 use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
-use crate::events::protocol::gtid_log_event::GtidLogEvent;
 use crate::events::protocol::ignorable_log_event::IgnorableLogEvent;
 use crate::events::protocol::int_var_event::IntVarEvent;
-use crate::events::protocol::previous_gtids_event::PreviousGtidsLogEvent;
+use crate::alias::mysql::events::previous_gtids_event::PreviousGtidsLogEvent;
 use crate::events::protocol::query_event::QueryEvent;
 use crate::events::protocol::rotate_event::RotateEvent;
 use crate::events::protocol::slave_event::SlaveEvent;
@@ -31,6 +32,7 @@ use crate::events::protocol::unknown_event::UnknownEvent;
 use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
 use crate::events::protocol::v4::start_v3_event::StartV3Event;
 use crate::events::protocol::write_rows_v12_event::WriteRowsEvent;
+use crate::events::protocol::xid_event::XidLogEvent;
 
 /// Parsing and processing of each event
 pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8], mut header: HeaderRef,
@@ -53,7 +55,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
         LogEventType::UNKNOWN_EVENT => {
             let event = UnknownEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
             /* updating position in context */
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::Unknown(event))
         },
@@ -61,14 +63,14 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
         // 1 START_EVENT_V3事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
         LogEventType::START_EVENT_V3 => {
             let e = StartV3Event::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::StartV3(e))
         },
 
         LogEventType::QUERY_EVENT => {
             let event = QueryEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
             header.borrow_mut().update_gtid(
                 context.borrow().get_gtid_set(),
                 context.borrow().get_gtid_log_event()
@@ -79,13 +81,14 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
 
         LogEventType::STOP_EVENT => {
             let e = StopEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::Stop(e))
         },
 
         LogEventType::ROTATE_EVENT => {
             let event = RotateEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+            // updating new position in context
             context.borrow_mut().set_log_position(LogPosition::new_with_position(&event.get_file_name(), *&event.get_binlog_position()));
 
             Ok(Event::Rotate(event))
@@ -93,7 +96,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
 
         LogEventType::INTVAR_EVENT => {
             let event = IntVarEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
-            // context.borrow_mut().set_log_position(LogPosition::new_with_position(&event.get_file_name(), *&event.get_binlog_position()));
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::IntVar(event))
         },
@@ -106,7 +109,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
         LogEventType::SLAVE_EVENT => {
             // can never happen (unused event)， also unsupported SLAVE_EVENT
             let e = SlaveEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::Slave(e))
         },
@@ -144,16 +147,21 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
 
         LogEventType::FORMAT_DESCRIPTION_EVENT => {   // 15
             let event = FormatDescriptionEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
             context.borrow_mut().set_format_description(event.clone());
 
             Ok(Event::FormatDescription(event))
         },
 
         LogEventType::XID_EVENT => { // 16
-            let (a, e) = parse_xid(slice, header).unwrap();
-            Ok(e)
-            // header.put_gtid
+            let event = XidLogEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
+            header.borrow_mut().update_gtid(
+                context.borrow().get_gtid_set(),
+                context.borrow().get_gtid_log_event()
+            );
+
+            Ok(Event::XID(event))
         },
         LogEventType::BEGIN_LOAD_QUERY_EVENT => {
             let (a, e) = parse_begin_load_query(slice, header).unwrap();
@@ -166,7 +174,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
 
         LogEventType::TABLE_MAP_EVENT => {     // 19
             let (i, event) = TableMapEvent::parse(slice, header.clone(), context.clone(), None).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
             context.borrow_mut().put_table(event.get_table_id(), event.clone());
 
             Ok(Event::TableMap(event))
@@ -194,7 +202,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
             // do nothing , just ignore log event
             let event_ignore = IgnorableLogEvent::parse(&mut cursor,
                                                   header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::IgnorableLogEvent)
         },
@@ -212,7 +220,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
             let mut event = WriteRowsEvent::parse(&mut cursor,
                                                   header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
 
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
             event.fill_assembly_table(context.clone()).unwrap();
 
             header.borrow_mut().update_gtid(
@@ -228,7 +236,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
             let mut event = UpdateRowsEvent::parse(&mut cursor,
                                                header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
 
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
             event.fill_assembly_table(context.clone()).unwrap();
             header.borrow_mut().update_gtid(
                 context.borrow().get_gtid_set(),
@@ -243,7 +251,7 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
             let mut event = DeleteRowsEvent::parse(&mut cursor,
                                                header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
 
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
             event.fill_assembly_table(context.clone()).unwrap();
             header.borrow_mut().update_gtid(
                 context.borrow().get_gtid_set(),
@@ -254,8 +262,9 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
         },
 
         LogEventType::GTID_LOG_EVENT => { // 33
-            let (i, event) = GtidLogEvent::parse(slice, header.clone()).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            let event = GtidLogEvent::parse(&mut cursor,
+                                                 header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             {
                 if has_gtid {
@@ -276,8 +285,10 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
         },
 
         LogEventType::ANONYMOUS_GTID_LOG_EVENT => { // 34
-            let (i, event) = AnonymousGtidLogEvent::parse(slice, header.clone()).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            let event = AnonymousGtidLogEvent::parse(&mut cursor,
+                                                          header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+            let event = event.gtid_event;
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             {
                 if has_gtid {
@@ -297,8 +308,9 @@ pub fn event_parse_diapatcher(event_decoder: &mut LogEventDecoder, slice: &[u8],
         },
 
         LogEventType::PREVIOUS_GTIDS_LOG_EVENT => {  // 35
-            let (i, event) = PreviousGtidsLogEvent::parse(slice, header.clone()).unwrap();
-            context.borrow_mut().set_log_position_with_offset(header.borrow().get_log_pos());
+            let event = PreviousGtidsLogEvent::parse(&mut cursor,
+                                                          header.clone(), context.clone(), Some(&event_decoder.table_map)).unwrap();
+            context.borrow_mut().update_log_position_with_offset(header.borrow().get_log_pos());
 
             Ok(Event::PreviousGtidsLog(event))
         },

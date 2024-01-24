@@ -1,4 +1,4 @@
-use crate::err::DecodeError::Needed;
+use crate::err::decode_error::Needed;
 use crate::parse::parse::{InputBuf};
 
 pub struct MB {

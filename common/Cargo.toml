@@ -23,3 +23,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 num_enum = { workspace = true }
 mysql_common = { workspace = true }
+bigdecimal = { workspace = true }
+dashmap = { workspace = true }
+once_cell = { workspace = true }
+
+memory = { path = "../memory" }
+
+log = "0.4.20"
+log4rs = "1.2.0"
+regex = "1.10.2"

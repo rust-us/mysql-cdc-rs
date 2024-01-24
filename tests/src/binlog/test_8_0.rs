@@ -9,7 +9,7 @@ mod test_normal {
     use binlog::decoder::file_binlog_reader::FileBinlogReader;
     use binlog::events::event::Event;
     use binlog::events::event::Event::{DeleteRows, Query, TableMap, UpdateRows, WriteRows};
-    use binlog::factory::event_factory::{EventFactory, EventFactoryOption, IEventFactory};
+    use binlog::factory::event_factory::{EventFactory, EventReaderOption, IEventFactory};
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::query_event::QueryEvent;
     use binlog::events::protocol::table_map_event::TableMapEvent;
@@ -73,7 +73,7 @@ mod test_normal {
     fn test_table_map_event_write_rows_log_event() {
         let input = include_bytes!("../../events/8.0/19_30_Table_map_event_Write_rows_log_event/binlog.000018");
         let mut factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
+        let (remain, output) = factory.parser_bytes(input, &EventReaderOption::default()).unwrap();
 
         match output.get(8).unwrap() {
             TableMap(TableMapEvent{
@@ -110,7 +110,7 @@ mod test_normal {
     fn test_update_rows_log_event() {
         let input = include_bytes!("../../events/8.0/31_update_rows_v2/binlog.000001");
         let mut factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
+        let (remain, output) = factory.parser_bytes(input, &EventReaderOption::default()).unwrap();
 
         // values
         let before_update: RowData = RowData {
@@ -182,7 +182,7 @@ mod test_normal {
     fn test_delete_rows_log_event() {
         let input = include_bytes!("../../events/8.0/32_delete_rows_v2/binlog.000001");
         let mut factory = EventFactory::new(false);
-        let (remain, output) = factory.parser_bytes(input, &EventFactoryOption::default()).unwrap();
+        let (remain, output) = factory.parser_bytes(input, &EventReaderOption::default()).unwrap();
 
         // values
         let delete: RowData = RowData {

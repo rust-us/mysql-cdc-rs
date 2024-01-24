@@ -1,5 +1,5 @@
 use bytes::BytesMut;
-use crate::err::DecodeError::{ReError, Needed};
+use crate::err::decode_error::{ReError, Needed};
 use crate::parse::parse::{InputBuf};
 
 /// Decode 结果集定义

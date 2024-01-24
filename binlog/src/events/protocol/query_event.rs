@@ -4,7 +4,7 @@ use crate::events::declare::log_event::{LogEvent, QUERY_HEADER_LEN, QUERY_HEADER
 use crate::events::query;
 use crate::utils::{extract_string};
 use crate::QueryStatusVar;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};

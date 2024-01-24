@@ -1,7 +1,5 @@
 use std::fmt::Debug;
-use common::err::DecodeError::ReError;
-use crate::events::event::Event;
-use crate::events::event_header::Header;
+use common::err::decode_error::ReError;
 use crate::events::log_context::{LogContextRef};
 
 pub const PAYLOAD_BUFFER_SIZE: usize = 32 * 1024;

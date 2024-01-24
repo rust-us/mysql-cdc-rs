@@ -1,10 +1,14 @@
 use std::collections::HashMap;
+use std::io::Cursor;
 use crate::events::event_header::Header;
 use crate::events::declare::log_event::LogEvent;
-use crate::events::protocol::gtid_log_event::GtidLogEvent;
-use nom::IResult;
 use serde::Serialize;
+use common::err::decode_error::ReError;
+use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
+use crate::alias::mysql::gtid::gtid::Gtid;
 use crate::events::event_raw::HeaderRef;
+use crate::events::log_context::LogContextRef;
+use crate::events::protocol::table_map_event::TableMapEvent;
 
 /// MySQL在binlog中记录每一个匿名事务之前会记录一个Anonymous_gtid_log_event表示接下来的事务是一个匿名事务。
 /// 注意：因为在5.6.34中并不会产生Anonymous_gtid_log_event，5.7.19版本才有.
@@ -25,33 +29,36 @@ use crate::events::event_raw::HeaderRef;
 /// |        +----------------------------+----------------------------+----------------------------+
 /// |        | sequence_no   | 8字节    | 小端存储，本次提交的序列号                                      |
 /// +=====================================+============================+============================+
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
-pub struct AnonymousGtidLogEvent {}
-
-impl AnonymousGtidLogEvent {
-    pub fn parse<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], GtidLogEvent> {
-        let (
-            i,
-            (
-                commit_flag,
-                source_id,
-                transaction_id,
-                lt_type,
-                last_committed,
-                sequence_number,
-                checksum,
-            ),
-        ) = GtidLogEvent::parse_events_gtid(input, header.clone())?;
-
-        let header_new = Header::copy_and_get(header, checksum, HashMap::new());
-
-        let e = GtidLogEvent::new(header_new, commit_flag, source_id, transaction_id, lt_type, last_committed, sequence_number);
-        Ok((i, e))
-    }
+#[derive(Debug, Serialize, Clone)]
+pub struct AnonymousGtidLogEvent {
+    pub gtid_event: GtidLogEvent
 }
 
-// impl LogEvent for AnonymousGtidLogEvent {
-//     fn get_type_name(&self) -> String {
-//         "AnonymousGtidLog".to_string()
-//     }
-// }
+impl LogEvent for AnonymousGtidLogEvent {
+    fn get_type_name(&self) -> String {
+        "AnonymousGtidLog".to_string()
+    }
+
+    fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef, context: LogContextRef,
+             table_map: Option<&HashMap<u64, TableMapEvent>>) -> Result<AnonymousGtidLogEvent, ReError> where Self: Sized {
+        let (
+            flags,
+            source_id,
+            transaction_id,
+            lt_type,
+            last_committed,
+            sequence_number,
+            checksum,
+        ) = GtidLogEvent::parse_events_gtid(cursor, header.clone()).unwrap();
+
+        header.borrow_mut().update_checksum(checksum);
+
+        let gtid = Gtid::new(source_id, transaction_id);
+
+        let gtid_event = GtidLogEvent::new(Header::copy(header), flags, gtid, lt_type, last_committed, sequence_number);
+
+        Ok(AnonymousGtidLogEvent {
+            gtid_event
+        })
+    }
+}

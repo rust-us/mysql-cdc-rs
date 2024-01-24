@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 
 /// See <a href="https://dev.mysql.com/doc/internals/en/date-and-time-data-type-representation.html">Docs</a>
 

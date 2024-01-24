@@ -1,4 +1,4 @@
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 
 /// 转移所有权的 Iter
 pub struct TestOwenerIter {

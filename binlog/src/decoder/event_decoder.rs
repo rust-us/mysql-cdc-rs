@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::Serialize;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::decoder::event_parser_dispatcher::event_parse_diapatcher;
 use crate::events::checksum_type::ChecksumType;
 
@@ -60,6 +60,7 @@ pub struct LogEventDecoder {
 }
 
 impl EventDecoder for LogEventDecoder {
+    #[inline]
     fn decode_with_raw(&mut self, raw: &EventRaw, context: LogContextRef) -> Result<Event, ReError> {
         let header = raw.get_header();
         let slice = raw.get_payload();
@@ -67,12 +68,14 @@ impl EventDecoder for LogEventDecoder {
         self.decode_with_slice(slice, header, context)
     }
 
+    #[inline]
     fn decode_with_slice(&mut self, slice: &[u8], header: HeaderRef, context: LogContextRef) -> Result<Event, ReError> {
         event_parse_diapatcher(self, slice, header, context)
     }
 }
 
 impl LogEventDecoder {
+    #[inline]
     pub fn new() -> Self {
         Self {
             checksum_type: ChecksumType::None,
@@ -80,6 +83,7 @@ impl LogEventDecoder {
         }
     }
 
+    #[inline]
     pub fn new_with_checksum_type(checksum_type: ChecksumType) -> Self {
         Self {
             checksum_type,

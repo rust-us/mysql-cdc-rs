@@ -59,3 +59,6 @@ Parsed events matrix:
 | 0x27 | PARTIAL_UPDATE_ROWS_EVENT | not support         | not tested       |       |
 | 0x28 | TRANSACTION_PAYLOAD_EVENT | not support         | not tested       |       |
 | 0x29 | HEARTBEAT_LOG_EVENT_V2    | not support         | not tested       |       |
+
+# debug model
+add `-- --nocapture`

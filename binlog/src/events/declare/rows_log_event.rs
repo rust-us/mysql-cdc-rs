@@ -1,4 +1,4 @@
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::events::log_context::LogContextRef;
 
 pub trait RowsLogEvent {

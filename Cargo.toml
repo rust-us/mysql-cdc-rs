@@ -3,9 +3,10 @@
 
 [workspace]
 members = [
-    "common",
-    "binlog",
-    "tests",
+    "./memory",
+    "./common",
+    "./binlog",
+    "./tests",
 ]
 
 [workspace.dependencies]
@@ -43,3 +44,6 @@ futures-executor="^0.3.29"
 toml = "^0.8.8"
 mysql_common = "^0.30.6"
 
+crc32fast = "1.3.2"
+bigdecimal = "0.4"
+once_cell = "1.19.0"

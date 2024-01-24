@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
-use common::err::DecodeError::{Needed, ReError};
+use common::err::decode_error::{Needed, ReError};
 use crate::events::declare::log_event::LogEvent;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;

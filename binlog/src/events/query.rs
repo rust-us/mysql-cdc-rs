@@ -10,7 +10,7 @@ use nom::{
 use nom::number::complete::le_u24;
 use serde::Serialize;
 use tracing::error;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::events::protocol::query_event::{MAX_DBS_IN_EVENT_MTS, OVER_MAX_DBS_IN_EVENT_MTS};
 
 use crate::utils::{read_variable_len_string, extract_string, pu32, read_null_term_string, read_null_term_string_with_cursor};

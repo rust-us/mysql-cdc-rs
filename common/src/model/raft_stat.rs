@@ -2,7 +2,7 @@ use mysql_common::proto::Text;
 use mysql_common::Row;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use crate::err::CResult;
-use crate::err::DecodeError::ReError;
+use crate::err::decode_error::ReError;
 
 #[derive(Default, Eq, PartialEq, Debug)]
 pub struct State {

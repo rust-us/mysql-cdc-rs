@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::rc::Rc;
-use common::err::DecodeError::{Needed, ReError};
+use common::err::decode_error::{Needed, ReError};
 use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
@@ -32,6 +32,7 @@ pub struct FileBinlogReader {
 }
 
 impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
+    #[inline]
     fn new(context: LogContextRef, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
         let none = File::create(Path::new("tmp")).unwrap();
 
@@ -46,6 +47,7 @@ impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
         })
     }
 
+    #[inline]
     fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, LogContextRef), ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("test_demo"));
         let context = Rc::new(RefCell::new(_context));
@@ -55,6 +57,7 @@ impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
         Ok((rs, context))
     }
 
+    #[inline]
     fn read_events(&mut self, mut source: File) -> Box<dyn Iterator<Item=Result<(Header, Event), ReError>>> {
         if !self.skip_magic_buffer {
             // Parse magic
@@ -79,6 +82,7 @@ impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
         })
     }
 
+    #[inline]
     fn get_context(&self) -> LogContextRef {
         self.context.clone()
     }
@@ -158,7 +162,7 @@ impl Iterator for FileBinlogReaderIterator {
             },
             Ok(data) => {
                 self.index += 1;
-                self.context.borrow_mut().log_stat_add();
+                self.context.borrow_mut().update_log_stat_add();
 
                 Some(Ok(data))
             }

@@ -3,14 +3,14 @@ use std::ops::Deref;
 use std::rc::Rc;
 use bytes::Buf;
 use tracing::{debug, instrument};
-use common::err::DecodeError::{Needed, ReError};
+use common::err::decode_error::{ReError};
+use crate::alias::mysql::gtid::gtid_set::GtidSet;
 use crate::decoder::binlog_decoder::BinlogReader;
 use crate::decoder::bytes_binlog_reader::BytesBinlogReader;
 
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_raw::EventRaw;
-use crate::events::gtid_set::MysqlGTIDSet;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
 
@@ -18,7 +18,7 @@ pub trait IEventFactory {
     /// 初始化 binlog 解析器
     fn new(skip_magic_buffer: bool) -> EventFactory;
 
-    fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: MysqlGTIDSet) -> EventFactory;
+    fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: GtidSet) -> EventFactory;
 
     fn dump();
 
@@ -32,10 +32,10 @@ pub trait IEventFactory {
     ///                 剩余字节
     /// returns: Result<(&[u8], Vec<Event>), ReError>
     ///
-    fn parser_bytes(&mut self, input: &[u8], options: &EventFactoryOption) -> Result<(Vec<u8>, Vec<Event>), ReError>;
+    fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<Event>), ReError>;
 
     /// 从 Iterator 读取 binlog
-    fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventFactoryOption);
+    fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventReaderOption);
 
     /// 得到 EventFactory 实例后， BinlogReader 的上下文信息
     fn get_context(&self) -> LogContextRef;
@@ -53,7 +53,7 @@ impl IEventFactory for EventFactory {
         EventFactory::_new(skip_magic_buffer, None)
     }
 
-    fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: MysqlGTIDSet) -> EventFactory {
+    fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: GtidSet) -> EventFactory {
         EventFactory::_new(skip_magic_buffer, Some(gtid_set))
     }
 
@@ -62,7 +62,9 @@ impl IEventFactory for EventFactory {
     }
 
     #[instrument]
-    fn parser_bytes(&mut self, input: &[u8], options: &EventFactoryOption) -> Result<(Vec<u8>, Vec<Event>), ReError> {
+    fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<Event>), ReError> {
+        EventFactory::print_env(options);
+
         let context = &self.context;
 
         let iter = self.reader.read_events(input);
@@ -73,8 +75,9 @@ impl IEventFactory for EventFactory {
             let e = result.unwrap();
 
             if options.is_debug() {
-                debug!("event: {}, process_count: {:?}", Event::get_type_name(&e),
-                     context.borrow().log_stat_process_count());
+                let event_type = Event::get_type_name(&e);
+                let count = context.borrow().get_log_stat_process_count();
+                debug!("event: {:?}, process_count: {:?}", event_type, count);
             }
 
             events.push(e);
@@ -85,7 +88,10 @@ impl IEventFactory for EventFactory {
         Ok((remaing, events))
     }
 
-    fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventFactoryOption) {
+    // #[instrument]
+    fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventReaderOption) {
+        EventFactory::print_env(options);
+
         let mut remaing = Vec::new();
 
         for item in iter {
@@ -106,9 +112,9 @@ impl IEventFactory for EventFactory {
                         }
 
                         // event_list 异步往下走， 所有权往下移。
-                        if !event_list.is_empty() {
+                        if !event_list.is_empty()    {
                             if options.is_debug() {
-                                debug!("event_list: {:?}", event_list);
+                                debug!("\n{:?}", event_list);
                             }
 
                             // todo
@@ -138,7 +144,7 @@ impl IEventFactory for EventFactory {
 
 impl EventFactory {
 
-    fn _new(skip_magic_buffer: bool, gtid_set: Option<MysqlGTIDSet>) -> EventFactory {
+    fn _new(skip_magic_buffer: bool, gtid_set: Option<GtidSet>) -> EventFactory {
 
         let _context:LogContext = if gtid_set.is_some() {
             // 将gtid传输至context中，供decode使用
@@ -163,10 +169,14 @@ impl EventFactory {
 
         decoder.decode_with_raw(&raw, context)
     }
+
+    fn print_env(options: &EventReaderOption) {
+
+    }
 }
 
 #[derive(Debug)]
-pub struct EventFactoryOption {
+pub struct EventReaderOption {
     /// 是否为 debug。 true 为阻debug模式，  false 为正常模式
     debug: bool,
 
@@ -174,30 +184,30 @@ pub struct EventFactoryOption {
     blocked: bool,
 }
 
-impl EventFactoryOption {
+impl EventReaderOption {
     pub fn new(debug: bool, blocked: bool,) -> Self {
-        EventFactoryOption {
+        EventReaderOption {
             debug,
             blocked,
         }
     }
 
     pub fn debug() -> Self {
-        EventFactoryOption ::new(true, false)
+        EventReaderOption::new(true, false)
     }
 
     pub fn blocked() -> Self {
-        EventFactoryOption ::new(false, true)
+        EventReaderOption::new(false, true)
     }
 }
 
-impl Default for EventFactoryOption {
+impl Default for EventReaderOption {
     fn default() -> Self {
-        EventFactoryOption::new(false, false)
+        EventReaderOption::new(false, false)
     }
 }
 
-impl EventFactoryOption {
+impl EventReaderOption {
     pub fn is_debug(&self) -> bool {
         self.debug
     }
@@ -209,8 +219,14 @@ impl EventFactoryOption {
 
 #[cfg(test)]
 mod test {
+    use crate::column::column_type::ColumnType;
+
     #[test]
     fn test() {
         assert_eq!(1, 1);
+
+        let dd = ColumnType::Geometry;
+        let c = dd.clone() as u8;
+        assert_eq!(255, c);
     }
 }

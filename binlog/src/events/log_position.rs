@@ -1,7 +1,10 @@
+use std::sync::{Arc, RwLock};
 use serde::Serialize;
-use crate::events::gtid_set::MysqlGTIDSet;
+use crate::alias::mysql::gtid::gtid_set::GtidSet;
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
+pub type LogPositionRef = Arc<RwLock<LogPosition>>;
+
+#[derive(Debug, Serialize, Clone)]
 pub struct LogPosition {
     /// binlog file's name
     file_name:String,
@@ -10,7 +13,7 @@ pub struct LogPosition {
     position: u64,
 
     /// gtid 仅在gtid_mode使用，此时file_name和pos无效
-    gtid_set: Option<MysqlGTIDSet>
+    gtid_set: Option<GtidSet>
 }
 
 impl Default for LogPosition {
@@ -36,7 +39,7 @@ impl LogPosition {
         }
     }
 
-    pub fn new_with_gtid(file_name: &str, position: u64, gtid_data: MysqlGTIDSet) -> Self {
+    pub fn new_with_gtid(file_name: &str, position: u64, gtid_data: GtidSet) -> Self {
         LogPosition {
             file_name: file_name.to_string(),
             position,
@@ -64,7 +67,7 @@ impl LogPosition {
         self.position
     }
 
-    pub fn get_gtid_set(&self) -> Option<MysqlGTIDSet> {
+    pub fn get_gtid_set(&self) -> Option<GtidSet> {
         self.gtid_set.clone()
     }
 }

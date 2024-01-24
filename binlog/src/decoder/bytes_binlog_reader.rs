@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::vec::IntoIter;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
@@ -46,6 +46,7 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
     /// ```
     ///
     /// ```
+    #[inline]
     fn new(context: LogContextRef, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
         let event_raw_list = Vec::new();
 
@@ -59,6 +60,7 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
         })
     }
 
+    #[inline]
     fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, LogContextRef), ReError> {
         let _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
         let context = Rc::new(RefCell::new(_context));
@@ -68,6 +70,7 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
         Ok((decoder, context))
     }
 
+    #[inline]
     fn read_events(&mut self, stream: &[u8]) -> Box<dyn Iterator<Item=Result<Event, ReError>>> {
         self.source_bytes = if !self.skip_magic_buffer {
             let (i, _) = Header::check_start(stream).unwrap();
@@ -93,12 +96,14 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
         })
     }
 
+    #[inline]
     fn get_context(&self) -> LogContextRef {
         self.context.clone()
     }
 }
 
 impl BytesBinlogReader {
+    #[inline]
     pub fn get_source_bytes(&self) -> Vec<u8> {
         self.source_bytes.clone()
     }
@@ -151,7 +156,7 @@ impl Iterator for BytesBinlogReaderIterator {
             },
             Ok(data) => {
                 self.index += 1;
-                self.context.borrow_mut().log_stat_add();
+                self.context.borrow_mut().update_log_stat_add();
 
                 Some(Ok(data))
             }

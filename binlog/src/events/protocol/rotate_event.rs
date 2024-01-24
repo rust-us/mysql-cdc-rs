@@ -5,7 +5,7 @@ use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 use crate::utils::read_variable_len_string;
 use byteorder::{LittleEndian, ReadBytesExt};
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
@@ -55,7 +55,7 @@ impl LogEvent for RotateEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
-    ) -> Result<RotateEvent, ReError> {
+    ) -> Result<RotateEvent, ReError> where Self: Sized {
         let _context = context.borrow();
         let post_header_len = _context
             .get_format_description()

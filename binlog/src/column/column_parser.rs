@@ -2,7 +2,7 @@
 use crate::column::column_value::{Date, DateTime, Time};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::utils::{read_bitmap_big_endian, read_string};
 
 pub fn parse_string(cursor: &mut Cursor<&[u8]>, metadata: u16) -> Result<String, ReError> {

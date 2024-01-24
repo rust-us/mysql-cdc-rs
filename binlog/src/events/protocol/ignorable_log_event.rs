@@ -2,12 +2,11 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 use crate::events::declare::log_event::LogEvent;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
-use crate::events::protocol::slave_event::SlaveEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
 /// do nothing , just ignore log event

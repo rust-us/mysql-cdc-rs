@@ -1,5 +1,7 @@
+use std::sync::{Arc, RwLock};
 use serde::Serialize;
-use crate::events::log_position::LogPosition;
+
+pub type LogStatRef = Arc<RwLock<LogStat>>;
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct LogStat {

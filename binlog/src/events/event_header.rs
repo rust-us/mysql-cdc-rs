@@ -7,13 +7,13 @@ use nom::{
     IResult,
 };
 use serde::Serialize;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
+use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
+use crate::alias::mysql::gtid::gtid_set::GtidSet;
 use crate::b_type::LogEventType::{FORMAT_DESCRIPTION_EVENT, ROTATE_EVENT};
 use crate::events::event_header_flag::EventFlag;
 use crate::events::event_raw::HeaderRef;
-use crate::events::gtid_set::MysqlGTIDSet;
-use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
-use crate::events::protocol::gtid_log_event::GtidLogEvent;
+use crate::events::log_context::{ILogContext, LogContextRef};
 
 pub const HEADER_LEN: u8 = 4;
 
@@ -141,7 +141,7 @@ impl Header {
         self.checksum = checksum;
     }
 
-    pub fn update_gtid(&mut self, gtid_set: Option<&MysqlGTIDSet>, gtid_event: Option<&GtidLogEvent>) {
+    pub fn update_gtid(&mut self, gtid_set: Option<&GtidSet>, gtid_event: Option<&GtidLogEvent>) {
         if gtid_set.is_none() {
             return;
         }

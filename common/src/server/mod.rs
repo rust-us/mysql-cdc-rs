@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use futures_util::future::join_all;
 use tracing::warn;
-use crate::err::DecodeError::ReError;
+use crate::err::decode_error::ReError;
 
 /// Server have start / shutdown functions
 #[async_trait::async_trait]
 pub trait Server: Send {
 
-    async fn start(&mut self);
+    async fn start(&mut self) -> Result<(), ReError>;
 
     async fn shutdown(&mut self, graceful: bool) -> Result<(), ReError>;
 

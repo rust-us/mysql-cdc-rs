@@ -4,10 +4,9 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::err::DecodeError::ReError;
+use crate::err::decode_error::ReError;
 
 pub struct Config {
-
     pub core: RepConfig,
 
     max_memory: usize,
@@ -17,6 +16,7 @@ pub struct Config {
 pub struct RepConfig {
     pub binlog: BinlogConfig,
     pub rc_mysql: RcMySQL,
+    pub rc_metadata: RcMetadata,
     pub core: CoreConfig,
 }
 
@@ -43,6 +43,15 @@ pub struct RcMySQL {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct RcMetadata {
+    pub addr: String,
+    pub username: String,
+    pub password: String,
+    pub database: String,
+    pub metadata_stats_fresh_interval_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CoreConfig {
     max_memory: Option<String>,
 }
@@ -56,14 +65,12 @@ pub fn read_config<P: AsRef<Path>>(path: P) -> Result<RepConfig, ReError> {
 }
 
 impl Config {
-
     pub fn create(core: RepConfig) -> Self {
         Self {
             core,
             max_memory: 0,
         }
     }
-
 }
 
 #[cfg(test)]

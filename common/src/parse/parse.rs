@@ -1,4 +1,4 @@
-use crate::err::DecodeError::Needed;
+use crate::err::decode_error::Needed;
 
 pub struct InvalidFloat;
 

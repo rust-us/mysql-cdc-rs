@@ -1,5 +1,5 @@
 use serde::Serialize;
-use common::err::DecodeError::ReError;
+use common::err::decode_error::ReError;
 
 /// checksum_alg size， 1 byte
 pub const BINLOG_CHECKSUM_ALG_DESC_LEN: u8 = 1;
