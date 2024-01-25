@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 use openssl::rsa::{Padding, Rsa};
+use tracing::instrument;
 use common::err::CResult;
 use common::err::decode_error::ReError;
 use common::row::row_string::RowString;
@@ -29,6 +30,7 @@ pub trait IConnection {
 
 }
 
+#[derive(Debug)]
 pub struct Connection {
     pub options: ConnectionOptions,
 
@@ -41,6 +43,8 @@ pub struct Connection {
 }
 
 impl IConnection for Connection {
+
+    #[instrument]
     fn try_connect(&mut self) -> CResult<bool> {
         let mut channel = PacketChannel::new(&self.options)?;
         let (packet, seq_num) = channel.read_packet()?;
@@ -55,6 +59,7 @@ impl IConnection for Connection {
         Ok(true)
     }
 
+    #[instrument]
     fn query(&mut self, sql: String) -> CResult<Vec<RowString>> {
         let command = QueryCommand::new(sql);
 

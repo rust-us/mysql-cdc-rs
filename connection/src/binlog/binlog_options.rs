@@ -1,8 +1,11 @@
+use std::cell::RefCell;
+use std::sync::Arc;
 use serde::Serialize;
 use binlog::alias::mysql::gtid::gtid_set::GtidSet;
+use common::binlog::FIRST_EVENT_POSITION;
 use crate::binlog::starting_strategy::StartingStrategy;
 
-pub const FIRST_EVENT_POSITION: usize = 4;
+pub type BinlogOptionsRef = Arc<RefCell<BinlogOptions>>;
 
 /// Replication options used when client connects to the server.
 #[derive(Debug, Serialize, Clone)]
@@ -15,7 +18,7 @@ pub struct BinlogOptions {
     /// Binary log file position.
     /// The value is automatically changed when an event is successfully processed by a client.
     /// On reconnect the client resumes replication from the current position.
-    pub position: u32,
+    pub position: u64,
 
     /// MySQL Global Transaction ID position to start replication from.
     /// See <a href="https://dev.mysql.com/doc/refman/8.0/en/replication-gtids-concepts.html">MySQL GTID</a>
@@ -30,7 +33,7 @@ impl BinlogOptions {
     pub fn from_start() -> BinlogOptions {
         BinlogOptions {
             filename: String::new(),
-            position: FIRST_EVENT_POSITION as u32,
+            position: FIRST_EVENT_POSITION as u64,
             gtid_set: None,
             starting_strategy: StartingStrategy::FromStart,
         }
@@ -48,7 +51,7 @@ impl BinlogOptions {
     }
 
     /// Starts replication from specified binlog filename and position.
-    pub fn from_position(filename: String, position: u32) -> BinlogOptions {
+    pub fn from_position(filename: String, position: u64) -> BinlogOptions {
         BinlogOptions {
             filename,
             position,
@@ -61,7 +64,7 @@ impl BinlogOptions {
     pub fn from_gtid(gtid_set: GtidSet) -> BinlogOptions {
         BinlogOptions {
             filename: String::new(),
-            position: FIRST_EVENT_POSITION as u32,
+            position: FIRST_EVENT_POSITION as u64,
             gtid_set: Some(gtid_set),
             starting_strategy: StartingStrategy::FromGtid,
         }
@@ -73,7 +76,7 @@ impl BinlogOptions {
         true
     }
 
-    pub fn update_position(&mut self, position: u32) -> bool {
+    pub fn update_position(&mut self, position: u64) -> bool {
         self.position = position;
 
         true

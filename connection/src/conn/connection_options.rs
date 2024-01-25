@@ -1,8 +1,11 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::binlog::binlog_options::BinlogOptions;
+use crate::binlog::binlog_options::{BinlogOptions, BinlogOptionsRef};
 use crate::conn::ssl_mode::SslMode;
+use crate::env_options::{EnvOptions, EnvOptionsRef};
+
+pub type ConnectionOptionsRef = Arc<RefCell<ConnectionOptions>>;
 
 /// Settings used to connect to MySQL/MariaDB.
 #[derive(Debug, Clone)]
@@ -41,7 +44,9 @@ pub struct ConnectionOptions {
 
     /// Defines the binlog coordinates that replication should start from.
     /// Defaults to BinlogOptions.FromEnd()
-    pub binlog: Option<Arc<RefCell<BinlogOptions>>>,
+    pub binlog: Option<BinlogOptionsRef>,
+
+    pub env: Option<EnvOptionsRef>,
 }
 
 impl Default for ConnectionOptions {
@@ -56,7 +61,8 @@ impl Default for ConnectionOptions {
             server_id: 65535,
             blocking: true,
             heartbeat_interval: Duration::from_secs(30),
-            binlog: Some(Arc::new(RefCell::new(BinlogOptions::from_end()))),
+            binlog: Some(Arc::new(RefCell::new(BinlogOptions::from_start()))),
+            env: Some(Arc::new(RefCell::new(EnvOptions::debug()))),
         }
     }
 }
@@ -65,5 +71,16 @@ impl ConnectionOptions {
     pub fn update_auth(&mut self, username:String, password:String) {
         self.username = username;
         self.password = password;
+    }
+
+    pub fn update_binlog_position(&mut self, filename: String, pos: u64) {
+        if self.binlog.is_some() {
+            self.binlog.as_mut().unwrap().borrow_mut().filename = filename;
+            self.binlog.as_mut().unwrap().borrow_mut().update_position(pos);
+        }
+    }
+
+    pub fn update_binlog_opts(&mut self, binlog_opts: &BinlogOptions) {
+        self.binlog = Some(Arc::new(RefCell::new(binlog_opts.clone())));
     }
 }

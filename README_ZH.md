@@ -1,5 +1,7 @@
 # ForMe
 
+[English](./README.md)
+
 Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现，
 
 包括对MySQL 5.6/5.7/8.0中引入的JSONB类型的支持。

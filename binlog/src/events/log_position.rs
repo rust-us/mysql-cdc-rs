@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 use serde::Serialize;
+use common::binlog::FIRST_EVENT_POSITION;
 use crate::alias::mysql::gtid::gtid_set::GtidSet;
 
 pub type LogPositionRef = Arc<RwLock<LogPosition>>;
@@ -20,7 +21,7 @@ impl Default for LogPosition {
     fn default() -> Self {
         LogPosition {
             file_name: "".to_string(),
-            position: 0,
+            position: FIRST_EVENT_POSITION as u64,
             gtid_set: None,
         }
     }
@@ -28,7 +29,7 @@ impl Default for LogPosition {
 
 impl LogPosition {
     pub fn new(file_name: &str) -> Self {
-        LogPosition::new_with_position(file_name, 0)
+        LogPosition::new_with_position(file_name, FIRST_EVENT_POSITION as u64)
     }
 
     pub fn new_with_position(file_name: &str, position: u64) -> Self {

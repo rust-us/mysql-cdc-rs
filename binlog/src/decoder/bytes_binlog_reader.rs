@@ -4,14 +4,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::vec::IntoIter;
 use common::err::decode_error::ReError;
-use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
+use crate::decoder::binlog_decoder::{BinlogReader};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_raw::EventRaw;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
-use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
 /// Reads binlog events from a stream.
 #[derive(Debug, Clone)]

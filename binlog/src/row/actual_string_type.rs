@@ -28,7 +28,7 @@ pub fn get_actual_string_type(column_type: &mut u8, metadata: &mut u16) {
 
 #[cfg(test)]
 mod tests {
-    use crate::column::column_type::ColumnType;
+    use common::column::column_type::ColumnType;
     use super::get_actual_string_type;
 
     #[test]

@@ -20,8 +20,6 @@ pub trait IEventFactory {
 
     fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: GtidSet) -> EventFactory;
 
-    fn dump();
-
     /// 从 bytes 读取 binlog
     ///
     /// # Arguments
@@ -55,10 +53,6 @@ impl IEventFactory for EventFactory {
 
     fn new_with_gtid_set(skip_magic_buffer: bool, gtid_set: GtidSet) -> EventFactory {
         EventFactory::_new(skip_magic_buffer, Some(gtid_set))
-    }
-
-    fn dump() {
-        todo!()
     }
 
     #[instrument]
@@ -225,7 +219,7 @@ impl EventReaderOption {
 
 #[cfg(test)]
 mod test {
-    use crate::column::column_type::ColumnType;
+    use common::column::column_type::ColumnType;
 
     #[test]
     fn test() {

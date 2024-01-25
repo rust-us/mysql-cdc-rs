@@ -5,12 +5,12 @@ use crate::commands::command::CommandType;
 pub struct DumpBinlogCommand {
     pub server_id: u32,
     pub binlog_filename: String,
-    pub binlog_position: u32,
+    pub binlog_position: u64,
     pub flags: u16,
 }
 
 impl DumpBinlogCommand {
-    pub fn new(server_id: u32, binlog_filename: String, binlog_position: u32) -> Self {
+    pub fn new(server_id: u32, binlog_filename: String, binlog_position: u64) -> Self {
         Self {
             server_id,
             binlog_filename,
@@ -24,7 +24,7 @@ impl DumpBinlogCommand {
         let mut cursor = Cursor::new(&mut vec);
 
         cursor.write_u8(CommandType::BinlogDump as u8)?;
-        cursor.write_u32::<LittleEndian>(self.binlog_position)?;
+        cursor.write_u32::<LittleEndian>(self.binlog_position as u32)?;
         cursor.write_u16::<LittleEndian>(self.flags)?;
         cursor.write_u32::<LittleEndian>(self.server_id)?;
         cursor.write(self.binlog_filename.as_bytes())?;

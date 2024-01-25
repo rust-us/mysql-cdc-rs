@@ -6,12 +6,12 @@ use crate::commands::command::CommandType;
 pub struct DumpBinlogGtidCommand {
     pub server_id: u32,
     pub binlog_filename: String,
-    pub binlog_position: u32,
+    pub binlog_position: u64,
     pub flags: u16,
 }
 
 impl DumpBinlogGtidCommand {
-    pub fn new(server_id: u32, binlog_filename: String, binlog_position: u32) -> Self {
+    pub fn new(server_id: u32, binlog_filename: String, binlog_position: u64) -> Self {
         Self {
             server_id,
             binlog_filename,

@@ -25,14 +25,14 @@ pub struct EventRaw {
 
 impl EventRaw {
     pub fn new(header: Header) -> Self {
-        EventRaw {
-            header: Rc::new(RefCell::new(header)),
-            payload: Vec::with_capacity(32),
-            has_crc: false,
-        }
+        EventRaw::new_with_payload(header, Vec::with_capacity(32))
     }
 
-    pub fn new_with_payload(header: Header, payload: Vec<u8>, has_crc: bool) -> Self {
+    pub fn new_with_payload(header: Header, payload: Vec<u8>) -> Self {
+        EventRaw::new_with_payload_crc(header, payload, false)
+    }
+
+    pub fn new_with_payload_crc(header: Header, payload: Vec<u8>, has_crc: bool) -> Self {
         EventRaw {
             header: Rc::new(RefCell::new(header)),
             payload,
@@ -95,29 +95,6 @@ impl EventRaw {
         }
         // loop end
     }
-    //
-    // /// 提前计算crc的slice
-    // fn slice(slice: &[u8], header_len: usize, context: LogContextRef) -> (EventRaw, &[u8]) {
-    //     let mut i = slice;
-    //
-    //     // try parser
-    //     let header_bytes = &i[0..header_len];
-    //     let mut header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();
-    //     let event_len = header.event_length as usize;
-    //
-    //     let payload_data = &i[header_len..event_len];
-    //
-    //     let payload_data_without_crc_bytes = &payload_data[0..payload_data.len()-4];
-    //     let crc_bytes = &payload_data[payload_data.len()-4..payload_data.len()];
-    //
-    //     let mut cursor = Cursor::new(crc_bytes);
-    //     let checksum = cursor.get_u32_le();
-    //     header.set_checksum(checksum);
-    //
-    //     let raw = EventRaw::new_with_payload(header, payload_data_without_crc_bytes.to_vec(), false);
-    //
-    //     (raw, &i[event_len..])
-    // }
 
     /// 不提前计算crc的popup
     fn popup(bytes: &[u8], header_len: usize, context: LogContextRef) -> Result<(Vec<u8>, EventRaw), ReError> {
@@ -136,7 +113,7 @@ impl EventRaw {
         let payload_data = &remaining[0..(payload_len as usize)];
         let remained = Vec::from(&remaining[(payload_len as usize)..]);
 
-        let raw = EventRaw::new_with_payload(header, payload_data.to_vec(), true);
+        let raw = EventRaw::new_with_payload_crc(header, payload_data.to_vec(), true);
 
         Ok((remained, raw))
     }

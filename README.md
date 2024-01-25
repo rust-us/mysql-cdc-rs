@@ -1,5 +1,7 @@
 # ForMe
 
+[中文版](./README_ZH.md)
+
 MySQL binlog replication client for Rust. 
 Is a clean, idomatic Rust implementation of a MySQL binlog parser, 
 including support for the JSONB type introduced in MySQL 5.6/5.7/8.0.

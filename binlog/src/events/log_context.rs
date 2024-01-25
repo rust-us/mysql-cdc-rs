@@ -27,7 +27,7 @@ pub trait ILogContext {
 
     fn get_log_position(&self) -> LogPositionRef;
     fn set_log_position(&mut self, log_pos: LogPosition);
-    fn update_log_position_with_offset(&mut self, pos: u32);
+    fn update_log_position_with_offset(&mut self, pos: u64);
 
     fn get_log_stat(&self) -> LogStatRef;
     fn update_log_stat_add(&mut self);
@@ -133,8 +133,8 @@ impl ILogContext for LogContext {
         self.log_position = Arc::new(RwLock::new(log_pos));
     }
 
-    fn update_log_position_with_offset(&mut self, pos: u32) {
-        self.log_position.write().unwrap().set_position(pos as u64);
+    fn update_log_position_with_offset(&mut self, pos: u64) {
+        self.log_position.write().unwrap().set_position(pos);
     }
 
     fn get_log_stat(&self) -> LogStatRef {

@@ -5,28 +5,29 @@ use common::err::CResult;
 use common::err::decode_error::ReError;
 use crate::binlog::starting_strategy::StartingStrategy;
 use crate::commands::query_command::QueryCommand;
-use crate::conn::connection_options::ConnectionOptions;
+use crate::conn::connection_options::{ConnectionOptions, ConnectionOptionsRef};
 use crate::conn::packet_channel::PacketChannel;
 use crate::packet::check_error_packet;
 use crate::packet::response_type::ResponseType;
 use crate::packet::result_set_row_packet::ResultSetRowPacket;
 
+#[derive(Debug)]
 pub struct Configure {
-    pub options: ConnectionOptions,
+    pub options: ConnectionOptionsRef,
 
 }
 
 impl Configure {
     pub fn new(options: ConnectionOptions) -> Self {
         Configure {
-            options
+            options: Arc::new(RefCell::new(options))
         }
     }
 
     pub fn adjust_starting_position(&mut self, channel: &mut Arc<RefCell<PacketChannel>>) -> CResult<()> {
 
-        if self.options.binlog.is_some() {
-            let binlog_opts_copy = self.options.binlog.clone().unwrap();
+        if self.options.as_ref().borrow().binlog.is_some() {
+            let binlog_opts_copy = self.options.as_ref().borrow().binlog.clone().unwrap();
 
             if binlog_opts_copy.borrow().starting_strategy != StartingStrategy::FromEnd {
                 return Ok(());
@@ -38,6 +39,7 @@ impl Configure {
             }
         }
 
+        // query end position
         let command = QueryCommand::new("show master status".to_string());
         channel.borrow_mut().write_packet(&command.serialize()?, 0)?;
 
@@ -48,18 +50,18 @@ impl Configure {
             ));
         }
 
-        if self.options.binlog.is_some() {
-            let a = self.options.binlog.as_mut().unwrap();
+        if self.options.as_ref().borrow().binlog.is_some() {
+            let filename = result_set[0].cells[0].clone();
+            let pos = result_set[0].cells[1].parse()?;
 
-            a.borrow_mut().filename = result_set[0].cells[0].clone();
-            a.borrow_mut().update_position(result_set[0].cells[1].parse()?);
+            self.options.borrow_mut().update_binlog_position(filename, pos);
         }
 
         Ok(())
     }
 
     pub fn set_master_heartbeat(&mut self, channel: &mut Arc<RefCell<PacketChannel>>) -> CResult<()> {
-        let milliseconds = self.options.heartbeat_interval.as_millis();
+        let milliseconds = self.options.as_ref().borrow().heartbeat_interval.as_millis();
         let nanoseconds = milliseconds * 1000 * 1000;
         let query = format!("set @master_heartbeat_period={}", nanoseconds);
         let command = QueryCommand::new(query.to_string());

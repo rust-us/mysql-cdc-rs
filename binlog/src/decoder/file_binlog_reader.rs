@@ -3,12 +3,12 @@ use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::rc::Rc;
+use common::binlog::PAYLOAD_BUFFER_SIZE;
 use common::err::decode_error::{Needed, ReError};
-use crate::decoder::binlog_decoder::{BinlogReader, PAYLOAD_BUFFER_SIZE};
+use crate::decoder::binlog_decoder::{BinlogReader};
 use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
 use crate::events::event::Event;
 use crate::events::event_header::{Header, HEADER_LEN};
-use crate::events::event_raw::EventRaw;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
@@ -124,7 +124,7 @@ impl FileBinlogReaderIterator {
             let mut vec: Vec<u8> = vec![0; payload_length];
             self.stream.read_exact(&mut vec)?;
 
-            let binlog_event = decoder.decode_with_slice(&vec, header_ref, self.context.clone()).unwrap();
+            let binlog_event = decoder.parse_event(&vec, header_ref, self.context.clone()).unwrap();
 
             Ok((header, binlog_event))
         } else {
@@ -132,7 +132,7 @@ impl FileBinlogReaderIterator {
             let slice = &mut self.payload_buffer[0..payload_length];
             self.stream.read_exact(slice)?;
 
-            let binlog_event = self.decoder.decode_with_slice(slice, header_ref, self.context.clone()).unwrap();
+            let binlog_event = self.decoder.parse_event(slice, header_ref, self.context.clone()).unwrap();
 
             Ok((header, binlog_event))
         }

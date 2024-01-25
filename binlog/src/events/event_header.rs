@@ -71,7 +71,7 @@ pub struct Header {
     /// the BEGIN (this way, when one does SHOW SLAVE STATUS it sees the offset of the BEGIN,
     /// which is logical as rollback may occur), except the COMMIT query which has its real offset.
     ///
-    pub log_pos: u32,
+    pub log_pos: u64,
 
     /// Gets event flags.
     /// Some 16 flags. See the definitions above for LOG_EVENT_TIME_F, LOG_EVENT_FORCED_ROTATE_F,
@@ -133,7 +133,7 @@ impl Header {
         EventFlag::from(self.flags)
     }
 
-    pub fn get_log_pos(&self) -> u32 {
+    pub fn get_log_pos(&self) -> u64 {
         self.log_pos.clone()
     }
 
@@ -165,7 +165,7 @@ impl Header {
 
     pub fn new(log_file_name:String, when: u32,
                event_type: u8, server_id: u32,
-               event_length: u32, log_pos: u32,
+               event_length: u32, log_pos: u64,
                flags: u16) -> Self {
         let flags_attr = EventFlag::from(flags);
 
@@ -175,7 +175,7 @@ impl Header {
 
     pub fn new_with_checksum_alg(log_file_name:String, when: u32,
                event_type: u8, server_id: u32,
-               event_length: u32, log_pos: u32,
+               event_length: u32, log_pos: u64,
                flags: u16, checksum_alg: u8) -> Self {
         let flags_attr = EventFlag::from(flags);
 
@@ -250,7 +250,7 @@ impl Header {
             return
                 Ok(
                     Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
-                                                  event_length, log_pos, flags, checksum_alg),
+                                                  event_length, log_pos as u64, flags, checksum_alg),
                 );
         }
 
@@ -268,14 +268,14 @@ impl Header {
             return
                 Ok(
                     Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
-                                                  event_length, log_pos, flags, checksum_alg),
+                                                  event_length, log_pos as u64, flags, checksum_alg),
                 );
         }
 
         // need do parser checksumAlg, parser crc
         Ok(
             Header::new_with_checksum_alg("".to_string(), timestamp, event_type, server_id,
-                                          event_length, log_pos, flags, checksum_alg),
+                                          event_length, log_pos as u64, flags, checksum_alg),
         )
     }
 

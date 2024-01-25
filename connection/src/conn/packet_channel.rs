@@ -5,6 +5,7 @@ use common::err::CResult;
 use crate::{PACKET_HEADER_SIZE, TIMEOUT_LATENCY_DELTA};
 use crate::conn::connection_options::ConnectionOptions;
 
+#[derive(Debug)]
 pub struct PacketChannel {
     stream: TcpStream,
 }
