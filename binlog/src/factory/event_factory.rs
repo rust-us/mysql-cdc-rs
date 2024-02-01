@@ -3,13 +3,14 @@ use std::ops::Deref;
 use std::rc::Rc;
 use bytes::Buf;
 use tracing::{debug, instrument};
+use common::binlog::PAYLOAD_BUFFER_SIZE;
 use common::err::decode_error::{ReError};
 use crate::alias::mysql::gtid::gtid_set::GtidSet;
 use crate::decoder::binlog_decoder::BinlogReader;
 use crate::decoder::bytes_binlog_reader::BytesBinlogReader;
 
-use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
-use crate::events::event::Event;
+use crate::decoder::event_decoder::{LogEventDecoder};
+use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_raw::EventRaw;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
@@ -30,7 +31,7 @@ pub trait IEventFactory {
     ///                 剩余字节
     /// returns: Result<(&[u8], Vec<Event>), ReError>
     ///
-    fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<Event>), ReError>;
+    fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<BinlogEvent>), ReError>;
 
     /// 从 Iterator 读取 binlog
     fn parser_iter(&mut self, iter: impl Iterator<Item=Result<Vec<u8>, impl Into<ReError>>>, options: &EventReaderOption);
@@ -56,7 +57,7 @@ impl IEventFactory for EventFactory {
     }
 
     #[instrument]
-    fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<Event>), ReError> {
+    fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<BinlogEvent>), ReError> {
         EventFactory::print_env(options);
 
         let context = &self.context;
@@ -69,7 +70,7 @@ impl IEventFactory for EventFactory {
             let e = result.unwrap();
 
             if options.is_debug() {
-                let event_type = Event::get_type_name(&e);
+                let event_type = BinlogEvent::get_type_name(&e);
                 let count = context.borrow().get_log_stat_process_count();
                 debug!("event: {:?}, process_count: {:?}", event_type, count);
             }
@@ -157,13 +158,6 @@ impl EventFactory {
         }
     }
 
-    ///EventRaw 转为 Event
-    pub fn event_raw_to_event(raw: &EventRaw, context: LogContextRef) -> Result<Event, ReError> {
-        let mut decoder = LogEventDecoder::new();
-
-        decoder.decode_with_raw(&raw, context)
-    }
-
     fn print_env(options: &EventReaderOption) {
 
     }
@@ -175,35 +169,38 @@ impl Default for EventFactory {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EventReaderOption {
     /// 是否为 debug。 true 为阻debug模式，  false 为正常模式
     debug: bool,
 
     /// 是否为阻塞式。 true 为阻塞， false 为非阻塞
     blocked: bool,
+
+    payload_buffer_size: usize,
 }
 
 impl EventReaderOption {
-    pub fn new(debug: bool, blocked: bool,) -> Self {
+    pub fn new(debug: bool, blocked: bool, payload_buffer_size: usize) -> Self {
         EventReaderOption {
             debug,
             blocked,
+            payload_buffer_size,
         }
     }
 
     pub fn debug() -> Self {
-        EventReaderOption::new(true, false)
+        EventReaderOption::new(true, false, PAYLOAD_BUFFER_SIZE as usize)
     }
 
-    pub fn blocked() -> Self {
-        EventReaderOption::new(false, true)
+    pub fn debug_with_payload_buffer_size(payload_buffer_size: usize) -> Self {
+        EventReaderOption::new(true, false, payload_buffer_size)
     }
 }
 
 impl Default for EventReaderOption {
     fn default() -> Self {
-        EventReaderOption::new(false, false)
+        EventReaderOption::new(false, false, PAYLOAD_BUFFER_SIZE as usize)
     }
 }
 
@@ -215,17 +212,21 @@ impl EventReaderOption {
     pub fn is_blocked(&self) -> bool {
         self.blocked
     }
+
+    pub fn get_payload_buffer_size(&self) -> usize {
+        self.payload_buffer_size
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use common::column::column_type::ColumnType;
+    use common::binlog::column::column_type::SrcColumnType;
 
     #[test]
     fn test() {
         assert_eq!(1, 1);
 
-        let dd = ColumnType::Geometry;
+        let dd = SrcColumnType::Geometry;
         let c = dd.clone() as u8;
         assert_eq!(255, c);
     }

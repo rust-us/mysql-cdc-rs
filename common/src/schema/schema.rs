@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::{Arc, Mutex, RwLock};
 
 use mysql_common::Row;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use once_cell::sync::OnceCell;
 use regex::Regex;
+use serde::Deserialize;
 
 use crate::err::CResult;
 use crate::err::decode_error::ReError;
-use crate::schema::data_type::{DataType, TableSchema};
+use crate::schema::data_type::{DstColumnType, TableSchema};
 
 pub type CatalogRef = Arc<RwLock<Catalog>>;
 pub type SchemaRef = Arc<RwLock<Schema>>;
@@ -21,6 +23,7 @@ pub static mut METADATA_INSTANCE: OnceCell<Metadata> = OnceCell::new();
 
 pub static OP_DEFAULT_CATALOG_NAME: OnceCell<String> = OnceCell::new();
 
+#[derive(Debug)]
 pub struct Metadata {
     write_lock: Mutex<()>,
     catalog: HashMap<String, CatalogRef>,
@@ -66,7 +69,7 @@ pub struct Column {
     pub column_id: i32,
     pub name: String,
     pub physical_name: String,
-    pub data_type: DataType,
+    pub data_type: DstColumnType,
     pub ordinal_position: i32,
 
     pub nullable: bool,
@@ -176,8 +179,8 @@ impl Metadata {
             if let Some(s) = catalog.get_schema(schema) {
                 let mut schema = mle!(s.write())?;
                 // remove from table
-                if let Some(t) = schema.tables.remove(table) {
-                    let table = mle!(t.read())?;
+                if let Some(_t) = schema.tables.remove(table) {
+                    // let _table = mle!(t.read())?;
                     // let _ = schema.table_id_map.remove(&table.table_id);
                     // remove schema from catalog if this schema is empty
                     if schema.is_empty() {
@@ -204,7 +207,7 @@ impl Catalog {
     pub fn add_table(&mut self, table: Table) -> CResult<()> {
         match self.schema.get_mut(&table.name) {
             Some(mut schema) => {
-                let tid = table.table_id;
+                // let tid = table.table_id;
                 let name = table.name.clone();
                 let mut schema = schema
                     .write()
@@ -487,20 +490,20 @@ impl TryFrom<Row> for Column {
                 )));
             }
         };
-        let data_type = DataType::try_from(data_type).map_err(|_| {
+        let data_type = DstColumnType::try_from(data_type).map_err(|_| {
             ReError::OpMetadataErr(format!(
                 "Parse Table: Columns err, data_type: {} not illegal", data_type
             ))
         })?;
         let (precision, scale) = match data_type {
-            DataType::Decimal
-            | DataType::ByteArray
-            | DataType::ShortArray
-            | DataType::IntArray
-            | DataType::FloatArray
-            | DataType::StringArray
-            | DataType::DoubleArray
-            | DataType::LongArray => {
+            DstColumnType::Decimal
+            | DstColumnType::ByteArray
+            | DstColumnType::ShortArray
+            | DstColumnType::IntArray
+            | DstColumnType::FloatArray
+            | DstColumnType::StringArray
+            | DstColumnType::DoubleArray
+            | DstColumnType::LongArray => {
                 parse_precision_scale(raw_data_type.as_str())?
             }
             _ => {
@@ -517,12 +520,19 @@ impl TryFrom<Row> for Column {
             primary_key: is_primary_key == 1,
             auto_increment: auto_increment == 1,
             default: default_value,
-            default_value_is_current_timestamp: matches!(data_type, DataType::Timestamp),
-            default_value_is_current_date: matches!(data_type, DataType::Date),
+            default_value_is_current_timestamp: matches!(data_type, DstColumnType::Timestamp),
+            default_value_is_current_date: matches!(data_type, DstColumnType::Date),
             is_generated_column: false,
             precision,
             scale,
         })
+    }
+}
+
+#[cfg(feature = "mock_api")]
+pub fn mock_init_metadata(m: Metadata) {
+    unsafe {
+        METADATA_INSTANCE.set(m).expect("metadata has been set");
     }
 }
 
@@ -580,21 +590,36 @@ fn parse_precision_scale(s: &str) -> CResult<(i32, i32)> {
     }
 }
 
+fn convert_distribute_type(s: &str) -> Result<DistributeType, ReError> {
+    if s.eq_ignore_ascii_case("hash") {
+        Ok(DistributeType::HASH)
+    } else if s.eq_ignore_ascii_case("BROADCAST") {
+        Ok(DistributeType::BROADCAST)
+    } else {
+        Err(ReError::OpMetadataErr(format!(
+            "illegal DistributeType: {}", &s
+        )))
+    }
+}
+
 impl TryFrom<String> for DistributeType {
     type Error = ReError;
 
+    #[inline]
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        if s.eq_ignore_ascii_case("hash") {
-            Ok(DistributeType::HASH)
-        } else if s.eq_ignore_ascii_case("BROADCAST") {
-            Ok(DistributeType::BROADCAST)
-        } else {
-            Err(ReError::OpMetadataErr(format!(
-                "illegal DistributeType: {}", &s
-            )))
-        }
+        convert_distribute_type(s.as_ref())
     }
 }
+
+impl TryFrom<&str> for DistributeType {
+    type Error = ReError;
+
+    #[inline]
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        convert_distribute_type(s)
+    }
+}
+
 
 pub fn op_default_catalog() -> &'static String {
     unsafe {

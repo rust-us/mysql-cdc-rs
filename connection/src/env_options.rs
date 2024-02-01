@@ -49,13 +49,13 @@ impl EnvOptions {
 
 #[cfg(test)]
 mod test {
-    use common::column::column_type::ColumnType;
+    use common::binlog::column::column_type::SrcColumnType;
 
     #[test]
     fn test() {
         assert_eq!(1, 1);
 
-        let dd = ColumnType::Geometry;
+        let dd = SrcColumnType::Geometry;
         let c = dd.clone() as u8;
         assert_eq!(255, c);
     }

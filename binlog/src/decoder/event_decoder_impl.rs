@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use crate::{
-    events::event::Event,
+    events::binlog_event::BinlogEvent,
     events::event_header::Header,
     utils::{extract_string, read_null_term_string, read_variable_len_string},
 };
@@ -36,7 +36,7 @@ fn extract_many_fields<'a>(
     let (i, schema_name) = map(take(schema_length + 1), |s: &[u8]| extract_string(s))(i)?;
     let (i, file_name) = map(
         take(
-            header.borrow_mut().event_length as usize
+            header.borrow_mut().get_event_length() as usize
                 - LOG_EVENT_HEADER_LEN as usize
                 - 25
                 - num_fields as usize
@@ -60,7 +60,7 @@ fn extract_many_fields<'a>(
     ))
 }
 
-pub fn parse_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (
         i,
         (
@@ -97,7 +97,7 @@ pub fn parse_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], E
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
-        Event::Load {
+        BinlogEvent::Load {
             header: Header::copy(header.clone()),
             thread_id,
             execution_time,
@@ -124,18 +124,18 @@ pub fn parse_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], E
 
 pub fn parse_file_data<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], (u32, String, u32)> {
     let (i, file_id) = le_u32(input)?;
-    let (i, block_data) = map(take(header.borrow().event_length - LOG_EVENT_HEADER_LEN as u32 - 4 - 4), |s: &[u8]| {
+    let (i, block_data) = map(take(header.borrow().get_event_length() - LOG_EVENT_HEADER_LEN as u32 - 4 - 4), |s: &[u8]| {
         extract_string(s)
     })(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((i, (file_id, block_data, checksum)))
 }
 
-pub fn parse_create_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_create_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, (file_id, block_data, checksum)) = parse_file_data(input, header.clone())?;
     Ok((
         i,
-        Event::CreateFile {
+        BinlogEvent::CreateFile {
             header: Header::copy(header),
             file_id,
             block_data,
@@ -144,11 +144,11 @@ pub fn parse_create_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a 
     ))
 }
 
-pub fn parse_append_block<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_append_block<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, (file_id, block_data, checksum)) = parse_file_data(input, header.clone())?;
     Ok((
         i,
-        Event::AppendBlock {
+        BinlogEvent::AppendBlock {
             header: Header::copy(header),
             file_id,
             block_data,
@@ -157,10 +157,10 @@ pub fn parse_append_block<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a
     ))
 }
 
-pub fn parse_exec_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_exec_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     map(
         tuple((le_u16, le_u32)),
-        |(file_id, checksum): (u16, u32)| Event::ExecLoad {
+        |(file_id, checksum): (u16, u32)| BinlogEvent::ExecLoad {
             header: Header::copy(header.clone()),
             file_id,
             checksum,
@@ -168,10 +168,10 @@ pub fn parse_exec_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u
     )(input)
 }
 
-pub fn parse_delete_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_delete_file<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     map(
         tuple((le_u16, le_u32)),
-        |(file_id, checksum): (u16, u32)| Event::DeleteFile {
+        |(file_id, checksum): (u16, u32)| BinlogEvent::DeleteFile {
             header: Header::copy(header.clone()),
             file_id,
             checksum,
@@ -184,7 +184,7 @@ pub fn extract_from_prev<'a>(input: &'a [u8]) -> IResult<&'a [u8], (u8, String)>
     map(take(len), move |s| (len, read_variable_len_string(s, len as usize)))(i)
 }
 
-pub fn parse_new_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_new_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, (thread_id, execution_time, skip_lines, table_name_length, schema_length, num_fields)) =
         tuple((le_u32, le_u32, le_u32, le_u8, le_u8, le_u32))(input)?;
     let (i, (field_term_length, field_term)) = extract_from_prev(i)?;
@@ -203,7 +203,7 @@ pub fn parse_new_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
-        Event::NewLoad {
+        BinlogEvent::NewLoad {
             header: Header::copy(header.clone()),
             thread_id,
             execution_time,
@@ -232,11 +232,11 @@ pub fn parse_new_load<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8
     ))
 }
 
-pub fn parse_rand<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_rand<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, (seed1, seed2, checksum)) = tuple((le_u64, le_u64, le_u32))(input)?;
     Ok((
         i,
-        Event::Rand {
+        BinlogEvent::Rand {
             header: Header::copy(header.clone()),
             seed1,
             seed2,
@@ -245,75 +245,75 @@ pub fn parse_rand<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], E
     ))
 }
 
+//
+// pub fn parse_user_var<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
+//     let (i, name_length) = le_u32(input)?;
+//     let (i, name) = map(take(name_length), |s: &[u8]| {
+//         read_variable_len_string(s, name_length as usize)
+//     })(i)?;
+//     let (i, is_null) = map(le_u8, |v| v == 1)(i)?;
+//     if is_null {
+//         let (i, checksum) = le_u32(i)?;
+//         Ok((
+//             i,
+//             BinlogEvent::UserVar {
+//                 header: Header::copy(header.clone()),
+//                 name_length,
+//                 name,
+//                 is_null,
+//                 d_type: None,
+//                 charset: None,
+//                 value_length: None,
+//                 value: None,
+//                 flags: None,
+//                 checksum,
+//             },
+//         ))
+//     } else {
+//         let (i, d_type) = map(le_u8, |v| match v {
+//             0 => Some(UserVarType::STRING),
+//             1 => Some(UserVarType::REAL),
+//             2 => Some(UserVarType::INT),
+//             3 => Some(UserVarType::ROW),
+//             4 => Some(UserVarType::DECIMAL),
+//             5 => Some(UserVarType::VALUE_TYPE_COUNT),
+//             _ => Some(UserVarType::Unknown),
+//         })(i)?;
+//         let (i, charset) = map(le_u32, |v| Some(v))(i)?;
+//         let (i, value_length) = le_u32(i)?;
+//         let (i, value) = map(take(value_length), |s: &[u8]| Some(s.to_vec()))(i)?;
+//         // TODO still don't know wether should take flag or not
+//         let (i, flags) = match d_type.clone().unwrap() {
+//             UserVarType::INT => {
+//                 let (i, flags) = map(le_u8, |v| Some(v))(i)?;
+//                 (i, flags)
+//             }
+//             _ => (i, None),
+//         };
+//         let (i, checksum) = le_u32(i)?;
+//         Ok((
+//             i,
+//             BinlogEvent::UserVar {
+//                 header: Header::copy(header.clone()),
+//                 name,
+//                 name_length,
+//                 is_null,
+//                 d_type,
+//                 charset,
+//                 value_length: Some(value_length),
+//                 value,
+//                 flags,
+//                 checksum,
+//             },
+//         ))
+//     }
+// }
 
-pub fn parse_user_var<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
-    let (i, name_length) = le_u32(input)?;
-    let (i, name) = map(take(name_length), |s: &[u8]| {
-        read_variable_len_string(s, name_length as usize)
-    })(i)?;
-    let (i, is_null) = map(le_u8, |v| v == 1)(i)?;
-    if is_null {
-        let (i, checksum) = le_u32(i)?;
-        Ok((
-            i,
-            Event::UserVar {
-                header: Header::copy(header.clone()),
-                name_length,
-                name,
-                is_null,
-                d_type: None,
-                charset: None,
-                value_length: None,
-                value: None,
-                flags: None,
-                checksum,
-            },
-        ))
-    } else {
-        let (i, d_type) = map(le_u8, |v| match v {
-            0 => Some(UserVarType::STRING),
-            1 => Some(UserVarType::REAL),
-            2 => Some(UserVarType::INT),
-            3 => Some(UserVarType::ROW),
-            4 => Some(UserVarType::DECIMAL),
-            5 => Some(UserVarType::VALUE_TYPE_COUNT),
-            _ => Some(UserVarType::Unknown),
-        })(i)?;
-        let (i, charset) = map(le_u32, |v| Some(v))(i)?;
-        let (i, value_length) = le_u32(i)?;
-        let (i, value) = map(take(value_length), |s: &[u8]| Some(s.to_vec()))(i)?;
-        // TODO still don't know wether should take flag or not
-        let (i, flags) = match d_type.clone().unwrap() {
-            UserVarType::INT => {
-                let (i, flags) = map(le_u8, |v| Some(v))(i)?;
-                (i, flags)
-            }
-            _ => (i, None),
-        };
-        let (i, checksum) = le_u32(i)?;
-        Ok((
-            i,
-            Event::UserVar {
-                header: Header::copy(header.clone()),
-                name,
-                name_length,
-                is_null,
-                d_type,
-                charset,
-                value_length: Some(value_length),
-                value,
-                flags,
-                checksum,
-            },
-        ))
-    }
-}
-
-pub fn parse_begin_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_begin_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, (file_id, block_data, checksum)) = parse_file_data(input, header.clone())?;
     Ok((
         i,
-        Event::BeginLoadQuery {
+        BinlogEvent::BeginLoadQuery {
             header: Header::copy(header.clone()),
             file_id,
             block_data,
@@ -322,7 +322,7 @@ pub fn parse_begin_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult
     ))
 }
 
-pub fn parse_execute_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_execute_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (
         i,
         (
@@ -354,14 +354,14 @@ pub fn parse_execute_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResu
     let (i, _) = take(1usize)(i)?;
     let (i, query) = map(
         take(
-            header.borrow().event_length - LOG_EVENT_HEADER_LEN as u32 - 26 - status_vars_length as u32 - schema_length as u32 - 1 - 4,
+            header.borrow().get_event_length() - LOG_EVENT_HEADER_LEN as u32 - 26 - status_vars_length as u32 - schema_length as u32 - 1 - 4,
         ),
         |s: &[u8]| extract_string(s),
     )(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
-        Event::ExecuteLoadQueryEvent {
+        BinlogEvent::ExecuteLoadQueryEvent {
             header: Header::copy(header),
             thread_id,
             execution_time,
@@ -380,7 +380,7 @@ pub fn parse_execute_load_query<'a>(input: &'a [u8], header: HeaderRef) -> IResu
     ))
 }
 
-pub fn parse_incident<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_incident<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, d_type) = map(le_u16, |t| match t {
         0x0000 => IncidentEventType::None,
         0x0001 => IncidentEventType::LostEvents,
@@ -393,7 +393,7 @@ pub fn parse_incident<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
-        Event::Incident {
+        BinlogEvent::Incident {
             header: Header::copy(header),
             d_type,
             message_length,
@@ -403,21 +403,21 @@ pub fn parse_incident<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8
     ))
 }
 
-pub fn parse_heartbeat<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_heartbeat<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, checksum) = le_u32(input)?;
-    Ok((i, Event::Heartbeat {
+    Ok((i, BinlogEvent::Heartbeat {
         header: Header::copy(header),
         checksum
     }))
 }
 
-pub fn parse_row_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], Event> {
+pub fn parse_row_query<'a>(input: &'a [u8], header: HeaderRef) -> IResult<&'a [u8], BinlogEvent> {
     let (i, length) = le_u8(input)?;
     let (i, query_text) = map(take(length), |s: &[u8]| read_variable_len_string(s, length as usize))(i)?;
     let (i, checksum) = le_u32(i)?;
     Ok((
         i,
-        Event::RowQuery {
+        BinlogEvent::RowQuery {
             header: Header::copy(header),
             length,
             query_text,

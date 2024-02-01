@@ -22,9 +22,16 @@ num_enum = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-serde = { version = "1.0.193", features = ["derive"] }
-serde_json = "1.0.108"
-serde_yaml = "0.9.27"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+ringbuffer = { workspace = true }
+pin-utils = { workspace = true }
+
+###################################
+## 其他模块不依赖，只在 cli 模块中进行声明
+###################################
+sqlparser = "0.43.1"
 
 common = { path = "../common" }
 

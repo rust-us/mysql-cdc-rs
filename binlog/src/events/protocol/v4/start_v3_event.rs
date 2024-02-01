@@ -42,6 +42,10 @@ impl LogEvent for StartV3Event {
         "StartV3Event".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
     fn parse(
         cursor: &mut Cursor<&[u8]>,
         header: HeaderRef,

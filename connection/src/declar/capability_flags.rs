@@ -105,7 +105,7 @@ pub(crate) const CLIENT_SECURE_CONNECTION: u64 = 0x0000_8000;
 ///
 /// ### Client
 /// May send multiple statements per COM_QUERY and COM_STMT_PREPARE.
-const CLIENT_MULTI_STATEMENTS: u64 = 0x0001_0000;
+pub(crate) const CLIENT_MULTI_STATEMENTS: u64 = 0x0001_0000;
 
 /// Enable/disable multi-results.
 ///
@@ -118,7 +118,7 @@ const CLIENT_MULTI_STATEMENTS: u64 = 0x0001_0000;
 ///
 /// ### Requires
 /// `CLIENT_PROTOCOL_41`
-const CLIENT_MULTI_RESULTS: u64 = 0x0002_0000;
+pub(crate) const CLIENT_MULTI_RESULTS: u64 = 0x0002_0000;
 
 /// Multi-results and OUT parameters in PS-protocol.
 ///
@@ -130,7 +130,7 @@ const CLIENT_MULTI_RESULTS: u64 = 0x0002_0000;
 ///
 /// ### Requires
 /// `CLIENT_PROTOCOL_41`
-const CLIENT_PS_MULTI_RESULTS: u64 = 0x0004_0000;
+pub(crate) const CLIENT_PS_MULTI_RESULTS: u64 = 0x0004_0000;
 
 /// Client supports plugin authentication.
 ///
@@ -144,7 +144,6 @@ const CLIENT_PS_MULTI_RESULTS: u64 = 0x0004_0000;
 /// ### Requires
 /// `CLIENT_PROTOCOL_41`
 pub(crate) const CLIENT_PLUGIN_AUTH: u64 = 0x0008_0000;
-
 
 /// Client supports connection attributes.
 ///
@@ -268,3 +267,21 @@ pub(crate) const CLIENT_SSL_VERIFY_SERVER_CERT: u64 = 0x4000_0000;
 
 /// Don't reset the options after an unsuccessful connect. Client only flag.
 pub(crate) const CLIENT_REMEMBER_OPTIONS: u64 = 0x8000_0000;
+
+#[derive(Debug)]
+pub struct CapabilityFlags {
+    capability_flags: u64,
+}
+
+impl CapabilityFlags {
+    pub fn new(capability_flags: u64) -> Self {
+        CapabilityFlags { capability_flags }
+    }
+
+    pub fn empty() -> Self {
+        CapabilityFlags::new(0)
+    }
+    pub fn contains(&self, capability_flag: u64) -> bool {
+        (self.capability_flags & capability_flag) != 0
+    }
+}

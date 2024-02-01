@@ -88,3 +88,10 @@ Parsed events matrix:
 | 0x29 | HEARTBEAT_LOG_EVENT_V2    | not support         | not tested       |       |
 
 # How to Use
+
+
+# CLI
+
+<iframe height=498 width=510 frameborder=0 allowfullscreen src="doc/cli/video/binlog_without_detail.webm"></iframe>
+
+

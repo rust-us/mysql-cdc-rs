@@ -45,6 +45,10 @@ impl LogEvent for PreviousGtidsLogEvent {
         "PreviousGtidsLogEvent".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
     fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef,
              context: LogContextRef, table_map: Option<&HashMap<u64, TableMapEvent>>) -> Result<Self, ReError> where Self: Sized {
         let uuid_set_number = cursor.read_u64::<LittleEndian>()?;

@@ -29,6 +29,10 @@ impl LogEvent for UnknownEvent {
         "UnknownEvent".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
     fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef, context: LogContextRef, table_map: Option<&HashMap<u64, TableMapEvent>>)
         -> Result<UnknownEvent, ReError> {
         let checksum = cursor.read_u32::<LittleEndian>()?;

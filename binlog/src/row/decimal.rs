@@ -9,7 +9,7 @@ const COMPRESSED_BYTES: [u8; 10] = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4];
 
 pub fn parse_decimal(cursor: &mut Cursor<&[u8]>, metadata: u16) -> Result<String, ReError> {
     let (length, precision, scale, compressed_integral, compressed_fractional, uncompressed_integral, uncompressed_fractional) =
-                            decimal_length(metadata);
+                            decimal_fractional(metadata);
 
     // Format
     // [1-3 bytes]  [4 bytes]      [4 bytes]        [4 bytes]      [4 bytes]      [1-3 bytes]
@@ -79,12 +79,17 @@ pub fn parse_decimal(cursor: &mut Cursor<&[u8]>, metadata: u16) -> Result<String
 ///
 /// returns: (u8, u8)
 ///
-pub fn decimal_length(metadata: u16) -> (u8, u8, u8, u8, u8, u8, u8) {
+pub fn decimal_fractional(metadata: u16) -> (u8, u8, u8, u8, u8, u8, u8) {
     // precision 是表示有效数字数的精度。 P范围为1〜65。
     // D是表示小数点后的位数。 D的范围是0~30。MySQL要求D小于或等于(<=)P。
     let scale = (metadata & 0xFF) as u8;
-    let precision = (metadata >> 8) as u8;;
-    let integral = precision - scale;
+    let precision = (metadata >> 8) as u8;
+
+    let integral = if precision > scale {
+        precision - scale
+    } else {
+        scale - precision
+    };
 
     let uncompressed_integral = integral / DIGITS_PER_INT;
     let uncompressed_fractional = scale / DIGITS_PER_INT;
@@ -100,11 +105,27 @@ pub fn decimal_length(metadata: u16) -> (u8, u8, u8, u8, u8, u8, u8) {
     (length, precision, scale, compressed_integral, compressed_fractional, uncompressed_integral, uncompressed_fractional)
 }
 
+pub fn get_meta(precision: u16, scale:u8) -> u16 {
+    let mut meta: u16 = precision << 8;
+    meta += scale as u16;
+
+    meta
+}
+
+fn get_scale(meta: u16) -> (u8, u8) {
+    let scale = (meta & 0xFF) as u8;
+    let precision = (meta >> 8) as u8;
+
+    (precision, scale)
+}
+
 #[cfg(test)]
 mod tests {
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::io::Cursor;
-    use crate::row::decimal::parse_decimal;
+    use nom::combinator::map;
+    use nom::number::complete::le_u8;
+    use crate::row::decimal::{get_meta, get_scale, parse_decimal};
 
     #[test]
     fn parse_positive_number() {
@@ -191,5 +212,49 @@ mod tests {
 
         let expected = String::from("34445556667778889");
         assert_eq!(expected, parse_decimal(&mut cursor, metadata).unwrap());
+    }
+
+    #[test]
+    fn test_parse_meta() {
+        let precision = 10;
+        let scale = 4u8;
+
+        let m1 = get_meta(precision, scale);
+        let (p1, s1) = get_scale(m1);
+        assert_eq!(precision, p1 as u16);
+        assert_eq!(scale, s1);
+
+        let precision2 = 50;
+        let scale2 = 30;
+
+        let m2 = get_meta(precision2, scale2);
+        let (p2, s2) = get_scale(m2);
+        assert_eq!(precision2, p2 as u16);
+        assert_eq!(scale2, s2);
+
+        let metadata_ = 12830u16;
+        let (pp, ss) = get_scale(metadata_);
+        assert_eq!(30, ss as u16);
+        assert_eq!(50, pp);
+
+        assert_eq!(3330, get_meta(13, 2));
+        let (a, b) = get_scale(3330);
+        assert_eq!(13, a);
+        assert_eq!(2, b);
+
+        assert_eq!(3075, get_meta(12, 3));
+        let (a, b) = get_scale(3075);
+        assert_eq!(12, a);
+        assert_eq!(3, b);
+
+        assert_eq!(2561, get_meta(10, 1));
+        let (a, b) = get_scale(2561);
+        assert_eq!(10, a);
+        assert_eq!(1, b);
+
+        assert_eq!(3073, get_meta(12, 1));
+        let (a, b) = get_scale(3073);
+        assert_eq!(12, a);
+        assert_eq!(1, b);
     }
 }

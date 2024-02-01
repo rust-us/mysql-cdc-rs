@@ -7,7 +7,7 @@ use crate::events::event_header::Header;
 use crate::b_type::LogEventType::*;
 use crate::b_type::{LogEventType, C_ENUM_END_EVENT};
 use crate::events::checksum_type::{ChecksumType, BINLOG_CHECKSUM_ALG_DESC_LEN, ST_COMMON_PAYLOAD_CHECKSUM_LEN, BINLOG_CHECKSUM_ALG_UNDEF};
-use crate::events::event::Event::*;
+use crate::events::binlog_event::BinlogEvent::*;
 use crate::events::declare::log_event::*;
 use crate::utils::extract_string;
 use serde::Serialize;
@@ -362,6 +362,10 @@ impl LogEvent for FormatDescriptionEvent {
         "FormatDescriptionEvent".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
 
     /// format_desc event格式   [startPos : Len]
     /// +=====================================+
@@ -420,7 +424,7 @@ impl LogEvent for FormatDescriptionEvent {
         // 一直到事件结尾(去除后面 checksum 和算法)的数组
         // supported_types 要取多少个字节 = header.event_size - 19[header 大小] - (2 + 50 + 4 + 1) - 1[checksum_alg size] - 4[checksum size]
         // 剩下的就是 supported_types 占用的字节数
-        let number_of_event_types = header.clone().borrow_mut().event_length
+        let number_of_event_types = header.clone().borrow_mut().get_event_length()
             - (LOG_EVENT_MINIMAL_HEADER_LEN + ST_COMMON_PAYLOAD_WITHOUT_CHECKSUM_LEN) as u32
             - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
             // crc
@@ -436,7 +440,7 @@ impl LogEvent for FormatDescriptionEvent {
         let split_server_version = server_version_split_with_dot(server_version.clone());
         if version_product(split_server_version) >= *CHECK_SUM_VERSION_PRODUCT {
             let current_pos = cursor.position();
-            cursor.set_position((header.clone().borrow_mut().event_length
+            cursor.set_position((header.clone().borrow_mut().get_event_length()
                 - LOG_EVENT_HEADER_LEN as u32
                 - BINLOG_CHECKSUM_ALG_DESC_LEN as u32
                 - ST_COMMON_PAYLOAD_CHECKSUM_LEN as u32)

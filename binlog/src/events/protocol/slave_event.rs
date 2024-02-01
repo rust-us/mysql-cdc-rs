@@ -20,6 +20,10 @@ impl LogEvent for SlaveEvent {
         "SlaveEvent".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
     fn parse(
         cursor: &mut Cursor<&[u8]>,
         header: HeaderRef,
@@ -34,4 +38,12 @@ impl LogEvent for SlaveEvent {
         })
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {
+        assert_eq!(1, 1);
+    }
 }

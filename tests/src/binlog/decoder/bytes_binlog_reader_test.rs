@@ -1,6 +1,6 @@
 use binlog::decoder::binlog_decoder::{BinlogReader};
 use binlog::decoder::bytes_binlog_reader::BytesBinlogReader;
-use binlog::events::event::Event;
+use binlog::events::binlog_event::BinlogEvent;
 
 #[test]
 fn test_read_events() {
@@ -12,7 +12,7 @@ fn test_read_events() {
     let iter = reader.read_events(input);
     for result in iter.into_iter() {
         let event = result.unwrap();
-        println!("============================ {}", Event::get_type_name(&event));
+        println!("============================ {}", BinlogEvent::get_type_name(&event));
 
         idx += 1;
     }

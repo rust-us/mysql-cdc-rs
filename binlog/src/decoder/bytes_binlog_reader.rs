@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 use common::err::decode_error::ReError;
 use crate::decoder::binlog_decoder::{BinlogReader};
-use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
-use crate::events::event::Event;
+use crate::decoder::event_decoder::{LogEventDecoder};
+use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_raw::EventRaw;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
@@ -26,11 +26,9 @@ pub struct BytesBinlogReader {
     context: LogContextRef,
 
     event_raw_iter: Arc<IntoIter<EventRaw>>,
-
-    eof: bool,
 }
 
-impl BinlogReader<&[u8], Event> for BytesBinlogReader {
+impl BinlogReader<&[u8], BinlogEvent> for BytesBinlogReader {
     ///
     ///
     /// # Arguments
@@ -55,7 +53,6 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
             decoder: LogEventDecoder::new(),
             context,
             event_raw_iter: Arc::new(event_raw_list.clone().into_iter().clone()),
-            eof: false,
         })
     }
 
@@ -70,7 +67,7 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
     }
 
     #[inline]
-    fn read_events(&mut self, stream: &[u8]) -> Box<dyn Iterator<Item=Result<Event, ReError>>> {
+    fn read_events(&mut self, stream: &[u8]) -> Box<dyn Iterator<Item=Result<BinlogEvent, ReError>>> {
         self.source_bytes = if !self.skip_magic_buffer {
             let (i, _) = Header::check_start(stream).unwrap();
             self.skip_magic_buffer = true;
@@ -91,7 +88,6 @@ impl BinlogReader<&[u8], Event> for BytesBinlogReader {
             decoder: self.decoder.clone(),
             context: self.context.clone(),
             event_raws,
-            eof: self.eof,
         })
     }
 
@@ -123,28 +119,26 @@ struct BytesBinlogReaderIterator {
     context: LogContextRef,
 
     event_raws: Vec<EventRaw>,
-
-    eof: bool,
 }
 
 impl Iterator for BytesBinlogReaderIterator {
-    type Item = Result<Event, ReError>;
+    type Item = Result<BinlogEvent, ReError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.event_raws.len() {
-            self.eof = true;
             return None;
         }
 
         let event_raw = &self.event_raws[self.index];
 
-        let result = self.decoder.decode_with_raw(&event_raw, self.context.clone());
+        let header = event_raw.get_header();
+        let full_packet = event_raw.get_payload();
+        let result = self.decoder.event_parse(full_packet, header.clone(), self.context.clone());
 
         match result {
             Err(error) => {
                 if let ReError::IoError(io_error) = &error {
                     if let ErrorKind::UnexpectedEof = io_error.kind() {
-                        self.eof = true;
                         None
                     } else {
                         Some(Err(error))

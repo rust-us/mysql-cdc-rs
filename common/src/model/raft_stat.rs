@@ -1,15 +1,21 @@
-use mysql_common::proto::Text;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
 use mysql_common::Row;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use once_cell::sync::OnceCell;
+
 use crate::err::CResult;
 use crate::err::decode_error::ReError;
 
-#[derive(Default, Eq, PartialEq, Debug)]
-pub struct State {
-    route: Vec<ShardRaftRoute>,
+pub type ShardRaftGroupRef = Arc<RwLock<Vec<ShardRaftRoute>>>;
+
+#[derive(Default, Debug)]
+pub struct RaftState {
+    route: HashMap<i64, ShardRaftGroupRef>,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Debug)]
 pub struct ShardRaftRoute {
     shard_name: String,
     shard_id: i64,
@@ -38,6 +44,31 @@ pub enum MemberStatus {
     LEAVED = 2,
 }
 
+/// raft state
+pub static mut RAFT_STATE: OnceCell<RaftState> = OnceCell::new();
+
+/// init static raft state, this function only work once
+pub fn init_raft_state() {
+    unsafe {
+        let _ = RAFT_STATE.get_or_init(|| {
+            RaftState {
+                route: Default::default(),
+            }
+        });
+    }
+}
+
+pub fn get_raft_state_mut() -> &'static mut RaftState {
+    unsafe {
+        RAFT_STATE.get_mut().expect("RAFT_STATE not init yet when calling get_raft_state_mut!")
+    }
+}
+
+pub fn get_raft_state() -> &'static RaftState {
+    unsafe {
+        RAFT_STATE.get().expect("RAFT_STATE not init yet when calling get_raft_state!")
+    }
+}
 
 impl ShardRaftRoute {
     #[inline]
@@ -47,14 +78,37 @@ impl ShardRaftRoute {
     }
 }
 
-impl State {
+// map lock error
+macro_rules! mle {
+    ($p: expr) => {
+        $p.map_err(|_| ReError::OpRaftErr("raft state lock failed".into()))
+    };
+}
 
+impl RaftState {
     #[inline]
-    pub fn create(route: Vec<ShardRaftRoute>) -> Self {
-        Self { route }
+    pub fn update(&mut self, route: ShardRaftRoute) -> CResult<()> {
+        let group = self.route.entry(route.shard_id).or_insert_with(|| {
+            Arc::new(RwLock::new(vec![]))
+        });
+        let mut group = mle!(group.write())?;
+        let find = group
+            .iter()
+            .enumerate()
+            .find_map(|(idx, other)| {
+                if &route == other {
+                    Some(idx)
+                } else {
+                    None
+                }
+            });
+        // remove from group vec
+        if let Some(idx) = find {
+            group.remove(idx);
+        }
+        group.push(route);
+        Ok(())
     }
-
-
 }
 
 impl TryFrom<Row> for ShardRaftRoute {
@@ -143,3 +197,13 @@ impl TryFrom<String> for MemberStatus {
         }
     }
 }
+
+impl PartialEq<Self> for ShardRaftRoute {
+    fn eq(&self, other: &Self) -> bool {
+        self.shard_id == other.shard_id
+            && self.host == other.host
+            && self.port == other.port
+    }
+}
+
+impl Eq for ShardRaftRoute {}

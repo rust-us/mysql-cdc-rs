@@ -5,7 +5,7 @@ use byteorder::ReadBytesExt;
 use nom::Parser;
 use serde::Serialize;
 use common::err::decode_error::ReError;
-use common::column::column_type::ColumnType;
+use common::binlog::column::column_type::SrcColumnType;
 use crate::events::protocol::table_map_event::{ColumnInfo, get_real_type};
 use crate::metadata::default_charset::DefaultCharset;
 use crate::metadata::metadata_type::MetadataType;
@@ -224,26 +224,26 @@ impl TableMetadata {
 
 /// 是否为字符串列
 fn is_character_type(column_type: u8) -> bool {
-    match ColumnType::try_from(column_type).unwrap() {
-        ColumnType::VarChar |
-        ColumnType::Blob |
-        ColumnType::VarString |
-        ColumnType::String => true,
+    match SrcColumnType::try_from(column_type).unwrap() {
+        SrcColumnType::VarChar |
+        SrcColumnType::Blob |
+        SrcColumnType::VarString |
+        SrcColumnType::String => true,
         _ => false,
     }
 }
 
 /// 是否为数字列
 fn is_numeric_type(column_type: u8) -> bool {
-    match ColumnType::try_from(column_type).unwrap() {
-        ColumnType::Tiny |
-        ColumnType::Short |
-        ColumnType::Int24 |
-        ColumnType::Long |
-        ColumnType::LongLong |
-        ColumnType::Float |
-        ColumnType::Double |
-        ColumnType::NewDecimal => true,
+    match SrcColumnType::try_from(column_type).unwrap() {
+        SrcColumnType::Tiny |
+        SrcColumnType::Short |
+        SrcColumnType::Int24 |
+        SrcColumnType::Long |
+        SrcColumnType::LongLong |
+        SrcColumnType::Float |
+        SrcColumnType::Double |
+        SrcColumnType::NewDecimal => true,
         _ => false,
     }
 }
@@ -336,7 +336,7 @@ fn parse_int_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shar
             let mut idx = 0usize;
             for i in 0..colunm_count {
                 let column = column_info_maps.get(i).unwrap();
-                let geometry_type: u8 = ColumnType::Geometry.into();
+                let geometry_type: u8 = SrcColumnType::Geometry.into();
                 if column.get_type().unwrap() == geometry_type {
                     column_info_maps.get_mut(i).unwrap().set_geo_type(result[idx].clone());
                     idx += 1;
@@ -412,10 +412,10 @@ fn parse_type_values(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, se
         let item = column_info_maps.get(i).unwrap();
 
         let real_type = get_real_type(item.get_type().unwrap(), item.get_meta());
-        if set && ColumnType::try_from(real_type).unwrap() == ColumnType::Set {
+        if set && SrcColumnType::try_from(real_type).unwrap() == SrcColumnType::Set {
             column_info_maps.get_mut(i).unwrap().set_enum_values(result[idx].clone());
             idx += 1;
-        } else if !set && ColumnType::try_from(real_type).unwrap() == ColumnType::Enum {
+        } else if !set && SrcColumnType::try_from(real_type).unwrap() == SrcColumnType::Enum {
             column_info_maps.get_mut(i).unwrap().set_enum_values(result[idx].clone());
             idx += 1;
         }

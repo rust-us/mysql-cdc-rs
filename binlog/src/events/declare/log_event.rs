@@ -56,8 +56,12 @@ pub const QUERY_HEADER_MINIMAL_LEN: u8 = (4 + 4 + 1 + 2);
 pub const QUERY_HEADER_LEN: u8 = (QUERY_HEADER_MINIMAL_LEN + 2);
 
 pub trait LogEvent {
+
     /// 事件名
     fn get_type_name(&self) -> String;
+
+    /// 事件总大小
+    fn len(&self) -> i32;
 
     /// Supports all versions of MariaDB and MySQL 5.5+ (V1 and V2 row events).
     fn parse(

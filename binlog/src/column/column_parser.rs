@@ -1,7 +1,7 @@
 
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
-use common::column::column_value::{Date, DateTime, Time};
+use common::binlog::column::column_value::{Date, DateTime, Time};
 use common::err::decode_error::ReError;
 use crate::utils::{read_bitmap_big_endian, read_string};
 

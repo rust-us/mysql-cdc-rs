@@ -1,14 +1,16 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+
 use tracing::instrument;
 use binlog::alias::mysql::gtid::gtid::Gtid;
 use binlog::events::log_context::{ILogContext, LogContext, LogContextRef};
-use binlog::events::log_position::LogPosition;
 use common::err::CResult;
 use common::err::decode_error::ReError;
-use common::row::row_string::RowString;
+use common::binlog::row::row_string::RowString;
+use common::server::Server;
 use crate::binlog::binlog_events::BinlogEvents;
+use crate::binlog::binlog_events_wrapper::{BinlogEventsWrapper};
 use crate::binlog::binlog_options::{BinlogOptions, BinlogOptionsRef};
 use crate::binlog::starting_strategy::StartingStrategy;
 use crate::commands::dump_binlog_command::DumpBinlogCommand;
@@ -16,11 +18,19 @@ use crate::commands::dump_binlog_gtid_command::DumpBinlogGtidCommand;
 use crate::conn::connection::{Connection, IConnection};
 use crate::conn::connection_options::ConnectionOptions;
 use crate::conn::packet_channel::PacketChannel;
+use crate::conn::query_result::StreamQueryResult;
 
-pub trait IBinlogConnection {
-    fn binlog(&mut self) -> CResult<BinlogEvents>;
+pub trait IBinlogConnection: IConnection {
 
-    //.
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `payload_buffer_size`:  读取binlog 的缓冲区大小
+    ///
+    /// returns: Result<BinlogEvents, ReError>
+    fn binlog(&mut self, payload_buffer_size: usize) -> CResult<BinlogEventsWrapper>;
+
 }
 
 /// BinlogClient capability
@@ -35,6 +45,8 @@ pub struct BinlogConnection {
     mysql_gtid: Option<Gtid>,
     // other gtid ...
 }
+
+unsafe impl Send for BinlogConnection {}
 
 impl BinlogConnection {
     pub fn new(options: &ConnectionOptions) -> Self {
@@ -92,6 +104,17 @@ impl BinlogConnection {
 
 }
 
+#[async_trait::async_trait]
+impl Server for BinlogConnection {
+    async fn start(&mut self) -> Result<(), ReError> {
+        todo!()
+    }
+
+    async fn shutdown(&mut self, graceful: bool) -> Result<(), ReError> {
+        todo!()
+    }
+}
+
 impl IConnection for BinlogConnection {
     fn try_connect(&mut self) -> CResult<bool> {
         self.conn.try_connect()
@@ -100,12 +123,16 @@ impl IConnection for BinlogConnection {
     fn query(&mut self, sql: String) -> CResult<Vec<RowString>> {
         self.conn.query(sql)
     }
+
+    fn query_stream(&mut self, sql: String) -> CResult<StreamQueryResult> {
+        self.conn.query_stream(sql)
+    }
 }
 
 impl IBinlogConnection for BinlogConnection {
 
     #[instrument]
-    fn binlog(&mut self) -> CResult<BinlogEvents> {
+    fn binlog(&mut self, payload_buffer_size: usize) -> CResult<BinlogEventsWrapper> {
         self.try_connect().expect("binlog try_connect");
 
         // Reset on reconnect
@@ -130,7 +157,8 @@ impl IBinlogConnection for BinlogConnection {
 
         BinlogConnection::replicate_mysql(&mut channel.clone(), &self.conn.options, server_id)?;
 
-        Ok(BinlogEvents::new(channel.clone(), self.log_context.clone(), checksum))
+        let binlogs = BinlogEvents::new(channel.clone(), self.log_context.clone(), checksum, payload_buffer_size);
+        Ok(BinlogEventsWrapper::new(Arc::new(RefCell::new(binlogs))))
     }
 }
 
@@ -138,12 +166,13 @@ impl IBinlogConnection for BinlogConnection {
 #[cfg(test)]
 mod test {
     use tracing::debug;
-    use binlog::events::event::Event;
+    use binlog::events::binlog_event::BinlogEvent;
     use binlog::events::log_context::ILogContext;
     use common::log::tracing_factory::TracingFactory;
     use crate::conn::binlog_connection::{BinlogConnection, IBinlogConnection};
     use crate::conn::connection::IConnection;
     use crate::conn::connection_options::ConnectionOptions;
+    use crate::env_options::EnvOptions;
 
     #[test]
     fn test_conn() {
@@ -156,7 +185,7 @@ mod test {
 
         let query = binlog_conn.query(String::from("select 1+ 1")).expect("test_conn error");
         let values = &query[0].as_slice();
-        assert_eq!(values[0], "2")
+        assert_eq!(values[0].clone().unwrap(), "2")
     }
 
     #[test]
@@ -165,15 +194,16 @@ mod test {
 
         let mut opts = ConnectionOptions::default();
         opts.update_auth(String::from("root"), String::from("123456"));
+        opts.set_env(EnvOptions::debug());
         // opts.update_binlog(BinlogOptions::from_position());
 
         let mut binlog_conn = BinlogConnection::new(&opts);
-        let binlog_event_rs = binlog_conn.binlog();
+        let binlog_event_rs = binlog_conn.binlog(3 * 1024);
         assert!(binlog_event_rs.is_ok());
 
-        let binlog_event = binlog_event_rs.unwrap();
+        let mut binlog_event = binlog_event_rs.unwrap();
 
-        for x in binlog_event {
+        for x in binlog_event.get_iter() {
             if x.is_ok() {
                 let list = x.unwrap();
 
@@ -182,7 +212,7 @@ mod test {
                     debug!("\n{:?}", list);
 
                     for e in list {
-                        let event_type = Event::get_type_name(&e);
+                        let event_type = BinlogEvent::get_type_name(&e);
                         let count = binlog_conn.log_context.borrow().get_log_stat_process_count();
                         debug!("event: {:?}, process_count: {:?}", event_type, count);
                     }

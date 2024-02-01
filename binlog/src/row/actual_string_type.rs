@@ -1,5 +1,5 @@
 
-use common::column::column_type::ColumnType;
+use common::binlog::column::column_type::SrcColumnType;
 
 /// Parses actual string type
 /// See: https://bugs.mysql.com/bug.php?id=37426
@@ -19,7 +19,7 @@ pub fn get_actual_string_type(column_type: &mut u8, metadata: &mut u16) {
         *metadata = byte1 | (((byte0 as u16 & 0x30) ^ 0x30) << 4);
         *column_type = byte0 | 0x30;
     } else {
-        if byte0 == ColumnType::Enum as u8 || byte0 == ColumnType::Set as u8 {
+        if byte0 == SrcColumnType::Enum as u8 || byte0 == SrcColumnType::Set as u8 {
             *column_type = byte0;
         }
         *metadata = byte1;
@@ -28,39 +28,39 @@ pub fn get_actual_string_type(column_type: &mut u8, metadata: &mut u16) {
 
 #[cfg(test)]
 mod tests {
-    use common::column::column_type::ColumnType;
+    use common::binlog::column::column_type::SrcColumnType;
     use super::get_actual_string_type;
 
     #[test]
     fn get_actual_string_type_char() {
         // char(200)
-        let mut column_type = ColumnType::String as u8;
+        let mut column_type = SrcColumnType::String as u8;
         let mut metadata: u16 = 52768;
         get_actual_string_type(&mut column_type, &mut metadata);
 
-        assert_eq!(ColumnType::String as u8, column_type);
+        assert_eq!(SrcColumnType::String as u8, column_type);
         assert_eq!(800 /* 200*Utf8Mb4 */, metadata);
     }
 
     #[test]
     fn get_actual_string_type_enum() {
         // enum('Low', 'Medium', 'High')
-        let mut column_type = ColumnType::String as u8;
+        let mut column_type = SrcColumnType::String as u8;
         let mut metadata: u16 = 63233;
         get_actual_string_type(&mut column_type, &mut metadata);
 
-        assert_eq!(ColumnType::Enum as u8, column_type);
+        assert_eq!(SrcColumnType::Enum as u8, column_type);
         assert_eq!(1, metadata);
     }
 
     #[test]
     fn get_actual_string_type_set() {
         // set('Green', 'Yellow', 'Red')
-        let mut column_type = ColumnType::String as u8;
+        let mut column_type = SrcColumnType::String as u8;
         let mut metadata: u16 = 63489;
         get_actual_string_type(&mut column_type, &mut metadata);
 
-        assert_eq!(ColumnType::Set as u8, column_type);
+        assert_eq!(SrcColumnType::Set as u8, column_type);
         assert_eq!(1, metadata);
     }
 }

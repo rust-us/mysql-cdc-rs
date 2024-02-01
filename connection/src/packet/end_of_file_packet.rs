@@ -1,7 +1,10 @@
-use std::io;
 use std::io::Cursor;
+
 use byteorder::{LittleEndian, ReadBytesExt};
+
 use common::err::CResult;
+
+use crate::packet::response_type::ResponseType;
 
 #[derive(Debug)]
 pub struct EndOfFilePacket {
@@ -20,5 +23,13 @@ impl EndOfFilePacket {
             warning_count,
             server_status,
         })
+    }
+
+    pub fn is_eof(packet: &[u8]) -> bool {
+        // [fe]也可能出现在LengthEncodedInteger，必须检查长度<9确保是EOF
+        if packet.len() <= 0 || packet.len() >= 9 {
+            return false;
+        }
+        packet[0] == ResponseType::END_OF_FILE
     }
 }

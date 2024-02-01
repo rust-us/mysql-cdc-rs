@@ -1,45 +1,62 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
-use common::lifecycle::lifecycle::Lifecycle;
-use common::column::column_type::ColumnType;
+use common::binlog::column::column_type::SrcColumnType;
+use common::err::decode_error::ReError;
+use common::server::Server;
+use crate::ast::query_parser::TableInfoBuilder;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
 lazy_static! {
-    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<ColumnType >>>> =
+    /// 临时验证，作废
+    pub static ref TABLE_MAP: Arc<Mutex<HashMap<u64, Vec<SrcColumnType >>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
+    /// 临时验证，作废
     pub static ref TABLE_MAP_META: Arc<Mutex<HashMap<u64, Vec<u16 >>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
+    /// 临时验证，作废
     pub static ref TABLE_MAP_EVENT: Arc<Mutex<HashMap<u64, TableMapEvent>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    /// 维护全局唯一的表ID 与 TableInfo 的映射关系
+    static ref TABLE_INFO_MAPS: Arc<Mutex<HashMap<u64, Option<TableInfoBuilder >>>> =
         Arc::new(Mutex::new(HashMap::new()));
 }
 
+#[derive(Debug)]
 pub struct BinlogServer {
 
 }
 
-impl Lifecycle for BinlogServer {
-    fn setup() {
-        //.
+unsafe impl Send for BinlogServer {}
+
+#[async_trait::async_trait]
+impl Server for BinlogServer {
+    async fn start(&mut self) -> Result<(), ReError> {
+        println!("BinlogServer start");
+
+        Ok(())
     }
 
-    fn start() {
-        //.
-    }
+    async fn shutdown(&mut self, graceful: bool) -> Result<(), ReError> {
+        println!("BinlogServer shutdown");
 
-    fn stop() {
-        //.
-    }
-
-    fn pause() {
-        //.
+        Ok(())
     }
 }
 
 impl BinlogServer {
+    pub fn new() -> Self {
+        BinlogServer {
 
+        }
+    }
+
+    // pub fn put_table_info(&mut self, table_info: Option<TableInfo>) {
+    //     TABLE_INFO_MAPS.lock().unwrap().insert()
+    // }
 }
 
 #[cfg(test)]

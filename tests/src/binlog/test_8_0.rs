@@ -4,11 +4,11 @@ mod test_normal {
     use std::fs::{File, OpenOptions};
     use std::path::Path;
     use tracing::debug;
-    use binlog::column::column_value::ColumnValue::{BigInt, Int, MediumInt, SmallInt, TinyInt};
+    use common::binlog::column::column_value::SrcColumnValue::{BigInt, Int, MediumInt, SmallInt, TinyInt};
     use binlog::decoder::binlog_decoder::BinlogReader;
     use binlog::decoder::file_binlog_reader::FileBinlogReader;
-    use binlog::events::event::Event;
-    use binlog::events::event::Event::{DeleteRows, Query, TableMap, UpdateRows, WriteRows};
+    use binlog::events::binlog_event::BinlogEvent;
+    use binlog::events::binlog_event::BinlogEvent::{DeleteRows, Query, TableMap, UpdateRows, WriteRows};
     use binlog::factory::event_factory::{EventFactory, EventReaderOption, IEventFactory};
     use binlog::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
     use binlog::events::protocol::query_event::QueryEvent;
@@ -31,7 +31,7 @@ mod test_normal {
         let (mut reader, context) =
             FileBinlogReader::new_without_context(false).unwrap();
 
-        let mut output = Vec::<Event>::new();
+        let mut output = Vec::<BinlogEvent>::new();
         let iter = reader.read_events(file);
         for result in iter.into_iter() {
             let (header, event) = match result {
@@ -44,7 +44,7 @@ mod test_normal {
                 }
             };
 
-            println!("============================ {}", Event::get_type_name(&event));
+            println!("============================ {}", BinlogEvent::get_type_name(&event));
             // println!("{:#?}", header);
             // println!("{:#?}", event.clone());
             // println!("");

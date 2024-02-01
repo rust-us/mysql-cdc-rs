@@ -6,6 +6,30 @@ use hex::FromHexError;
 
 #[derive(Debug)]
 pub enum ReError {
+    //////////////////////
+    // Common
+    //////////////////////
+    /// 一定不会出现的异常。如果出现，一定是BUG
+    BUG(String),
+    /// The parser had an error (recoverable)
+    Error(String),
+
+    //////////////////////
+    // SQL Parser
+    //////////////////////
+    ASTParserError(String),
+
+    //////////////////////
+    // Binlog
+    //////////////////////
+    /// Byte code is incomplete
+    /// 此错误用于binlog编解码过程中的异常处理，包含：
+    ///     编解码进行中、已完成、格式错误等， 由 Needed 产生为具体的错误信息描述
+    Incomplete(Needed),
+
+    //////////////////////
+    // IO
+    //////////////////////
     IoError(io::Error),
     Utf8Error(Utf8Error),
     FromUtf8Error(FromUtf8Error),
@@ -13,14 +37,6 @@ pub enum ReError {
     ParseIntError(ParseIntError),
     ConnectionError(String),
     String(String),
-
-    /// Byte code is incomplete
-    /// 此错误用于binlog编解码过程中的异常处理，包含：
-    ///     编解码进行中、已完成、格式错误等， 由 Needed 产生为具体的错误信息描述
-    Incomplete(Needed),
-
-    /// The parser had an error (recoverable)
-    Error(String),
 
     /// The parser had an unrecoverable error: we got to the right
     /// branch and we know other branches won't work, so backtrack
@@ -33,12 +49,14 @@ pub enum ReError {
     TableSchemaIntoErr(String),
     RcMysqlUrlErr(String),
     RcMysqlQueryErr(String),
+    OpRaftErr(String),
 
     MysqlQueryErr(String),
 
     OpTableNotExistErr(String),
     OpSchemaNotExistErr(String),
     OpMetadataErr(String),
+    MetadataMockErr(String),
 }
 
 impl From<io::Error> for ReError {

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::io::{Cursor, ErrorKind, Read, Seek, SeekFrom};
 use byteorder::{LittleEndian, ReadBytesExt};
+use bytes::Buf;
 use tracing::error;
-use common::column::column_type::ColumnType;
-use common::column::column_value::ColumnValue;
+use common::binlog::column::column_type::SrcColumnType;
+use common::binlog::column::column_value::SrcColumnValue;
 use common::err::decode_error::ReError;
 use crate::column::column_parser::{parse_bit, parse_blob, parse_date, parse_date_time, parse_date_time2, parse_string, parse_time, parse_time2, parse_timestamp, parse_timestamp2, parse_year};
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -115,7 +116,7 @@ pub fn parse_row_data_list(
     let cells_included = get_bits_number(&columns_present);
     let mut rows = Vec::new();
 
-    while cursor.position() < cursor.get_ref().len() as u64 {
+    while cursor.has_remaining() {
         let row_result = parse_row(cursor, table, &columns_present, cells_included);
 
         if let Err(error) = &row_result {
@@ -163,7 +164,7 @@ pub fn parse_update_row_data_list(
     let cells_included_after_update = get_bits_number(after_image);
     let mut rows = Vec::new();
 
-    while cursor.position() < cursor.get_ref().len() as u64 {
+    while cursor.has_remaining() {
         let row_before_update_content = parse_row(
             cursor,
             table,
@@ -211,7 +212,7 @@ fn parse_row(
             let mut column_type = column_types[i];
             let mut metadata = table_map.column_metadata[i];
 
-            if ColumnType::try_from(column_type).unwrap() == ColumnType::String {
+            if SrcColumnType::try_from(column_type).unwrap() == SrcColumnType::String {
                 get_actual_string_type(&mut column_type, &mut metadata);
             }
 
@@ -230,53 +231,55 @@ fn get_bits_number(bitmap: &Vec<bool>) -> usize {
 fn parse_cell(
     cursor: &mut Cursor<&[u8]>,
     column_type: u8,
-    metadata: u16) -> Result<ColumnValue, ReError> {
+    metadata: u16) -> Result<SrcColumnValue, ReError> {
 
-    let value = match ColumnType::try_from(column_type).unwrap() {
+    let value = match SrcColumnType::try_from(column_type).unwrap() {
         /* Numeric types. The only place where numbers can be negative */
-        ColumnType::Tiny => ColumnValue::TinyInt(cursor.read_u8()?),
-        ColumnType::Short => ColumnValue::SmallInt(cursor.read_u16::<LittleEndian>()?),
-        ColumnType::Int24 => ColumnValue::MediumInt(cursor.read_u24::<LittleEndian>()?),
-        ColumnType::Long => ColumnValue::Int(cursor.read_u32::<LittleEndian>()?),
-        ColumnType::LongLong => ColumnValue::BigInt(cursor.read_u64::<LittleEndian>()?),
-        ColumnType::Float => ColumnValue::Float(cursor.read_f32::<LittleEndian>()?),
-        ColumnType::Double => ColumnValue::Double(cursor.read_f64::<LittleEndian>()?),
-        ColumnType::NewDecimal => ColumnValue::Decimal(parse_decimal(cursor, metadata)?),
+        SrcColumnType::Tiny => SrcColumnValue::TinyInt(cursor.read_u8()?),
+        SrcColumnType::Short => SrcColumnValue::SmallInt(cursor.read_u16::<LittleEndian>()?),
+        SrcColumnType::Int24 => SrcColumnValue::MediumInt(cursor.read_u24::<LittleEndian>()?),
+        SrcColumnType::Long => SrcColumnValue::Int(cursor.read_u32::<LittleEndian>()?),
+        SrcColumnType::LongLong => SrcColumnValue::BigInt(cursor.read_u64::<LittleEndian>()?),
+        SrcColumnType::Float => SrcColumnValue::Float(cursor.read_f32::<LittleEndian>()?),
+        SrcColumnType::Double => SrcColumnValue::Double(cursor.read_f64::<LittleEndian>()?),
+        SrcColumnType::Decimal |
+        SrcColumnType::NewDecimal => SrcColumnValue::Decimal(parse_decimal(cursor, metadata)?),
         /* String types, includes varchar, varbinary & fixed char, binary */
-        ColumnType::String => ColumnValue::String(parse_string(cursor, metadata)?),
-        ColumnType::VarChar => ColumnValue::String(parse_string(cursor, metadata)?),
-        ColumnType::VarString => ColumnValue::String(parse_string(cursor, metadata)?),
+        SrcColumnType::VarString | SrcColumnType::VarChar | SrcColumnType::String => SrcColumnValue::String(parse_string(cursor, metadata)?),
         /* BIT, ENUM, SET types */
-        ColumnType::Bit => ColumnValue::Bit(parse_bit(cursor, metadata)?),
-        ColumnType::Enum => {
-            ColumnValue::Enum(cursor.read_uint::<LittleEndian>(metadata as usize)? as u32)
+        SrcColumnType::Bit => SrcColumnValue::Bit(parse_bit(cursor, metadata)?),
+        SrcColumnType::Enum => {
+            SrcColumnValue::Enum(cursor.read_uint::<LittleEndian>(metadata as usize)? as u32)
         }
-        ColumnType::Set => {
-            ColumnValue::Set(cursor.read_uint::<LittleEndian>(metadata as usize)? as u64)
+        SrcColumnType::Set => {
+            SrcColumnValue::Set(cursor.read_uint::<LittleEndian>(metadata as usize)? as u64)
         }
         /* Blob types. MariaDB always creates BLOB for first three */
-        ColumnType::TinyBlob => ColumnValue::Blob(parse_blob(cursor, metadata)?),
-        ColumnType::MediumBlob => ColumnValue::Blob(parse_blob(cursor, metadata)?),
-        ColumnType::LongBlob => ColumnValue::Blob(parse_blob(cursor, metadata)?),
-        ColumnType::Blob => ColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::TinyBlob => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::MediumBlob => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::LongBlob => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::Blob => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
         /* Date and time types */
-        ColumnType::Year => ColumnValue::Year(parse_year(cursor, metadata)?),
-        ColumnType::Date => ColumnValue::Date(parse_date(cursor, metadata)?),
+        SrcColumnType::Year => SrcColumnValue::Year(parse_year(cursor, metadata)?),
+        SrcColumnType::Date => SrcColumnValue::Date(parse_date(cursor, metadata)?),
         // Older versions of MySQL.
-        ColumnType::Time => ColumnValue::Time(parse_time(cursor, metadata)?),
-        ColumnType::Timestamp => ColumnValue::Timestamp(parse_timestamp(cursor, metadata)?),
-        ColumnType::DateTime => ColumnValue::DateTime(parse_date_time(cursor, metadata)?),
+        SrcColumnType::Time => SrcColumnValue::Time(parse_time(cursor, metadata)?),
+        SrcColumnType::Timestamp => SrcColumnValue::Timestamp(parse_timestamp(cursor, metadata)?),
+        SrcColumnType::DateTime => SrcColumnValue::DateTime(parse_date_time(cursor, metadata)?),
         // MySQL 5.6.4+ types. Supported from MariaDB 10.1.2.
-        ColumnType::Time2 => ColumnValue::Time(parse_time2(cursor, metadata)?),
-        ColumnType::Timestamp2 => ColumnValue::Timestamp(parse_timestamp2(cursor, metadata)?),
-        ColumnType::DateTime2 => ColumnValue::DateTime(parse_date_time2(cursor, metadata)?),
+        SrcColumnType::Time2 => SrcColumnValue::Time(parse_time2(cursor, metadata)?),
+        SrcColumnType::Timestamp2 => SrcColumnValue::Timestamp(parse_timestamp2(cursor, metadata)?),
+        SrcColumnType::DateTime2 => SrcColumnValue::DateTime(parse_date_time2(cursor, metadata)?),
         /* MySQL-specific data types */
-        ColumnType::Geometry => ColumnValue::Blob(parse_blob(cursor, metadata)?),
-        ColumnType::Json => ColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::Geometry => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::Json => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+        // Null
+        // Bool
+
         _ => {
             return Err(ReError::String(format!(
                 "Parsing column type {:?} is not supported",
-                ColumnType::try_from(column_type).unwrap()
+                SrcColumnType::try_from(column_type).unwrap()
             )))
         }
     };

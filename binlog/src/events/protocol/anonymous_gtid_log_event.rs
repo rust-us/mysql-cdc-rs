@@ -39,6 +39,10 @@ impl LogEvent for AnonymousGtidLogEvent {
         "AnonymousGtidLog".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.gtid_event.len()
+    }
+
     fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef, context: LogContextRef,
              table_map: Option<&HashMap<u64, TableMapEvent>>) -> Result<AnonymousGtidLogEvent, ReError> where Self: Sized {
         let (

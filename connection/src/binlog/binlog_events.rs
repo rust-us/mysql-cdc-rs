@@ -1,14 +1,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use binlog::decoder::event_decoder::{EventDecoder, LogEventDecoder};
+use binlog::decoder::event_decoder::{LogEventDecoder};
 use binlog::events::checksum_type::ChecksumType;
-use binlog::events::event::Event;
+use binlog::events::binlog_event::BinlogEvent;
 use binlog::events::event_header::Header;
 use binlog::events::event_raw::HeaderRef;
 use binlog::events::log_context::{ILogContext, LogContext, LogContextRef};
+use binlog::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 use binlog::factory::event_factory::{EventReaderOption, IEventFactory};
-use common::binlog::EVENT_HEADER_SIZE;
+use common::binlog::{EVENT_HEADER_SIZE, PAYLOAD_BUFFER_SIZE};
 use common::err::CResult;
 use common::err::decode_error::ReError;
 use crate::conn::packet_channel::PacketChannel;
@@ -16,39 +17,58 @@ use crate::packet::end_of_file_packet::EndOfFilePacket;
 use crate::packet::error_packet::ErrorPacket;
 use crate::packet::response_type::ResponseType;
 
+#[derive(Debug, Clone)]
 pub struct BinlogEvents {
-    pub channel: Arc<RefCell<PacketChannel>>,
-    pub parser: LogEventDecoder,
-    pub options: EventReaderOption,
+    channel: Arc<RefCell<PacketChannel>>,
+    parser: LogEventDecoder,
+
+    options: EventReaderOption,
     log_context: LogContextRef,
+
+    /// 加载的缓冲区。 会被多次复用
+    payload_buffer: Vec<u8>,
 }
 
 impl BinlogEvents {
-    pub fn new(channel: Arc<RefCell<PacketChannel>>, log_context: LogContextRef, checksum: ChecksumType) -> Self {
+    pub fn new(channel: Arc<RefCell<PacketChannel>>, log_context: LogContextRef, checksum: ChecksumType,
+               payload_buffer_size: usize) -> Self {
         let mut parser = LogEventDecoder::new();
 
-        let options = EventReaderOption::debug();
+        let options = EventReaderOption::debug_with_payload_buffer_size(payload_buffer_size);
 
         Self {
             channel,
             parser,
             options,
-            log_context
+            log_context,
+            payload_buffer: Vec::with_capacity(payload_buffer_size),
         }
     }
 
-    pub fn read_event(&mut self, packet: &[u8]) -> CResult<Vec<Event>> {
+    pub fn read_event(&mut self, packet: &[u8]) -> CResult<Vec<BinlogEvent>> {
         let header = Header::parse_v4_header(&packet[1..], self.log_context.clone()).unwrap();
+        let payload_length = (&header.get_event_length() - LOG_EVENT_HEADER_LEN as u32) as usize;
+
         let header_ref: HeaderRef = Rc::new(RefCell::new(header));
 
-        let event_slice = &packet[1 + EVENT_HEADER_SIZE..];
+        let event = if payload_length > self.options.get_payload_buffer_size() {
+            // 事件payload大小超过缓冲buffer，直接以事件payload大小分配新字节数组，用于读取事件的完整大小
+            // let mut event_slice: Vec<u8> = vec![0; payload_length];
+            let event_slice = &packet[1 + EVENT_HEADER_SIZE..];
 
-        let event = self.parser.parse_event(event_slice, header_ref.clone(), self.log_context.clone())?;
+            self.parser.event_parse_mergr(event_slice, header_ref.clone(), self.log_context.clone())?
+        } else {
+            // 从缓冲区中取空字节数组，用于读取事件的完整大小。let event_slice = &mut self.packet[0..payload_length]。
+            // 此处采用了直接 slice 的切片形式。不存在内存分配。更节省内存。
+            let event_slice = &packet[1 + EVENT_HEADER_SIZE..];
+
+            self.parser.event_parse_mergr(event_slice, header_ref.clone(), self.log_context.clone())?
+        };
 
         Ok(vec![event])
     }
 
-    pub fn read_error(&mut self, packet: &[u8]) -> CResult<Vec<Event>> {
+    pub fn read_error(&mut self, packet: &[u8]) -> CResult<Vec<BinlogEvent>> {
         let error = ErrorPacket::parse(&packet[1..])?;
 
         Err(ReError::String(format!("Event stream error. {:?}", error)))
@@ -62,12 +82,13 @@ impl Default for BinlogEvents {
             parser: LogEventDecoder::new(),
             options: EventReaderOption::default(),
             log_context: Rc::new(RefCell::new(LogContext::default())),
+            payload_buffer: Vec::new(),
         }
     }
 }
 
 impl Iterator for BinlogEvents {
-    type Item = CResult<Vec<Event>>;
+    type Item = CResult<Vec<BinlogEvent>>;
 
     /// Reads binlog event packets from network stream.
     /// <a href="https://mariadb.com/kb/en/3-binlog-network-stream/">See more</a>

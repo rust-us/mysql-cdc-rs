@@ -50,6 +50,10 @@ impl LogEvent for RotateEvent {
         "RotateEvent".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
     fn parse(
         cursor: &mut Cursor<&[u8]>,
         header: HeaderRef,
@@ -63,7 +67,7 @@ impl LogEvent for RotateEvent {
 
         let position = cursor.read_u64::<LittleEndian>()?;
 
-        let binlog_filename_len = header.borrow().event_length
+        let binlog_filename_len = header.borrow().get_event_length()
             - (LOG_EVENT_HEADER_LEN + post_header_len + ST_COMMON_PAYLOAD_CHECKSUM_LEN) as u32;
         let mut _rows_data_vec = vec![0; binlog_filename_len as usize];
         cursor.read_exact(&mut _rows_data_vec)?;
@@ -73,12 +77,21 @@ impl LogEvent for RotateEvent {
         // cursor.read_to_string(&mut next_binlog_filename)?;
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
-
         header.borrow_mut().update_checksum(checksum);
+
         Ok(RotateEvent::new(
             Header::copy(header.clone()),
             next_binlog_filename,
             position,
         ))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {
+        assert_eq!(1, 1);
     }
 }

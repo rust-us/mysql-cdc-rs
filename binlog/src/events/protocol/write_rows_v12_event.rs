@@ -2,7 +2,7 @@ use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
-use crate::row::row_data::RowData;
+use crate::row::row_data::{RowData};
 use crate::row::row_parser::{parse_head, parse_row_data_list};
 use crate::row::rows;
 use crate::row::rows::{RowEventVersion, STMT_END_F};
@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use dashmap::mapref::one::Ref;
-use common::column::column_type::ColumnType;
+use common::binlog::column::column_type::SrcColumnType;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 
@@ -104,6 +104,10 @@ impl WriteRowsEvent {
             json_column_count: 0,
         }
     }
+
+    pub fn get_rows(&self) -> &[RowData] {
+        self.rows.as_slice()
+    }
 }
 
 impl RowsLogEvent for WriteRowsEvent {
@@ -136,7 +140,7 @@ impl RowsLogEvent for WriteRowsEvent {
             assert_eq!(column_count as usize, column_metadata_type.len());
 
             for clolumn_type in column_metadata_type {
-                if clolumn_type == ColumnType::Json {
+                if clolumn_type == SrcColumnType::Json {
                     json_column_count += 1;
                 }
             }
@@ -145,11 +149,23 @@ impl RowsLogEvent for WriteRowsEvent {
 
         Ok(true)
     }
+
+    fn get_table_map_event(&self) -> Option<&TableMapEvent> {
+        self.table.as_ref()
+    }
+
+    fn get_header(&self) -> Header {
+        self.header.clone()
+    }
 }
 
 impl LogEvent for WriteRowsEvent {
     fn get_type_name(&self) -> String {
         "WriteRowsEvent".to_string()
+    }
+
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
     }
 
     fn parse(

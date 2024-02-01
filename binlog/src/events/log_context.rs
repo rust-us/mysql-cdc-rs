@@ -31,6 +31,8 @@ pub trait ILogContext {
 
     fn get_log_stat(&self) -> LogStatRef;
     fn update_log_stat_add(&mut self);
+
+    /// 当前已经处理的binlog数量
     fn get_log_stat_process_count(&self) -> u64;
 
     fn is_compatiable_percona(&self) -> bool;
@@ -78,7 +80,7 @@ pub struct LogContext {
     gtid_set: Option<GtidSet>,
 
     /// save current gtid log event
-    pub gtid_log_event: Option<GtidLogEvent>,
+    gtid_log_event: Option<GtidLogEvent>,
 }
 
 impl Default for LogContext {
@@ -277,7 +279,7 @@ mod test {
         let mut e = TableMapEvent::default();
         e.table_id = 1;
         e.flags = 1;
-        e.table_name = String::from("t1");
+        e.set_table_name(String::from("t1"));
 
         context.put_table(1, e);
         assert_eq!(context.get_table_len(), 1);
@@ -285,7 +287,7 @@ mod test {
         {
             let item: Option<Ref<u64, TableMapEvent>> = context.get_table(&1);
             assert!(item.is_some());
-            assert_eq!(item.unwrap().table_name.as_str(), "t1");
+            assert_eq!(item.unwrap().get_table_name().as_str(), "t1");
         }
 
         {

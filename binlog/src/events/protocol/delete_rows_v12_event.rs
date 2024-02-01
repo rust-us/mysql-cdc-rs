@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use dashmap::mapref::one::Ref;
-use common::column::column_type::ColumnType;
+use common::binlog::column::column_type::SrcColumnType;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 
@@ -76,6 +76,9 @@ impl DeleteRowsEvent {
         }
     }
 
+    pub fn get_rows(&self) -> &[RowData] {
+        self.rows.as_slice()
+    }
 }
 
 impl RowsLogEvent for DeleteRowsEvent {
@@ -108,7 +111,7 @@ impl RowsLogEvent for DeleteRowsEvent {
             assert_eq!(column_count as usize, column_metadata_type.len());
 
             for clolumn_type in column_metadata_type {
-                if clolumn_type == ColumnType::Json {
+                if clolumn_type == SrcColumnType::Json {
                     json_column_count += 1;
                 }
             }
@@ -117,6 +120,14 @@ impl RowsLogEvent for DeleteRowsEvent {
 
         Ok(true)
     }
+
+    fn get_table_map_event(&self) -> Option<&TableMapEvent> {
+        self.table.as_ref()
+    }
+
+    fn get_header(&self) -> Header {
+        self.header.clone()
+    }
 }
 
 impl LogEvent for DeleteRowsEvent {
@@ -124,6 +135,9 @@ impl LogEvent for DeleteRowsEvent {
         "DeleteRowsEvent".to_string()
     }
 
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
 
     /// Supports all versions of MariaDB and MySQL 5.5+ (V1 and V2 row events).
     fn parse(

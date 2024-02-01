@@ -4,14 +4,25 @@ mod test {
     use std::cell::RefCell;
     use std::rc::Rc;
     use tracing::debug;
-    use binlog::events::event::Event;
+    use binlog::decoder::event_decoder::LogEventDecoder;
+    use binlog::events::binlog_event::BinlogEvent;
     use binlog::events::event_raw::EventRaw;
     use binlog::factory::event_factory::{EventFactory, EventReaderOption, IEventFactory};
     use binlog::events::event_header::Header;
-    use binlog::events::log_context::{ILogContext, LogContext};
+    use binlog::events::log_context::{ILogContext, LogContext, LogContextRef};
     use binlog::events::log_position::LogPosition;
+    use common::err::decode_error::ReError;
     use common::log::tracing_factory::TracingFactory;
     use crate::binlog::factory::test_iter_owener::TestOwenerIter;
+
+    ///EventRaw 转为 Event
+    fn event_raw_to_event(raw: &EventRaw, context: LogContextRef) -> Result<BinlogEvent, ReError> {
+        let mut decoder = LogEventDecoder::new();
+
+        let header = raw.get_header();
+        let full_packet = raw.get_payload();
+        decoder.event_parse(full_packet, header, context)
+    }
 
     #[test]
     fn test() {
@@ -34,9 +45,9 @@ mod test {
         assert_eq!(i.len(), 0);
         assert_eq!(event_raws.len(), 4);
 
-        let mut event_list = Vec::<Event>::with_capacity(event_raws.len());
+        let mut event_list = Vec::<BinlogEvent>::with_capacity(event_raws.len());
         for event_raw in event_raws {
-            let rs = EventFactory::event_raw_to_event(&event_raw, context.clone());
+            let rs = event_raw_to_event(&event_raw, context.clone());
 
             match rs {
                 Err(e) => {

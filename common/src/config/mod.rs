@@ -2,7 +2,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use crate::binlog::PAYLOAD_BUFFER_SIZE;
 
 use crate::err::decode_error::ReError;
 
@@ -12,7 +13,7 @@ pub struct Config {
     max_memory: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RepConfig {
     pub binlog: BinlogConfig,
     pub rc_mysql: RcMySQL,
@@ -21,20 +22,27 @@ pub struct RepConfig {
 }
 
 /// Binlog 配置
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinlogConfig {
-    /// binlog 文件的绝对路径
-    pub binlog_path: String,
+    pub host: String,
+    pub port: i16,
+    pub username: String,
+    pub password: String,
+
+    /// 读取binlog 的缓冲区大小
+    pub payload_buffer_size: usize,
 
     /// binlog file, 如 mysql-bin.000005
     pub file: String,
 
     /// binlog file 消费的起始position
     pub position: i32,
+
+    /// binlog 文件的绝对路径
+    pub binlog_path: String,
 }
 
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RcMySQL {
     pub addr: Vec<String>,
     pub username: String,
@@ -42,7 +50,7 @@ pub struct RcMySQL {
     pub raft_stats_fresh_interval_ms: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RcMetadata {
     pub addr: String,
     pub username: String,
@@ -51,9 +59,24 @@ pub struct RcMetadata {
     pub metadata_stats_fresh_interval_ms: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CoreConfig {
     max_memory: Option<String>,
+}
+
+impl Default for BinlogConfig {
+    fn default() -> Self {
+        BinlogConfig {
+            host: "localhost".to_string(),
+            port: 3306,
+            username: "".to_string(),
+            password: "".to_string(),
+            payload_buffer_size: PAYLOAD_BUFFER_SIZE,
+            file: "".to_string(),
+            position: 4,
+            binlog_path: "".to_string(),
+        }
+    }
 }
 
 pub fn read_config<P: AsRef<Path>>(path: P) -> Result<RepConfig, ReError> {

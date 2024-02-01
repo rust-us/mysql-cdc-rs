@@ -4,10 +4,10 @@ use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::rc::Rc;
 use common::binlog::PAYLOAD_BUFFER_SIZE;
-use common::err::decode_error::{Needed, ReError};
+use common::err::decode_error::{ReError};
 use crate::decoder::binlog_decoder::{BinlogReader};
-use crate::decoder::event_decoder::{EventDecoder, LogEventDecoder};
-use crate::events::event::Event;
+use crate::decoder::event_decoder::{LogEventDecoder};
+use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_header::{Header, HEADER_LEN};
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::log_position::LogPosition;
@@ -31,7 +31,7 @@ pub struct FileBinlogReader {
     eof: bool,
 }
 
-impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
+impl BinlogReader<File, (Header, BinlogEvent)> for FileBinlogReader {
     #[inline]
     fn new(context: LogContextRef, skip_magic_buffer: bool) -> Result<Self, ReError> where Self: Sized {
         let none = File::create(Path::new("tmp")).unwrap();
@@ -58,7 +58,7 @@ impl BinlogReader<File, (Header, Event)> for FileBinlogReader {
     }
 
     #[inline]
-    fn read_events(&mut self, mut source: File) -> Box<dyn Iterator<Item=Result<(Header, Event), ReError>>> {
+    fn read_events(&mut self, mut source: File) -> Box<dyn Iterator<Item=Result<(Header, BinlogEvent), ReError>>> {
         if !self.skip_magic_buffer {
             // Parse magic
             let mut magic_buffer = vec![0; HEADER_LEN as usize];
@@ -107,7 +107,7 @@ struct FileBinlogReaderIterator {
 }
 
 impl FileBinlogReaderIterator {
-    fn read_event(&mut self) -> Result<(Header, Event), ReError> {
+    fn read_event(&mut self) -> Result<(Header, BinlogEvent), ReError> {
         let mut decoder = &mut self.decoder;
 
         // Parse header
@@ -117,14 +117,14 @@ impl FileBinlogReaderIterator {
         let header_ref = Rc::new(RefCell::new(header.clone()));
 
         // parser payload
-        let payload_length = header.event_length as usize - LOG_EVENT_HEADER_LEN as usize;
+        let payload_length = header.get_event_length() as usize - LOG_EVENT_HEADER_LEN as usize;
 
         if payload_length > PAYLOAD_BUFFER_SIZE {
             // 事件payload大小超过缓冲buffer，直接以事件payload大小分配新字节数组，用于读取事件的完整大小
-            let mut vec: Vec<u8> = vec![0; payload_length];
-            self.stream.read_exact(&mut vec)?;
+            let mut full_packet: Vec<u8> = vec![0; payload_length];
+            self.stream.read_exact(&mut full_packet)?;
 
-            let binlog_event = decoder.parse_event(&vec, header_ref, self.context.clone()).unwrap();
+            let binlog_event = decoder.event_parse(&full_packet, header_ref, self.context.clone()).unwrap();
 
             Ok((header, binlog_event))
         } else {
@@ -132,7 +132,7 @@ impl FileBinlogReaderIterator {
             let slice = &mut self.payload_buffer[0..payload_length];
             self.stream.read_exact(slice)?;
 
-            let binlog_event = self.decoder.parse_event(slice, header_ref, self.context.clone()).unwrap();
+            let binlog_event = self.decoder.event_parse(slice, header_ref, self.context.clone()).unwrap();
 
             Ok((header, binlog_event))
         }
@@ -141,7 +141,7 @@ impl FileBinlogReaderIterator {
 
 
 impl Iterator for FileBinlogReaderIterator {
-    type Item = Result<(Header, Event), ReError>;
+    type Item = Result<(Header, BinlogEvent), ReError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.read_event();

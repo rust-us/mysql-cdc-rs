@@ -1,4 +1,5 @@
 use std::alloc::AllocError;
+use bigdecimal::BigDecimal;
 use memory::Buffer;
 use crate::decimal_util::serialize;
 
@@ -6,11 +7,16 @@ use crate::schema::data_type::Value;
 
 /// data_type Value序列化
 pub trait WriteValue {
-    fn write_value(&mut self, v: &Value) -> Result<usize, AllocError>;
+
+    fn write_value(&mut self, v: &Value, extra_not_null_flag: bool) -> Result<usize, AllocError>;
+
+    fn write_raw_value(&mut self, v: &Value) -> Result<usize, AllocError>;
+
 }
 
 impl WriteValue for Buffer {
-    fn write_value(&mut self, value: &Value) -> Result<usize, AllocError> {
+
+    fn write_value(&mut self, value: &Value, extra_not_null_flag: bool) -> Result<usize, AllocError> {
         let mut size = 0;
 
         //head： isNull
@@ -22,8 +28,11 @@ impl WriteValue for Buffer {
             _ => {
                 //isNull
                 self.write_byte(0)?;
-                //isNull
-                self.write_byte(0)?;
+                if extra_not_null_flag {
+                    //isNull
+                    self.write_byte(0)?;
+                }
+
                 self.write_bytes(&value.get_data_type_code().to_le_bytes())?;
                 //valid
                 self.write_byte(0)?;
@@ -32,8 +41,13 @@ impl WriteValue for Buffer {
                 size += 1 + 1 + 4 + 1 + 1;
             }
         }
-        
-        //content
+
+        size += self.write_raw_value(value)?;
+        Ok(size)
+    }
+
+    fn write_raw_value(&mut self, value: &Value) -> Result<usize, AllocError> {
+        let mut size = 0;
         match value {
             Value::Null => {
             }
@@ -75,13 +89,18 @@ impl WriteValue for Buffer {
                 self.write_bytes(&v.to_le_bytes())?;
                 size += 8;
             }
-            Value::Decimal(v, precision, scale) => {
-                //precision
+            //Value::Decimal(v, precision, scale) => {
+            Value::Decimal(v) => {
+                let decimal: BigDecimal = v.parse().unwrap();
+                //todo
+                let precision = 12u16;
+                let scale = 2u16;
                 self.write_bytes(&precision.to_le_bytes())?;
                 //scale
                 self.write_bytes(&scale.to_le_bytes())?;
                 //data.len
-                let vec = serialize(&v, precision.clone() as usize, scale.clone() as usize);
+                let vec = serialize(&decimal, precision.clone() as usize, scale.clone() as usize);
+
                 let data = &vec[..];
                 self.write_bytes(&(data.len() as i32).to_le_bytes())?;
                 //data
@@ -100,6 +119,7 @@ impl WriteValue for Buffer {
 
         Ok(size)
     }
+
 }
 
 
@@ -114,7 +134,7 @@ mod test {
     fn test() -> () {
         let mut buffer = Buffer::new().unwrap();
         let int = Value::Int(111);
-        buffer.write_value(&int);
+        buffer.write_value(&int, true).unwrap();
     }
 
 }

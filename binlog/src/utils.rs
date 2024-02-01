@@ -82,6 +82,7 @@ pub fn read_len_enc_num<'a>(slice: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> 
         }
         // 255
         0xff => unreachable!(),
+        _ => unreachable!(),
     }
 }
 
@@ -92,7 +93,7 @@ pub fn read_len_enc_num<'a>(slice: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> 
 /// 0xFE - Integer value is encoded in the next 8 bytes (9 bytes total)
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
-pub fn read_len_enc_num_with_slice(slice: &[u8]) -> Result<(usize, u32), ReError> {
+pub fn read_len_enc_num_with_slice(slice: &[u8]) -> Result<(usize, u64), ReError> {
     let mut cursor = Cursor::new(slice);
 
     read_len_enc_num_with_cursor(&mut cursor)
@@ -105,22 +106,22 @@ pub fn read_len_enc_num_with_slice(slice: &[u8]) -> Result<(usize, u32), ReError
 /// 0xFE - Integer value is encoded in the next 8 bytes (9 bytes total)
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
-pub fn read_len_enc_num_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<(usize, u32), ReError> {
+pub fn read_len_enc_num_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<(usize, u64), ReError> {
     let first_byte = cursor.read_u8()?;
 
     // 0 -- 250
     if first_byte < 0xFB {
-        Ok((1, first_byte as u32))
+        Ok((1, first_byte as u64))
     } else if first_byte == 0xFB {  // 251
         Err(ReError::String(
             "Length encoded integer cannot be NULL.".to_string(),
         ))
     } else if first_byte == 0xFC { // 252
-        Ok((3, cursor.read_u16::<LittleEndian>()? as u32))
+        Ok((3, cursor.read_u16::<LittleEndian>()? as u64))
     } else if first_byte == 0xFD { // 253
-        Ok((4, cursor.read_u24::<LittleEndian>()? as u32))
+        Ok((4, cursor.read_u24::<LittleEndian>()? as u64))
     } else if first_byte == 0xFE { // 254
-        Ok((9, cursor.read_u64::<LittleEndian>()? as u32))
+        Ok((9, cursor.read_u64::<LittleEndian>()? as u64))
     } else {
         let value = format!("Unexpected length-encoded integer: {}", first_byte).to_string();
         Err(ReError::String(value))
@@ -131,11 +132,35 @@ pub fn read_string(cursor: &mut Cursor<&[u8]>, size: usize) -> Result<String, Re
     let mut vec = vec![0; size];
     cursor.read_exact(&mut vec)?;
 
-    let str = String::from_utf8(vec.clone())?;
+    let str = String::from_utf8_lossy(&vec.clone()).to_string();
+    // let str = String::from_utf8(vec.clone())?;
     // let str2 = String::from_utf8_lossy(&vec.clone()).to_string();
     // let str2 = String::from_utf8(vec.clone())?;
 
     Ok(str)
+}
+
+/// 读取变长string，允许null值出现
+pub fn read_len_enc_str_with_cursor_allow_null(cursor: &mut Cursor<&[u8]>) -> Result<Option<String>, ReError> {
+    let first_byte = cursor.read_u8()?;
+
+    let mut length = 0u64;
+    // 0 -- 250
+    if first_byte < 0xFB {
+        length = first_byte as u64;
+    } else if first_byte == 0xFB {  // 251
+        return Ok(None);
+    } else if first_byte == 0xFC { // 252
+        length = cursor.read_u16::<LittleEndian>()? as u64
+    } else if first_byte == 0xFD { // 253
+        length = cursor.read_u24::<LittleEndian>()? as u64
+    } else if first_byte == 0xFE { // 254
+        length = cursor.read_u64::<LittleEndian>()?
+    } else {
+        let value = format!("Unexpected length-encoded integer: {}", first_byte).to_string();
+        return Err(ReError::String(value));
+    }
+    Ok(Some(read_string(cursor, length as usize)?))
 }
 
 pub fn read_len_enc_str_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<String, ReError> {

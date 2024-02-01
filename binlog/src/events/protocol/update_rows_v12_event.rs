@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use dashmap::mapref::one::Ref;
-use common::column::column_type::ColumnType;
+use common::binlog::column::column_type::SrcColumnType;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 
@@ -83,6 +83,17 @@ impl UpdateRowsEvent {
         }
     }
 
+    pub fn get_table_id(&self) -> u64 {
+        self.table_id
+    }
+
+    pub fn get_columns_number(&self) -> usize {
+        self.columns_number
+    }
+
+    pub fn get_rows(&self) -> &[UpdateRowData] {
+        self.rows.as_slice()
+    }
 }
 
 impl RowsLogEvent for UpdateRowsEvent {
@@ -115,7 +126,7 @@ impl RowsLogEvent for UpdateRowsEvent {
             assert_eq!(column_count as usize, column_metadata_type.len());
 
             for clolumn_type in column_metadata_type {
-                if clolumn_type == ColumnType::Json {
+                if clolumn_type == SrcColumnType::Json {
                     json_column_count += 1;
                 }
             }
@@ -124,11 +135,23 @@ impl RowsLogEvent for UpdateRowsEvent {
 
         Ok(true)
     }
+
+    fn get_table_map_event(&self) -> Option<&TableMapEvent> {
+        self.table.as_ref()
+    }
+
+    fn get_header(&self) -> Header {
+        self.header.clone()
+    }
 }
 
 impl LogEvent for UpdateRowsEvent {
     fn get_type_name(&self) -> String {
         "UpdateRowsEvent".to_string()
+    }
+
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
     }
 
     fn parse(
@@ -179,5 +202,79 @@ impl LogEvent for UpdateRowsEvent {
         );
 
         Ok(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use common::binlog::column::column_value::SrcColumnValue::{Blob, Decimal, Double, Float, Int, String};
+    use crate::events::event_header::Header;
+    use crate::events::protocol::table_map_event::TableMapEvent;
+    use crate::events::protocol::update_rows_v12_event::UpdateRowsEvent;
+    use crate::row::row_data::{RowData, UpdateRowData};
+    use crate::row::rows::RowEventVersion;
+
+    #[test]
+    fn test_get_rows() {
+        assert_eq!(1, 1);
+
+        let mut rows: Vec<UpdateRowData> = Vec::new();
+
+
+        // values
+        let abc = "abc".to_string();
+        let xd = "xd".to_string();
+        let abc_bytes = vec![97, 98, 99];
+        let xd_bytes = vec![120, 100];
+;
+        let row = UpdateRowData::new(
+            RowData {
+                cells: vec![
+                    Some(Int(1)),
+                    Some(String(abc.clone())),
+                    Some(String(abc.clone())),
+                    Some(Blob(abc_bytes.clone())),
+                    Some(Blob(abc_bytes.clone())),
+                    Some(Blob(abc_bytes.clone())),
+                    Some(Float(1.0)),
+                    Some(Double(2.0)),
+                    Some(Decimal("3.0000".to_string())), // NewDecimal(vec![128, 0, 3, 0, 0])
+                ],
+            },
+            RowData {
+                cells: vec![
+                    Some(Int(1)),
+                    Some(String(xd.clone())),
+                    Some(String(xd.clone())),
+                    Some(Blob(xd_bytes.clone())),
+                    Some(Blob(xd_bytes.clone())),
+                    Some(Blob(xd_bytes.clone())),
+                    Some(Float(4.0)),
+                    Some(Double(4.0)),
+                    Some(Decimal("4.0000".to_string())), //  NewDecimal(vec![128, 0, 4, 0, 0])
+                ],
+            });
+        rows.push(row);
+
+        let update_event = UpdateRowsEvent {
+            header: Header::default(),
+            table_id: 1,
+            flags: 1,
+            extra_data_len: 1,
+            extra_data: vec![],
+            columns_number: 1,
+            before_image_bits: vec![],
+            after_image_bits: vec![],
+            rows,
+            row_version: RowEventVersion::V1,
+            table: Some(TableMapEvent::default()),
+            json_column_count: 0,
+        };
+
+        let get_rows = &update_event.get_rows();
+        for i in 0..get_rows.len() {
+            println!("{:?}", get_rows[i]);
+        }
+        assert_eq!(&update_event.get_rows().len(), &1);
     }
 }

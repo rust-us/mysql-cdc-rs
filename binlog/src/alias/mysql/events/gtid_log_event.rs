@@ -85,7 +85,7 @@ impl GtidLogEvent {
                 let last_committed = cursor.read_i64::<LittleEndian>()?;
                 let sequence_number = cursor.read_i64::<LittleEndian>()?;
 
-                let remain_len = header.borrow().event_length - (19 + 1 + 16 + 8 + 1 + 8 + 8);
+                let remain_len = header.borrow().get_event_length() - (19 + 1 + 16 + 8 + 1 + 8 + 8);
                 if remain_len > 4 {
                     let mut _s = vec![0; (remain_len - 4) as usize];
                     cursor.read_exact(&mut _s)?;
@@ -132,6 +132,10 @@ impl GtidLogEvent {
 impl LogEvent for GtidLogEvent {
     fn get_type_name(&self) -> String {
         "GtidLogEvent".to_string()
+    }
+
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
     }
 
     fn parse(cursor: &mut Cursor<&[u8]>,

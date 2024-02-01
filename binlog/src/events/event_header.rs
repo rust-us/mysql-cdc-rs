@@ -60,7 +60,7 @@ pub struct Header {
 
     /// u32 事件大小， Gets event length (header + event + checksum).
     /// Number of bytes written by write() function
-    pub event_length: u32,
+    event_length: u32,
 
     /// Gets file position of next event.
     ///
@@ -304,7 +304,7 @@ impl Header {
             when: source.borrow().when,
             event_type: source.borrow().event_type,
             server_id: source.borrow().server_id,
-            event_length: source.borrow().event_length,
+            event_length: source.borrow().get_event_length(),
             log_pos: source.borrow().log_pos,
             flags: source.borrow().flags,
             flags_attr: source.borrow().get_flags_attr(),

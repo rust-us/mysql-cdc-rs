@@ -16,10 +16,21 @@ database = "hdb_meta"
 # automatically fresh table schema, default 10s, min 5s, max 60s
 metadata_stats_fresh_interval_ms = 10000
 
+# 读取binlog的数据库配置
 [binlog]
-binlog_path = "/tmp"
+# 数据源的mysql地址
+host = "192.168.42.237"
+# 数据源的mysql端口
+port = 3306
+# 数据源的mysql用户名
+username = "root"
+# 数据源的mysql密码
+password = "Aa123456"
+# 4 * 1024 * 1024
+payload_buffer_size = 4194304
 file = "mysql-bin.000005"
-position = 0
+position = 4
+binlog_path = "/tmp"
 
 [core]
 max_memory = "256MB"

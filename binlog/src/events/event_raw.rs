@@ -101,7 +101,7 @@ impl EventRaw {
         let header_bytes = &bytes[0..header_len];
 
         let header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();
-        let event_len = header.event_length;
+        let event_len = header.get_event_length();
 
         if bytes.len() < event_len as usize {
             return Err(ReError::Incomplete(Needed::NoEnoughData));

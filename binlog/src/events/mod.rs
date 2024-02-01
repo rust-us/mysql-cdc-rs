@@ -3,7 +3,7 @@ use serde::Serialize;
 pub mod declare;
 pub mod protocol;
 
-pub mod event;
+pub mod binlog_event;
 pub mod event_raw;
 pub mod event_header_flag;
 pub mod event_header;

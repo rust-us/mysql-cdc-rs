@@ -10,6 +10,13 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 use bytes::Buf;
+use sqlparser::ast::{AlterTableOperation, ColumnDef, Statement};
+use sqlparser::dialect::{GenericDialect, MySqlDialect};
+use sqlparser::parser::{Parser, ParserError};
+use common::binlog::column::column_type::SrcColumnType;
+use common::err::CResult;
+use crate::ast::query_parser::{QueryParser, TableInfo, TableInfoBuilder};
+use crate::ext::decode_error_ext::decode_error_from;
 use crate::events::event_raw::HeaderRef;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
@@ -368,7 +375,7 @@ pub const Q_DATA_OFFSET: u8 = QUERY_HEADER_LEN;
 /// doc: https://dev.mysql.com/doc/internals/en/query-event.html
 /// source: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/statement_events.h#L44-L426
 /// layout: https://github.com/mysql/mysql-server/blob/a394a7e17744a70509be5d3f1fd73f8779a31424/libbinlogevents/include/statement_events.h#L627-L643
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct QueryEvent {
     header: Header,
 
@@ -405,6 +412,9 @@ pub struct QueryEvent {
 
     /// 	校验码。 4个字节
     checksum: u32,
+
+    //////// ext
+    table_info: Option<TableInfo>,
 }
 
 impl QueryEvent {
@@ -494,6 +504,14 @@ impl QueryEvent {
         cursor.read_exact(&mut _query)?;
         let query = extract_string(&_query);
 
+        let parser = QueryParser::new(query.clone());
+        let table_rs = parser.parser_ddl_table_format();
+        let table_info = if table_rs.is_ok() {
+            table_rs.unwrap()
+        } else {
+            None
+        };
+
         let checksum = cursor.read_u32::<LittleEndian>()?;
 
         Ok(QueryEvent {
@@ -507,8 +525,8 @@ impl QueryEvent {
                 schema,
                 query,
                 checksum,
-            },
-        )
+                table_info
+        })
     }
 
     fn unpack_variables(
@@ -523,11 +541,23 @@ impl QueryEvent {
 
         Ok(rs)
     }
+
+    pub fn get_table_info(&self) -> Option<&TableInfo> {
+        self.table_info.as_ref()
+    }
+
+    pub fn has_table_info(&self) -> bool {
+        self.table_info.is_some()
+    }
 }
 
 impl LogEvent for QueryEvent {
     fn get_type_name(&self) -> String {
         "QueryEvent".to_string()
+    }
+
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
     }
 
     fn parse(

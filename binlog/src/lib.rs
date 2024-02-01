@@ -15,8 +15,10 @@ pub mod row;
 pub mod factory;
 pub mod dump;
 pub mod relay_log;
-pub mod binlog_server;
 pub mod alias;
+pub mod binlog_server;
+pub mod ast;
+pub mod ext;
 
 pub use events::query::{Q_FLAGS2_CODE_VAL, Q_SQL_MODE_CODE_VAL, QueryStatusVar};
 

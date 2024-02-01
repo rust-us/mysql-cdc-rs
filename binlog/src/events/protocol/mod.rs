@@ -14,3 +14,4 @@ pub mod slave_event;
 pub mod ignorable_log_event;
 pub mod int_var_event;
 pub mod xid_event;
+pub mod user_var_event;

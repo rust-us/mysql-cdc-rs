@@ -7,7 +7,7 @@ use crate::err::decode_error::ReError;
 
 #[derive(IntoPrimitive, TryFromPrimitive, Copy, Clone, Debug)]
 #[repr(i32)]
-pub enum DataType {
+pub enum DstColumnType {
     Null = 0,
     Boolean = 1,
     Byte = 2,
@@ -66,7 +66,7 @@ pub enum Value {
     Double(f64),
 
     //bytes, precision, scale
-    Decimal(BigDecimal, i16, i16),
+    Decimal(String),
 
     Date(i64),
     Time(i64),
@@ -87,26 +87,26 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn get_data_type(&self) -> DataType {
+    pub fn get_data_type(&self) -> DstColumnType {
         match self {
-            Value::Null => {DataType::Null}
-            Value::Boolean(_) => {DataType::Boolean}
-            Value::Byte(_) => {DataType::Byte}
-            Value::Short(_) => {DataType::Short}
-            Value::Int(_) => {DataType::Int}
-            Value::Long(_) => {DataType::Long}
-            Value::String(_) => {DataType::String}
-            Value::JSON(_) => {DataType::JSON}
-            Value::Float(_) => {DataType::Float}
-            Value::Double(_) => {DataType::Double}
-            Value::Decimal(_, _, _) => {DataType::Decimal}
-            Value::Date(_) => {DataType::Date}
-            Value::Time(_) => {DataType::Time}
-            Value::DateTime(_) => {DataType::DateTime}
-            Value::Timestamp(_) => {DataType::Timestamp}
-            Value::Binary(_) => {DataType::Binary}
-            Value::Bytes(_) => {DataType::Bytes}
-            Value::Blob(_) => {DataType::Blob}
+            Value::Null => { DstColumnType::Null}
+            Value::Boolean(_) => { DstColumnType::Boolean}
+            Value::Byte(_) => { DstColumnType::Byte}
+            Value::Short(_) => { DstColumnType::Short}
+            Value::Int(_) => { DstColumnType::Int}
+            Value::Long(_) => { DstColumnType::Long}
+            Value::String(_) => { DstColumnType::String}
+            Value::JSON(_) => { DstColumnType::JSON}
+            Value::Float(_) => { DstColumnType::Float}
+            Value::Double(_) => { DstColumnType::Double}
+            Value::Decimal(_) => { DstColumnType::Decimal}
+            Value::Date(_) => { DstColumnType::Date}
+            Value::Time(_) => { DstColumnType::Time}
+            Value::DateTime(_) => { DstColumnType::DateTime}
+            Value::Timestamp(_) => { DstColumnType::Timestamp}
+            Value::Binary(_) => { DstColumnType::Binary}
+            Value::Bytes(_) => { DstColumnType::Bytes}
+            Value::Blob(_) => { DstColumnType::Blob}
         }
     }
 
@@ -117,7 +117,7 @@ impl Value {
 }
 
 /// Table Schema
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct TableSchema {
     pub catalog: String,
     pub database: String,
@@ -168,6 +168,50 @@ impl TryFrom<&str> for TableSchema {
     #[inline]
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         parse(value)
+    }
+}
+
+macro_rules! define_parse_data_type_from_str {
+    ($($t: expr, $($name: expr),+);*) => {
+        fn parse_data_type_from_str(s: &str) -> Result<DstColumnType, ReError> {
+            $(
+            if $(s.eq_ignore_ascii_case($name) ||)+ false {
+                return Ok($t);
+            }
+            )*
+            return Err(ReError::OpMetadataErr(format!("DateType::try_from str: {} err", &s)));
+        }
+    };
+}
+
+define_parse_data_type_from_str!(
+    DstColumnType::Null, "null";
+    DstColumnType::Boolean, "bool", "boolean";
+    DstColumnType::Byte, "byte";
+    DstColumnType::Short, "short";
+    DstColumnType::Int, "int", "integer";
+    DstColumnType::Long, "long", "bigint";
+    DstColumnType::Decimal, "decimal";
+    DstColumnType::Double, "double";
+    DstColumnType::Float, "float";
+    DstColumnType::Time, "time";
+    DstColumnType::Date, "date";
+    DstColumnType::Timestamp, "timestamp";
+    DstColumnType::Bytes, "bytes";
+    DstColumnType::String, "string", "varchar";
+    DstColumnType::DateTime, "datetime";
+    DstColumnType::Other, "other";
+    DstColumnType::MultiValue, "multiValue";
+    DstColumnType::Geo2D, "Geo2D";
+    DstColumnType::Blob, "Blob";
+    DstColumnType::Binary, "Binary"
+);
+
+impl TryFrom<String> for DstColumnType {
+    type Error = ReError;
+    #[inline]
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        parse_data_type_from_str(s.as_ref())
     }
 }
 
