@@ -1,0 +1,16 @@
+# catalog.schema.table
+
+# mock table t0, is has 2 columns: p, __hdb_auto_id__
+# which __hdb_auto_id__ is primary key and distribution key, it is auto increment
+[default.test.t0]
+table_id = 145
+distribute_type = "hash"
+physical_name = "test##t1##145"
+pk_columns = ["__hdb_auto_id__"]
+distribution_key_columns = ["__hdb_auto_id__"]
+columns.p.id = 0
+columns.p.data_type = "float"
+columns.p.nullable = true
+columns.__hdb_auto_id__.id = 1
+columns.__hdb_auto_id__.data_type = "bigint"
+columns.__hdb_auto_id__.auto_increment = true

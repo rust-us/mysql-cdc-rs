@@ -8,14 +8,7 @@ members = [
     "./binlog",
     "./connection",
     "./binlog_cli",
-#    "./slave",
-#    "./binlog-adapter/log",
-#    "./binlog-adapter/relay_log",
-#    "./raft",
-#    "./relay_log",
-#    "./replayer",
     "./tests",
-#    "./sink",
 ]
 
 [workspace.dependencies]
