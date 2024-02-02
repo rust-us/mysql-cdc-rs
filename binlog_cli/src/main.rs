@@ -2,6 +2,7 @@ mod cli_client;
 mod cli_options;
 mod pretty_util;
 
+use std::env::current_dir;
 use std::fmt::{Debug};
 use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
@@ -60,6 +61,14 @@ pub(crate) struct CliArgs {
 
     #[arg(short, long = "password", help = "mysql password", value_name = "password")]
     pub password: Option<String>,
+
+
+    ///////////////////////////////////////////////////
+    // Just for test //
+    ///////////////////////////////////////////////////
+    /// enable debug info
+    #[arg(long, help = "enable test mode", default_value_t = true)]
+    pub test: bool,
 }
 
 // must declared as private
@@ -102,25 +111,20 @@ impl TryFrom<&str> for Format {
 async fn main() -> CResult<()> {
     let args = CliArgs::parse();
     let format = conver_format(&args.format);
+    let test = &args.test;
 
     TracingFactory::init_log(args.debug);
     if args.debug {
-        eprintln!("args: \n{}", to_string_pretty(&format, &args));
+        eprintln!("debug model. args: \n{} ", to_string_pretty(&format, &args));
     }
 
-    let default_conf = get_config_path(&args);
+    let default_conf = get_config_path(&args, test.clone());
     let mut binlog_config = if default_conf.is_some() {
         let rep_conf = read_config(default_conf.unwrap())?;
 
         rep_conf.binlog
     } else {
-        let mut b = BinlogConfig::default();
-        // b.host = "192.168.42.237".to_string();
-        b.username = "root".to_string();
-        b.password = "123456".to_string();
-        // b.password = "Aa123456".to_string();
-
-        b
+        BinlogConfig::default()
     };
 
     if args.debug {
@@ -149,22 +153,25 @@ async fn main() -> CResult<()> {
     Ok(())
 }
 
-fn get_config_path(args: &CliArgs) -> Option<PathBuf> {
+fn get_config_path(args: &CliArgs, test: bool) -> Option<PathBuf> {
     let path = {
         if args.config.is_some() {
             return Some(args.config.as_ref().unwrap().clone());
         }
 
-        None
-        // let pwd = current_dir().unwrap_or("/".into());
-        //
-        // let path_ = if pwd.ends_with("/common") {
-        //     "../conf/replayer.toml"
-        // } else {
-        //     "./conf/replayer.toml"
-        // }.into();
-        //
-        // Some(path_)
+        if test {
+            let pwd = current_dir().unwrap_or("/".into());
+
+            let path_ = if pwd.ends_with("/common") {
+                "../conf/replayer.toml"
+            } else {
+                "./conf/replayer.toml"
+            }.into();
+
+            Some(path_)
+        } else {
+            None
+        }
     };
 
     path
@@ -172,11 +179,17 @@ fn get_config_path(args: &CliArgs) -> Option<PathBuf> {
 
 fn merge(binlog_config: &mut BinlogConfig, args: &CliArgs) -> CResult<bool> {
     if args.host.is_some() {
-        binlog_config.host = args.host.as_ref().unwrap().clone();
+        binlog_config.host = args.host.clone();
+    }
+    if binlog_config.host.is_none() {
+        binlog_config.host = Some("127.0.0.1".to_string());
     }
 
     if args.port.is_some() {
-        binlog_config.port = args.port.as_ref().unwrap().clone();
+        binlog_config.port = args.port.clone();
+    }
+    if binlog_config.port.is_none() {
+        binlog_config.port = Some(3306);
     }
 
     if args.username.is_some() {

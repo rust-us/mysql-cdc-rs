@@ -57,8 +57,8 @@ impl BinlogLifecycle for BinlogSubscribe {
     #[instrument]
     async fn setup(&mut self, binlog_config: &BinlogConfig) -> CResult<()> {
         let mut opts = ConnectionOptions::new(
-            binlog_config.host.clone(),
-            binlog_config.port,
+            binlog_config.host.as_ref().unwrap().clone(),
+            binlog_config.port.as_ref().unwrap().clone(),
             binlog_config.username.clone(),
             binlog_config.password.clone(),
         );

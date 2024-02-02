@@ -1,11 +1,12 @@
 use std::hash::{Hash, Hasher};
-use bigdecimal::BigDecimal;
+
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::err::CResult;
 use crate::err::decode_error::ReError;
 
-#[derive(IntoPrimitive, TryFromPrimitive, Copy, Clone, Debug)]
+#[derive(IntoPrimitive, TryFromPrimitive, Copy, Clone, Debug, Serialize, Deserialize)]
 #[repr(i32)]
 pub enum DstColumnType {
     Null = 0,
@@ -49,7 +50,7 @@ pub enum DstColumnType {
     Map = 50,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Value {
     Null,
 

@@ -14,19 +14,17 @@ This library seeks to be competitive with mysqlbinlog at time-to-parse a full bi
 All interesting datatypes are serializable using Serde, 
 so it's easy to hook into other data processing flows.
 
-[Module dependency](https://www.processon.com/embed/65b0b5859b15884bcfa4295c)
-
-
 
 # Limitations
 
 Please note the lib currently has the following limitations:
-* Supports only standard auth plugins mysql_native_password and caching_sha2_password. 
-* Currently, the library doesn't support SSL encryption. 
+* Supports only standard auth plugins mysql_native_password and caching_sha2_password.
+* Currently, the library doesn't support SSL encryption.
 * Doesn't handle split packets (16MB and more).
 
+
 # Development environment
-In order to reduce the probability of execution errors and improve the functional features, 
+In order to reduce the probability of execution errors and improve the functional features,
 we unify the versions of the Rust toolchain and switch the following commands:
 
 ```text
@@ -36,7 +34,42 @@ we unify the versions of the Rust toolchain and switch the following commands:
 You can check it out in the ` rustup toolchain list `. If not, it will be automatically downloaded.
 
 
-# Support
+# Architecture
+## mysql-cdc-rs-architecture
+![Module dependency](./doc/architecture/mysql-cdc-rs-architecture.png)
+
+## Module Design
+```
+
++-- binlog： Implementation of the ability to parse binlog events
++-- binlog-Adapter： Implementation of converting binlog event data structure to neutral data output
+    -- log: Default binlog data log output
+    -- relay_log: Default relay log output for binlog data
++-- binlog_cli： CLI Client
++-- common: Basic Type Definition
++-- conf: Project default configuration file
++-- connection: Provide MySQL/PostgreSQL/MariaDB connectivity and binlog subscription capabilities
++-- doc: Documents
++-- memory: allocator
++-- raft: raft Protocol(Broker Impl)
++-- relay_log: relay logs
++-- replayer: Main
++-- rpc: rpc Protocol
++-- sink: Relay data push to broker service
++-- slave: Provide MySQL slave disguise and dump capabilities
++-- tests: test case
+
+```
+
+
+# How to Use
+
+
+# CLI
+See [BinlogCLI README.md](binlog_cli/README.md)
+
+
+# Support Event
 See [Binlog README.md](binlog/README.md)
 
 It is a MySQL binlog file parsing library based on Rust implementation,
@@ -91,12 +124,3 @@ Parsed events matrix:
 | 0x27 | PARTIAL_UPDATE_ROWS_EVENT | not support         | not tested       |       |
 | 0x28 | TRANSACTION_PAYLOAD_EVENT | not support         | not tested       |       |
 | 0x29 | HEARTBEAT_LOG_EVENT_V2    | not support         | not tested       |       |
-
-# How to Use
-
-
-# CLI
-
-<iframe height=498 width=510 frameborder=0 allowfullscreen src="doc/cli/video/binlog_without_detail.webm"></iframe>
-
-

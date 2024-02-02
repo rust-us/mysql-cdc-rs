@@ -24,8 +24,8 @@ pub struct RepConfig {
 /// Binlog 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinlogConfig {
-    pub host: String,
-    pub port: i16,
+    pub host: Option<String>,
+    pub port: Option<i16>,
     pub username: String,
     pub password: String,
 
@@ -33,13 +33,13 @@ pub struct BinlogConfig {
     pub payload_buffer_size: usize,
 
     /// binlog file, 如 mysql-bin.000005
-    pub file: String,
+    pub file: Option<String>,
 
     /// binlog file 消费的起始position
-    pub position: i32,
+    pub position: Option<i32>,
 
     /// binlog 文件的绝对路径
-    pub binlog_path: String,
+    pub binlog_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,14 +67,14 @@ pub struct CoreConfig {
 impl Default for BinlogConfig {
     fn default() -> Self {
         BinlogConfig {
-            host: "localhost".to_string(),
-            port: 3306,
-            username: "".to_string(),
-            password: "".to_string(),
+            host: Some("127.0.0.1".to_string()),
+            port: Some(3306),
+            username: "root".to_string(),
+            password: "123456".to_string(),
             payload_buffer_size: PAYLOAD_BUFFER_SIZE,
-            file: "".to_string(),
-            position: 4,
-            binlog_path: "".to_string(),
+            file: Some("".to_string()),
+            position: Some(4),
+            binlog_path: Some("".to_string()),
         }
     }
 }

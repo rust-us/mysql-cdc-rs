@@ -19,3 +19,4 @@ tracing-subscriber = { workspace = true }
 
 common = { path = "../common" }
 binlog = { path = "../binlog" }
+log = "0.4.20"

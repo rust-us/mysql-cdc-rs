@@ -12,8 +12,6 @@ Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现�
 
 因此很容易连接到其他数据处理流中。
 
-[模块依赖图设计图](https://www.processon.com/embed/65b0b5859b15884bcfa4295c)
-
 
 # Limitations
 
@@ -21,6 +19,7 @@ Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现�
 * 仅支持标准身份验证插件mysql_native_password和caching_sha2_password。
 * 目前，该库不支持SSL加密。
 * 不处理拆分数据包（16MB及以上）。
+
 
 # Development environment
 为了降低执行错误的概率并改进功能特征， 我们统一了Rust工具链的版本，并切换了以下命令：
@@ -32,7 +31,43 @@ Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现�
 您可以在  ` rustup toolchain list ` 中查看它。如果没有，它将自动下载。
 
 
-# Support
+# Architecture
+## mysql-cdc-rs-architecture
+![模块依赖图设计图](./doc/architecture/mysql-cdc-rs-architecture.png)
+
+## 模块职能设计
+```
+
++-- binlog： binlog 事件解析的能力实现
++-- binlog-Adapter： binlog 事件数据结构转中立数据输出实现
+    -- log: 默认的binlog数据的日志输出
+    -- relay_log: 默认的binlog数据的中继日志输出
++-- binlog_cli： CLI 客户端
++-- common: 基本类型定义
++-- conf: 工程默认配置文件
++-- connection: 提供 MySQL/PostgreSQL/MariaDB 的连接能力和binlog订阅能力
++-- doc: 文档
++-- memory: 内存分配器
++-- raft: raft 协议(Broker Impl)
++-- relay_log: 中继日志
++-- replayer: 启动入口
++-- rpc: rpc 协议
++-- sink: 中继数据推送至Broker的服务
++-- slave: 提供mysql slave 伪装能力与dump能力
++-- tests: 测试用例
+
+```
+
+
+
+# How to Use
+
+
+# CLI
+See [BinlogCLI README.md](binlog_cli/README.md)
+
+
+# Support Event
 See [Binlog README.md](binlog/README.md)
 
 是一个基于 Rust 实现的 MySQL binlog 文件解析库，
@@ -86,12 +121,4 @@ Parsed events matrix:
 | 0x27 | PARTIAL_UPDATE_ROWS_EVENT | not support         | not tested       |       |
 | 0x28 | TRANSACTION_PAYLOAD_EVENT | not support         | not tested       |       |
 | 0x29 | HEARTBEAT_LOG_EVENT_V2    | not support         | not tested       |       |
-
-# How to Use
-
-
-# CLI
-
-<iframe height=498 width=510 frameborder=0 allowfullscreen src="doc/cli/video/binlog_without_detail.webm"></iframe>
-
 

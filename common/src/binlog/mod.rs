@@ -1,5 +1,6 @@
 pub mod column;
 pub mod row;
+pub mod src_meta;
 
 pub const FIRST_EVENT_POSITION: usize = 4;
 
