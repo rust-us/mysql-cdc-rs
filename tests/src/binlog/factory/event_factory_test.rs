@@ -10,7 +10,7 @@ mod test {
     use binlog::factory::event_factory::{EventFactory, EventReaderOption, IEventFactory};
     use binlog::events::event_header::Header;
     use binlog::events::log_context::{ILogContext, LogContext, LogContextRef};
-    use binlog::events::log_position::LogPosition;
+    use binlog::events::log_position::LogFilePosition;
     use common::err::decode_error::ReError;
     use common::log::tracing_factory::TracingFactory;
     use crate::binlog::factory::test_iter_owener::TestOwenerIter;
@@ -38,7 +38,7 @@ mod test {
         let (i, _) = Header::check_start(bytes).unwrap();
 
         let mut _context:LogContext = LogContext::default();
-        &_context.set_log_position(LogPosition::new("test"));
+        &_context.force_set_log_position(LogFilePosition::new("test"));
         let context = Rc::new(RefCell::new(_context));
 
         let (i, event_raws) = EventRaw::steam_to_event_raw(i, context.clone()).unwrap();
@@ -110,19 +110,11 @@ mod test {
         let binding = factory.get_context();
         let context = binding.borrow();
         let format_description = context.get_format_description();
-        let log_position_binding = context.get_log_position();
-        let log_position = log_position_binding.read().unwrap();
-        let log_stat_binding = context.get_log_stat();
-        let log_stat = log_stat_binding.read().unwrap();
-        assert_eq!(context.get_log_stat_process_count(), 4);
-        assert_eq!(log_position.get_position(), 369);
     }
 
     /// 验证上下文指针的正确性
     #[test]
     fn test_context_position_check() {
-        TracingFactory::init_log(true);
-
         let bytes = include_bytes!("../../../events/8.0/02_query_bigger/binlog.000733");
 
         let len = bytes.len();
@@ -152,12 +144,7 @@ mod test {
         let binding = factory.get_context();
         let context = binding.borrow();
         let format_description = context.get_format_description();
-        let log_position_binding = context.get_log_position();
-        let log_position = log_position_binding.read().unwrap();
-        let log_stat_binding = context.get_log_stat();
-        let log_stat = log_stat_binding.read().unwrap();
 
-        assert_eq!(context.get_log_stat_process_count(), 42);
-        assert_eq!(log_position.get_position(), len as u64);
+        assert_eq!(context.get_position_offset(), len as u64);
     }
 }

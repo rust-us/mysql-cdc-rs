@@ -10,7 +10,7 @@ use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_raw::EventRaw;
 use crate::events::event_header::Header;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
-use crate::events::log_position::LogPosition;
+use crate::events::log_position::LogFilePosition;
 
 /// Reads binlog events from a stream.
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ impl BinlogReader<&[u8], BinlogEvent> for BytesBinlogReader {
 
     #[inline]
     fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, LogContextRef), ReError> {
-        let _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
+        let _context:LogContext = LogContext::new(LogFilePosition::new("BytesBinlogReader"));
         let context = Rc::new(RefCell::new(_context));
 
         let decoder = BinlogReader::new(context.clone(), skip_magic_buffer).unwrap();
@@ -149,7 +149,7 @@ impl Iterator for BytesBinlogReaderIterator {
             },
             Ok(data) => {
                 self.index += 1;
-                self.context.borrow_mut().update_log_stat_add();
+                self.context.borrow_mut().add_log_stat(data.len() as usize);
 
                 Some(Ok(data))
             }

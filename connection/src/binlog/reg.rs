@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use crate::binlog::binlog_events_wrapper::{BinlogEventsHolderRef};
 
 // 定义一个函数签名，用于注册的函数
-pub type Callback = fn(BinlogEventsHolderRef, i32) -> bool;
+pub type Callback = fn(BinlogEventsHolderRef, usize) -> bool;
 
 // 定义函数注册表结构
 pub struct FunctionRegistry {
@@ -18,12 +18,12 @@ impl FunctionRegistry {
     }
 
     /// 注册函数
-    pub fn register_function(&mut self, name: &'static str, callback: fn(BinlogEventsHolderRef, i32) -> bool) {
+    pub fn register_function(&mut self, name: &'static str, callback: fn(BinlogEventsHolderRef, usize) -> bool) {
         self.callbacks.insert(name, callback);
     }
 
     /// 调用已注册的函数
-    pub fn call_function(&self, name: &'static str, arg: BinlogEventsHolderRef, step: i32) -> Option<bool> {
+    pub fn call_function(&self, name: &'static str, arg: BinlogEventsHolderRef, step: usize) -> Option<bool> {
         if let Some(callback) = self.callbacks.get(name) {
             Some(callback(arg, step))
         } else {
@@ -39,7 +39,7 @@ mod test {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    pub type CallbackDemo = fn(EventHandlerRef, i32) -> bool;
+    pub type CallbackDemo = fn(EventHandlerRef, usize) -> bool;
 
     pub struct FunctionRegistryDemo {
         callbacks: HashMap<&'static str, CallbackDemo>,
@@ -52,11 +52,11 @@ mod test {
             }
         }
 
-        pub fn register_function(&mut self, name: &'static str, callback: fn(EventHandlerRef, i32) -> bool) {
+        pub fn register_function(&mut self, name: &'static str, callback: fn(EventHandlerRef, usize) -> bool) {
             self.callbacks.insert(name, callback);
         }
 
-        pub fn call_function(&self, name: &'static str, arg: EventHandlerRef, step: i32) -> Option<bool> {
+        pub fn call_function(&self, name: &'static str, arg: EventHandlerRef, step: usize) -> Option<bool> {
             if let Some(callback) = self.callbacks.get(name) {
                 Some(callback(arg, step))
             } else {
@@ -95,24 +95,23 @@ mod test {
 
 
     /// 事件函数
-    fn end_of_elapsed_time(wrapper: EventHandlerRef, x: i32) -> bool {
+    fn end_of_elapsed_time(wrapper: EventHandlerRef, x: usize) -> bool {
         wrapper.borrow_mut().end_of_elapsed_time();
 
         true
     }
     
     // 示例函数1
-    fn add_one(a: EventHandlerRef, x: i32) -> bool {
+    fn add_one(a: EventHandlerRef, x: usize) -> bool {
         a.borrow_mut().end_of_elapsed_time();
 
         true
     }
 
     // 示例函数2
-    fn multiply_by_two(a: EventHandlerRef, x: i32) -> bool {
+    fn multiply_by_two(a: EventHandlerRef, x: usize) -> bool {
         true
     }
-
 
     #[test]
     fn test() {

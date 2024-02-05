@@ -62,6 +62,43 @@ pub struct RcMetadata {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoreConfig {
     max_memory: Option<String>,
+
+    /// 日志输出路径
+    log_dir: Option<String>,
+}
+
+impl Default for RepConfig {
+    fn default() -> Self {
+        RepConfig {
+            binlog: BinlogConfig::default(),
+            rc_mysql: RcMySQL::default(),
+            rc_metadata: RcMetadata::default(),
+            core: CoreConfig::default(),
+        }
+    }
+}
+
+impl Default for RcMySQL {
+    fn default() -> Self {
+        RcMySQL {
+            addr: vec![],
+            username: "".to_string(),
+            password: "".to_string(),
+            raft_stats_fresh_interval_ms: None,
+        }
+    }
+}
+
+impl Default for RcMetadata {
+    fn default() -> Self {
+        RcMetadata {
+            addr: "".to_string(),
+            username: "".to_string(),
+            password: "".to_string(),
+            database: "".to_string(),
+            metadata_stats_fresh_interval_ms: None,
+        }
+    }
 }
 
 impl Default for BinlogConfig {
@@ -79,6 +116,22 @@ impl Default for BinlogConfig {
     }
 }
 
+impl Default for CoreConfig {
+    fn default() -> Self {
+        CoreConfig {
+            max_memory: None,
+            log_dir: Some(String::from("/tmp/replayer")),
+        }
+    }
+}
+
+impl CoreConfig {
+    pub fn get_log_dir(&self) -> Option<String> {
+        self.log_dir.clone()
+    }
+}
+
+/// 读取指定路径下的配制文件信息
 pub fn read_config<P: AsRef<Path>>(path: P) -> Result<RepConfig, ReError> {
     let mut file = File::open(path.as_ref())?;
     let mut s = String::new();

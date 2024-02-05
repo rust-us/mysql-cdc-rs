@@ -1,33 +1,54 @@
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use serde::Serialize;
 
-pub type LogStatRef = Arc<RwLock<LogStat>>;
+pub type LogStatRef = LogStat;
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
+/// 上下文监控的相关信息
+#[derive(Debug, Serialize)]
 pub struct LogStat {
-    process_count: u64,
+    /// 已经读取的事件数量
+    read_ptr: AtomicU64,
+
+    /// 接受到的流量总大小
+    receives_bytes: AtomicUsize,
+}
+
+impl Clone for LogStat {
+    fn clone(&self) -> Self {
+        LogStat {
+            read_ptr: AtomicU64::new(self.load_read_ptr()),
+            receives_bytes: AtomicUsize::new(self.load_receives_bytes()),
+        }
+    }
 }
 
 impl Default for LogStat {
     fn default() -> Self {
-        LogStat {
-            process_count: 0,
-        }
+        LogStat::new()
     }
 }
 
 impl LogStat {
     pub fn new() -> Self {
         LogStat {
-            process_count: 0,
+            read_ptr: AtomicU64::new(0),
+            receives_bytes: AtomicUsize::new(0),
         }
     }
 
-    pub fn add(&mut self) {
-        self.process_count += 1;
+    pub fn add(&mut self, len: usize) {
+        self.receives_bytes.fetch_add(len, Ordering::Relaxed);
+
+        // 添加到当前值，返回之前的值。此操作在溢出时回绕
+        self.read_ptr.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn get_process_count(&self) -> u64 {
-        self.process_count
+    /// 获取接受到的流量总大小
+    pub fn load_receives_bytes(&self) -> usize {
+        self.receives_bytes.load(Ordering::Relaxed)
+    }
+
+    pub fn load_read_ptr(&self) -> u64 {
+        self.read_ptr.load(Ordering::Relaxed)
     }
 }

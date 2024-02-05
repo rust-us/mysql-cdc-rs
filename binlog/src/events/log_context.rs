@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::ops::Add;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicU64;
 use dashmap::DashMap;
 use dashmap::mapref::one::Ref;
 use nom::ExtendInto;
@@ -9,31 +10,37 @@ use serde::Serialize;
 use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
 use crate::alias::mysql::gtid::gtid_set::GtidSet;
 use crate::events::declare::log_event::LogEvent;
-use crate::events::log_position::{LogPosition, LogPositionRef};
+use crate::events::log_position::{LogFilePosition};
 use crate::events::log_stat::{LogStat, LogStatRef};
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
 pub trait ILogContext {
-    fn new(log_position: LogPosition) -> LogContext;
+    fn new(log_position: LogFilePosition) -> LogContext;
 
-    fn new_with_gtid(log_position: LogPosition, gtid_set: GtidSet) -> LogContext;
+    fn new_with_gtid(log_position: LogFilePosition, gtid_set: GtidSet) -> LogContext;
 
-    fn new_with_format_description(log_position: LogPosition, log_stat: LogStat,
+    fn new_with_format_description(log_position: LogFilePosition, log_stat: LogStat,
                                    format_description: FormatDescriptionEvent, gtid_set: Option<GtidSet>) -> LogContext;
 
     fn get_format_description(&self) -> Arc<FormatDescriptionEvent>;
     fn set_format_description(&mut self, fd: FormatDescriptionEvent);
 
-    fn get_log_position(&self) -> LogPositionRef;
-    fn set_log_position(&mut self, log_pos: LogPosition);
-    fn update_log_position_with_offset(&mut self, pos: u64);
+    /// 获取当前 LogFilePosition
+    fn get_log_position(&self) -> LogFilePosition;
+    /// 切换/更新  LogFilePosition
+    fn force_set_log_position(&mut self, log_pos: LogFilePosition);
+    /// 获取 log pos 位置
+    fn get_position_offset(&self) -> u64;
+    /// 更新  LogFilePosition 的 pos
+    fn update_position_offset(&mut self, pos: u64);
 
-    fn get_log_stat(&self) -> LogStatRef;
-    fn update_log_stat_add(&mut self);
-
+    /// 记录已经读取一个 event。
+    fn add_log_stat(&mut self, len: usize);
     /// 当前已经处理的binlog数量
-    fn get_log_stat_process_count(&self) -> u64;
+    fn load_read_ptr(&self) -> u64;
+    /// 获取接受到的流量总大小
+    fn load_receives_bytes(&self) -> usize;
 
     fn is_compatiable_percona(&self) -> bool;
     fn set_compatiable_percona(&mut self, compatiable_percona: bool);
@@ -55,7 +62,7 @@ pub trait ILogContext {
     fn set_gtid_log_event(&mut self, gtid_log_event: GtidLogEvent);
 
     /// 输出格式化
-    fn stat_fmt(&mut self) -> String;
+    fn stat_fmt(&self) -> String;
 }
 
 pub type LogContextRef = Rc<RefCell<LogContext>>;
@@ -66,7 +73,7 @@ pub struct LogContext {
     format_description: Arc<FormatDescriptionEvent>,
 
     /// binlog position
-    log_position: LogPositionRef,
+    log_position: LogFilePosition,
 
     /// binlog monitor and stat
     log_stat: LogStatRef,
@@ -87,8 +94,8 @@ impl Default for LogContext {
     fn default() -> Self {
         LogContext {
             format_description: Arc::new(FormatDescriptionEvent::default()),
-            log_position: Arc::new(RwLock::new(LogPosition::default())),
-            log_stat: Arc::new(RwLock::new(LogStat::default())),
+            log_position: LogFilePosition::default(),
+            log_stat: LogStat::default(),
             compatiable_percona: false,
             map_of_table: Arc::new(DashMap::<u64, TableMapEvent>::new()),
             gtid_set: None,
@@ -98,20 +105,23 @@ impl Default for LogContext {
 }
 
 impl ILogContext for LogContext {
-    fn new(log_position: LogPosition) -> LogContext {
+    fn new(log_position: LogFilePosition) -> LogContext {
         LogContext::new_with_format_description(log_position, LogStat::default(), FormatDescriptionEvent::default(), None)
     }
 
-    fn new_with_gtid(log_position: LogPosition, gtid_set: GtidSet) -> LogContext {
+    fn new_with_gtid(log_position: LogFilePosition, gtid_set: GtidSet) -> LogContext {
         LogContext::new_with_format_description(log_position, LogStat::default(), FormatDescriptionEvent::default(), Some(gtid_set))
     }
 
-    fn new_with_format_description(log_position: LogPosition, log_stat: LogStat,
+    fn new_with_format_description(log_position: LogFilePosition, log_stat: LogStat,
                                    format_description: FormatDescriptionEvent, gtid_set: Option<GtidSet>) -> LogContext {
+        // let mut position = GlobalPosition::default();
+        // position.force_set_position(log_position.get_position());
+
         LogContext {
             format_description: Arc::new(format_description),
-            log_position: Arc::new(RwLock::new(log_position)),
-            log_stat: Arc::new(RwLock::new(log_stat)),
+            log_position,
+            log_stat,
             compatiable_percona: false,
             map_of_table: Arc::new(DashMap::<u64, TableMapEvent>::new()),
             gtid_set,
@@ -127,28 +137,40 @@ impl ILogContext for LogContext {
         self.format_description = Arc::new(fd);
     }
 
-    fn get_log_position(&self) -> LogPositionRef {
+
+    /////////////////////////////////////////////
+    //                log_position             //
+    /////////////////////////////////////////////
+    fn get_log_position(&self) -> LogFilePosition {
         self.log_position.clone()
     }
 
-    fn set_log_position(&mut self, log_pos: LogPosition) {
-        self.log_position = Arc::new(RwLock::new(log_pos));
+    fn force_set_log_position(&mut self, log_pos: LogFilePosition) {
+        self.log_position = log_pos;
     }
 
-    fn update_log_position_with_offset(&mut self, pos: u64) {
-        self.log_position.write().unwrap().set_position(pos);
+    fn get_position_offset(&self) -> u64 {
+        self.log_position.get_position()
     }
 
-    fn get_log_stat(&self) -> LogStatRef {
-        self.log_stat.clone()
+    fn update_position_offset(&mut self, pos: u64) {
+        self.log_position.set_position(pos);
     }
 
-    fn update_log_stat_add(&mut self) {
-        self.log_stat.write().unwrap().add();
+
+    /////////////////////////////////////////////
+    //                  log_stat               //
+    /////////////////////////////////////////////
+    fn add_log_stat(&mut self, len: usize) {
+        self.log_stat.add(len);
     }
 
-    fn get_log_stat_process_count(&self) -> u64 {
-        self.log_stat.read().unwrap().clone().get_process_count()
+    fn load_read_ptr(&self) -> u64 {
+        self.log_stat.load_read_ptr()
+    }
+
+    fn load_receives_bytes(&self) -> usize {
+        self.log_stat.load_receives_bytes()
     }
 
     fn is_compatiable_percona(&self) -> bool{
@@ -225,14 +247,12 @@ impl ILogContext for LogContext {
         self.gtid_log_event = Some(gtid_log_event);
     }
 
-    fn stat_fmt(&mut self) -> String {
-        let pos = self.log_position.read().unwrap();
-        let stat = self.log_stat.read().unwrap();
+    fn stat_fmt(&self) -> String {
+        let pos = &self.log_position;
 
-        format!("Current server_version:{}, Current binlog_version:{}, Current Binlog File: {}, Current position: {}, Total process_count:{}",
+        format!("Current server_version:{}, Current binlog_version:{}, Current Binlog File: {}, Current position: {}",
                 &*self.format_description.server_version, &*self.format_description.binlog_version.to_string(),
-                &*pos.get_file_name(), &*pos.get_position().to_string(),
-                &*stat.get_process_count().to_string())
+                &*pos.get_file_name(), &*pos.get_position().to_string())
     }
 }
 
@@ -241,24 +261,24 @@ mod test {
     use dashmap::mapref::one::Ref;
     use crate::alias::mysql::gtid::gtid_set::GtidSet;
     use crate::events::log_context::{ILogContext, LogContext};
-    use crate::events::log_position::LogPosition;
+    use crate::events::log_position::LogFilePosition;
     use crate::events::protocol::table_map_event::TableMapEvent;
 
     #[test]
     fn test() {
-        let mut _context:LogContext = LogContext::new(LogPosition::new("BytesBinlogReader"));
-        _context.update_log_position_with_offset(66);
+        let mut _context:LogContext = LogContext::new(LogFilePosition::new("BytesBinlogReader"));
+        _context.update_position_offset(66);
 
-        assert_eq!("Current server_version:5.0, Current binlog_version:4, Current Binlog File: BytesBinlogReader, Current position: 66, Total process_count:0",
+        assert_eq!("Current server_version:5.0, Current binlog_version:4, Current Binlog File: BytesBinlogReader, Current position: 66",
                    _context.stat_fmt());
     }
 
     #[test]
     fn test_update_gtid_set() {
         let mut context:LogContext = LogContext::new_with_gtid(
-            LogPosition::new("BytesBinlogReader"),
+            LogFilePosition::new("BytesBinlogReader"),
             GtidSet::parse(String::from("726757ad-4455-11e8-ae04-0242ac110002:1-3:4")).unwrap());
-        context.update_log_position_with_offset(66);
+        context.update_position_offset(66);
 
         assert!(context.gtid_set.is_some());
 
@@ -272,9 +292,9 @@ mod test {
     #[test]
     fn test_xxx_map_of_table() {
         let mut context:LogContext = LogContext::new_with_gtid(
-            LogPosition::new("BytesBinlogReader"),
+            LogFilePosition::new("BytesBinlogReader"),
             GtidSet::parse(String::from("726757ad-4455-11e8-ae04-0242ac110002:1-3:4")).unwrap());
-        context.update_log_position_with_offset(66);
+        context.update_position_offset(66);
 
         let mut e = TableMapEvent::default();
         e.table_id = 1;

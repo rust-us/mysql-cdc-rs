@@ -7,24 +7,15 @@ use crate::binlog::binlog_events::BinlogEvents;
 use crate::binlog::reg::FunctionRegistry;
 
 const END_OF_ELAPSED_TIME :&str = "end_of_elapsed_time";
-const UPDATE_RECEIVES_BYTES :&str = "update_receives_bytes";
+const ADD_RECEIVES_BYTES:&str = "add_receives_bytes";
 
+// pub type BinlogEventsWrapperRef = Arc<RefCell<BinlogEventsWrapper>>;
 pub type BinlogEventsHolderRef = Arc<RefCell<BinlogEventsHolder>>;
 
 #[derive(Debug)]
 pub struct BinlogEventsWrapper {
-    wrapper: BinlogEventsHolderRef,
+    holder: BinlogEventsHolderRef,
 
-}
-
-pub struct BinlogEventsWrapperIter {
-    index: usize,
-
-    binlogs: Arc<RefCell<BinlogEvents>>,
-
-    wrapper: BinlogEventsHolderRef,
-
-    registry: FunctionRegistry,
 }
 
 #[derive(Debug)]
@@ -36,10 +27,16 @@ pub struct BinlogEventsHolder {
 
     // 耗时
     during_time: Option<Duration>,
+}
 
-    // assert_eq!(usize::MIN, 0)
-    // assert_eq!(usize::MAX, 18446744073709551615)
-    receives_bytes_len: usize,
+pub struct BinlogEventsWrapperIter {
+    index: usize,
+
+    binlogs: Arc<RefCell<BinlogEvents>>,
+
+    holder: BinlogEventsHolderRef,
+
+    registry: FunctionRegistry,
 }
 
 impl BinlogEventsWrapper {
@@ -47,24 +44,24 @@ impl BinlogEventsWrapper {
         let wrapper = BinlogEventsHolder::new(binlogs);
 
         BinlogEventsWrapper {
-            wrapper: Arc::new(RefCell::new(wrapper)),
+            holder: Arc::new(RefCell::new(wrapper)),
         }
     }
 
     pub fn get_iter(&self) -> BinlogEventsWrapperIter {
-        let iter = BinlogEventsWrapperIter::new(self.wrapper.borrow().binlogs.clone(), self.wrapper.clone());
+        let iter = BinlogEventsWrapperIter::new(self.holder.borrow().binlogs.clone(), self.holder.clone());
 
         iter
     }
 
     pub fn get_during_time(&self) -> Option<Duration> {
-        self.wrapper.borrow_mut().get_during_time()
+        self.holder.borrow().get_during_time()
     }
 
-    pub fn get_receives_bytes_len(&self) -> usize {
-        self.wrapper.borrow_mut().get_receives_bytes_len()
+    /// 获取接受到的流量总大小
+    pub fn get_receives_bytes(&self) -> usize {
+        self.holder.borrow().get_receives_bytes()
     }
-
 }
 
 impl BinlogEventsHolder {
@@ -73,7 +70,6 @@ impl BinlogEventsHolder {
             binlogs,
             start_time: Instant::now(),
             during_time: None,
-            receives_bytes_len: 0,
         }
     }
 
@@ -88,24 +84,15 @@ impl BinlogEventsHolder {
         self.during_time = Some(elapsed_time);
     }
 
-    fn update_receives_bytes(&mut self, len: i32) {
-        self.receives_bytes_len += len as usize;
-    }
-
-    fn get_receives_bytes_len(&self) -> usize {
-        self.receives_bytes_len
+    /// 获取接受到的流量总大小
+    fn get_receives_bytes(&self) -> usize {
+        self.binlogs.borrow().get_receives_bytes()
     }
 }
 
 /// 事件函数
-fn end_of_elapsed_time(wrapper: BinlogEventsHolderRef, x: i32) -> bool {
+fn end_of_elapsed_time(mut wrapper: BinlogEventsHolderRef, x: usize) -> bool {
     wrapper.borrow_mut().update_end_of_elapsed_time();
-
-    true
-}
-
-fn update_receives_bytes(wrapper: BinlogEventsHolderRef, len: i32) -> bool {
-    wrapper.borrow_mut().update_receives_bytes(len);
 
     true
 }
@@ -116,14 +103,19 @@ impl BinlogEventsWrapperIter {
 
         // 注册函数
         registry.register_function(END_OF_ELAPSED_TIME, end_of_elapsed_time);
-        registry.register_function(UPDATE_RECEIVES_BYTES, update_receives_bytes);
+        // registry.register_function(ADD_RECEIVES_BYTES, add_receives_bytes);
 
         BinlogEventsWrapperIter {
             index: 0,
             binlogs,
-            wrapper,
+            holder: wrapper,
             registry,
         }
+    }
+
+    /// 获取接受到的流量总大小
+    fn get_receives_bytes(&self) -> usize {
+        self.binlogs.borrow().get_receives_bytes()
     }
 }
 
@@ -133,23 +125,29 @@ impl Iterator for BinlogEventsWrapperIter {
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.binlogs.borrow_mut().next();
         if next.is_none()  {
-            self.registry.call_function(END_OF_ELAPSED_TIME, self.wrapper.clone(), 1);
+            self.registry.call_function(END_OF_ELAPSED_TIME, self.holder.clone(), 1);
 
             return None;
         }
 
         let events = next.unwrap();
 
-        // update bytes len， 同步操作会带来 12% 的性能损耗
-        let len = match &events {
-            Ok(list) => {
-                list.iter().map(|x| x.len()).sum()
-            }
-            Err(err) => {
-                0
-            }
-        };
-        self.registry.call_function(UPDATE_RECEIVES_BYTES, self.wrapper.clone(), len);
+        // // update bytes len， 同步操作会带来 12% 的性能损耗
+        // let len = match &events {
+        //     Ok(list) => {
+        //         list.iter().map(|x| x.len()).sum()
+        //     }
+        //     Err(err) => {
+        //         error!("BinlogEventsWrapperIter next error:{:?}", &err);
+        //
+        //         0
+        //     }
+        // };
+        // self.registry.call_function(ADD_RECEIVES_BYTES, self.wrapper.clone(), len as usize);
+        //
+        // // check
+        // let a = self.get_receives_bytes();
+        // let b = self.binlogs.borrow().get_receives_bytes();
 
         Some(events)
     }

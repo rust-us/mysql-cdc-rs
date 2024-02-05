@@ -2,17 +2,16 @@ mod cli_client;
 mod cli_options;
 mod pretty_util;
 
-use std::env::current_dir;
 use std::fmt::{Debug};
 use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use connection::binlog::lifecycle::lifecycle::BinlogLifecycle;
-use common::config::{BinlogConfig, read_config};
+use common::config::{BinlogConfig, read_config, RepConfig};
 use common::err::CResult;
 use common::err::decode_error::ReError;
-use common::log::tracing_factory::TracingFactory;
-use common::server::{Server, ShutdownHandle};
+use common::log::tracing_factory::{OutputType, TracingFactory, TracingFactoryOptions};
+use common::server::{Server};
 use crate::cli_client::{CliClient, conver_format, to_string_pretty};
 use crate::cli_options::CliOptions;
 
@@ -46,7 +45,6 @@ pub(crate) struct CliArgs {
     #[arg(short, long, help = "output format: [yaml | json]")]
     pub format: Option<String>,
 
-
     ///////////////////////////////////////////////////
     // Binlog Options //
     ///////////////////////////////////////////////////
@@ -66,9 +64,6 @@ pub(crate) struct CliArgs {
     ///////////////////////////////////////////////////
     // Just for test //
     ///////////////////////////////////////////////////
-    /// enable debug info
-    #[arg(long, help = "enable test mode", default_value_t = true)]
-    pub test: bool,
 }
 
 // must declared as private
@@ -111,21 +106,23 @@ impl TryFrom<&str> for Format {
 async fn main() -> CResult<()> {
     let args = CliArgs::parse();
     let format = conver_format(&args.format);
-    let test = &args.test;
+    eprintln!("args: {} ", to_string_pretty(&format, &args));
 
-    TracingFactory::init_log(args.debug);
-    if args.debug {
-        eprintln!("debug model. args: \n{} ", to_string_pretty(&format, &args));
-    }
-
-    let default_conf = get_config_path(&args, test.clone());
-    let mut binlog_config = if default_conf.is_some() {
+    let default_conf = get_config_path(&args);
+    let rep_config = if default_conf.is_some() {
         let rep_conf = read_config(default_conf.unwrap())?;
 
-        rep_conf.binlog
+        rep_conf
     } else {
-        BinlogConfig::default()
+        RepConfig::default()
     };
+
+    let log_opt = TracingFactoryOptions::new(args.debug, OutputType::LOG, rep_config.core.get_log_dir());
+    let log_factory = TracingFactory::init_log_with_options(log_opt);
+    // TracingFactory::init_log(args.debug);
+    eprintln!("log_dir: {:?}", log_factory.get_log_dir());
+
+    let mut binlog_config = rep_config.binlog;
 
     if args.debug {
         eprintln!("default_binlog_config: \n{}", to_string_pretty(&format, &binlog_config));;
@@ -134,14 +131,17 @@ async fn main() -> CResult<()> {
     // merge binlog settings
     merge(&mut binlog_config, &args).expect("merge default binlog_config and args error!");
 
-    if args.debug {
-        eprintln!("final binlog_config: \n{}", to_string_pretty(&format, &binlog_config));
-    }
+    eprintln!("binlog_config: {}", to_string_pretty(&format, &binlog_config));
+
+    let cli_f_d_ = match args.debug {true => {"-d"},false => {""}};
+    let cli_f_ = format!("{}", cli_f_d_);
+    let cli_f_some_ = format!("[{}]", cli_f_);
+    let cli_output = format!("{}", match cli_f_.is_empty() {true => {""},false => {&cli_f_some_}});
 
     eprintln!();
     eprintln!("╔╦╗╔═╗ ╔═╗╔╦╗╦  ");
     eprintln!(" ║ ╠═╣ ║   ║ ║  ");
-    eprintln!(" ╩ ╩ ╩ ╚═╝ ╩ ╩═╝ Rust us Binlog CLI");
+    eprintln!(" ╩ ╩ ╩ ╚═╝ ╩ ╩═╝ Rust us Binlog CLI {}", cli_output);
     eprintln!();
 
     let mut client = CliClient::new(CliOptions::new(args.debug, format), binlog_config);
@@ -153,25 +153,25 @@ async fn main() -> CResult<()> {
     Ok(())
 }
 
-fn get_config_path(args: &CliArgs, test: bool) -> Option<PathBuf> {
+fn get_config_path(args: &CliArgs) -> Option<PathBuf> {
     let path = {
         if args.config.is_some() {
             return Some(args.config.as_ref().unwrap().clone());
         }
 
-        if test {
-            let pwd = current_dir().unwrap_or("/".into());
-
-            let path_ = if pwd.ends_with("/common") {
-                "../conf/replayer.toml"
-            } else {
-                "./conf/replayer.toml"
-            }.into();
-
-            Some(path_)
-        } else {
+        // if test {
+        //     let pwd = current_dir().unwrap_or("/".into());
+        //
+        //     let path_ = if pwd.ends_with("/common") {
+        //         "../conf/replayer.toml"
+        //     } else {
+        //         "./conf/replayer.toml"
+        //     }.into();
+        //
+        //     Some(path_)
+        // } else {
             None
-        }
+        // }
     };
 
     path

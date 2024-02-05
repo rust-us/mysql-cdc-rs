@@ -20,13 +20,14 @@ impl TableCacheManager {
             return false;
         }
 
+        // 判断是否已经缓存
         if self.map.contains_key(&table_name) {
-            // update
+            // 已经存在缓存，则 update
             // todo
 
             true
         } else {
-            // insert
+            // 否则直接 map insert
             self.map.insert(table_name, table_info.clone());
 
             true

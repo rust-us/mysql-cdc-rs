@@ -319,7 +319,7 @@ impl Header {
 #[cfg(test)]
 mod test {
     use crate::events::log_context::LogContext;
-    use crate::events::log_position::LogPosition;
+    use crate::events::log_position::LogFilePosition;
 
     #[test]
     fn test() {

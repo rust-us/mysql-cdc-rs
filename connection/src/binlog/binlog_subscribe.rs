@@ -1,5 +1,6 @@
-use tracing::{debug, instrument};
+use tracing::{debug, error, instrument};
 use binlog::events::log_context::ILogContext;
+use binlog::events::log_position::LogFilePosition;
 use crate::binlog::lifecycle::lifecycle::BinlogLifecycle;
 use common::config::BinlogConfig;
 use common::err::CResult;
@@ -79,6 +80,7 @@ impl BinlogLifecycle for BinlogSubscribe {
                 Ok(b)
             },
             Err(e) => {
+                error!("get binlog Events error:{:?}", &e);
                 Err(e)
             }
         }
@@ -99,7 +101,12 @@ impl BinlogSubscribe {
     }
 
     /// 当前已经处理的binlog数量
-    pub fn get_log_stat_process_count(&self) -> u64 {
-        self.conn.as_ref().unwrap().log_context.borrow().get_log_stat_process_count()
+    pub fn load_read_ptr(&self) -> u64 {
+        self.conn.as_ref().unwrap().get_log_context().borrow().load_read_ptr()
+    }
+
+    /// 获取当前 LogFilePosition
+    pub fn get_log_position(&self) -> LogFilePosition {
+        self.conn.as_ref().unwrap().get_log_context().borrow().get_log_position()
     }
 }

@@ -1,12 +1,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use binlog::decoder::event_decoder::{LogEventDecoder};
 use binlog::events::checksum_type::ChecksumType;
 use binlog::events::binlog_event::BinlogEvent;
 use binlog::events::event_header::Header;
 use binlog::events::event_raw::HeaderRef;
 use binlog::events::log_context::{ILogContext, LogContext, LogContextRef};
+use binlog::events::log_position::LogFilePosition;
 use binlog::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 use binlog::factory::event_factory::{EventReaderOption, IEventFactory};
 use common::binlog::{EVENT_HEADER_SIZE, PAYLOAD_BUFFER_SIZE};
@@ -17,7 +19,7 @@ use crate::packet::end_of_file_packet::EndOfFilePacket;
 use crate::packet::error_packet::ErrorPacket;
 use crate::packet::response_type::ResponseType;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BinlogEvents {
     channel: Arc<RefCell<PacketChannel>>,
     parser: LogEventDecoder,
@@ -73,6 +75,28 @@ impl BinlogEvents {
 
         Err(ReError::String(format!("Event stream error. {:?}", error)))
     }
+
+    /// 获取接受到的流量总大小
+    pub fn get_receives_bytes(&self) -> usize {
+        self.log_context.borrow().load_receives_bytes()
+    }
+
+    /// 获取当前的 LogFilePosition
+    pub fn get_log_position(&self) -> LogFilePosition {
+        self.log_context.borrow().get_log_position()
+    }
+}
+
+impl Clone for BinlogEvents {
+    fn clone(&self) -> Self {
+        BinlogEvents {
+            channel: self.channel.clone(),
+            parser: self.parser.clone(),
+            options: self.options.clone(),
+            log_context: self.log_context.clone(),
+            payload_buffer: self.payload_buffer.clone(),
+        }
+    }
 }
 
 impl Default for BinlogEvents {
@@ -100,7 +124,7 @@ impl Iterator for BinlogEvents {
 
         match packet[0] {
             ResponseType::OK => {
-                self.log_context.borrow_mut().update_log_stat_add();
+                self.log_context.borrow_mut().add_log_stat(packet.len());
 
                 Some(self.read_event(&packet))
             },
@@ -108,7 +132,7 @@ impl Iterator for BinlogEvents {
             ResponseType::END_OF_FILE => {
                 let _ = EndOfFilePacket::parse(&packet[1..]);
                 None
-            }
+            },
             _ => Some(Err(ReError::String(
                 "Unknown network stream status".to_string(),
             ))),

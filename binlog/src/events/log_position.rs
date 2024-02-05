@@ -1,58 +1,61 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use common::binlog::FIRST_EVENT_POSITION;
 use crate::alias::mysql::gtid::gtid_set::GtidSet;
 
-pub type LogPositionRef = Arc<RwLock<LogPosition>>;
+pub type LogFilePositionRef = Arc<LogFilePosition>;
 
-#[derive(Debug, Serialize, Clone)]
-pub struct LogPosition {
+#[derive(Debug, Serialize)]
+pub struct LogFilePosition {
     /// binlog file's name
-    file_name:String,
+    file_name: String,
 
     /// position in file
-    position: u64,
+    position: AtomicU64,
 
     /// gtid 仅在gtid_mode使用，此时file_name和pos无效
     gtid_set: Option<GtidSet>
 }
 
-impl Default for LogPosition {
+impl Clone for LogFilePosition {
+    fn clone(&self) -> Self {
+        LogFilePosition {
+            file_name: self.get_file_name(),
+            position: AtomicU64::new(self.get_position()),
+            gtid_set: self.get_gtid_set(),
+        }
+    }
+}
+
+impl Default for LogFilePosition {
     fn default() -> Self {
-        LogPosition {
+        LogFilePosition {
             file_name: "".to_string(),
-            position: FIRST_EVENT_POSITION as u64,
+            position: AtomicU64::new(FIRST_EVENT_POSITION as u64),
             gtid_set: None,
         }
     }
 }
 
-impl LogPosition {
+impl LogFilePosition {
     pub fn new(file_name: &str) -> Self {
-        LogPosition::new_with_position(file_name, FIRST_EVENT_POSITION as u64)
+        LogFilePosition::new_with_position(file_name, FIRST_EVENT_POSITION as u64)
     }
 
     pub fn new_with_position(file_name: &str, position: u64) -> Self {
-        LogPosition {
+        LogFilePosition {
             file_name: file_name.to_string(),
-            position,
+            position: AtomicU64::new(position),
             gtid_set: None,
         }
     }
 
     pub fn new_with_gtid(file_name: &str, position: u64, gtid_data: GtidSet) -> Self {
-        LogPosition {
+        LogFilePosition {
             file_name: file_name.to_string(),
-            position,
+            position: AtomicU64::new(position),
             gtid_set: Some(gtid_data),
-        }
-    }
-
-    pub fn new_copy(pos:&LogPosition) -> Self {
-        LogPosition {
-            file_name: pos.get_file_name(),
-            position: pos.get_position(),
-            gtid_set: pos.get_gtid_set(),
         }
     }
 
@@ -61,11 +64,12 @@ impl LogPosition {
     }
 
     pub fn set_position(&mut self, pos: u64) {
-        self.position = pos;
+        // 将值存储到原子整数中
+        self.position.store(pos, Ordering::Relaxed);
     }
 
     pub fn get_position(&self) -> u64 {
-        self.position
+        self.position.load(Ordering::Relaxed)
     }
 
     pub fn get_gtid_set(&self) -> Option<GtidSet> {

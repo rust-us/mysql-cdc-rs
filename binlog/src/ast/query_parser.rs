@@ -1,8 +1,9 @@
 use serde::Serialize;
 use sqlparser::ast::{AlterTableOperation, ColumnDef, Ident, Statement};
-use sqlparser::dialect::{GenericDialect, MySqlDialect};
+use sqlparser::dialect::{GenericDialect};
+use sqlparser::dialect::{MySqlDialect};
 use sqlparser::parser::Parser;
-use tracing::debug;
+use tracing::{debug, error};
 use common::binlog::column::column_type::SrcColumnType;
 use common::err::CResult;
 use crate::ext::sqlparser_ext::sqlparser_data_type_from;
@@ -26,11 +27,9 @@ impl QueryParser {
         }
 
         // parse to a Vec<Statement>
-        // let result = Parser::parse_sql(&MySqlDialect, ddl_sql);
-        let result = Parser::parse_sql(&GenericDialect, ddl_sql);
+        let result = Parser::parse_sql(&MySqlDialect{}, ddl_sql);
         if result.is_err() {
-            debug!("sql [{:?}] parser is unsupport!", ddl_sql);
-            // return Err(decode_error_from(result.err().unwrap()));
+            error!("QueryEventParser, sql [{:?}] parser is unsupport!", ddl_sql);
             return Ok(None);
         }
         // let stat = result.ok_or(Ok(None))?;

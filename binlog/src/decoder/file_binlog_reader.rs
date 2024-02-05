@@ -10,7 +10,7 @@ use crate::decoder::event_decoder::{LogEventDecoder};
 use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_header::{Header, HEADER_LEN};
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
-use crate::events::log_position::LogPosition;
+use crate::events::log_position::LogFilePosition;
 use crate::events::protocol::format_description_log_event::LOG_EVENT_HEADER_LEN;
 
 /// Reads binlog events from a stream.
@@ -49,7 +49,7 @@ impl BinlogReader<File, (Header, BinlogEvent)> for FileBinlogReader {
 
     #[inline]
     fn new_without_context(skip_magic_buffer: bool) -> Result<(Self, LogContextRef), ReError> {
-        let _context:LogContext = LogContext::new(LogPosition::new("test_demo"));
+        let _context:LogContext = LogContext::new(LogFilePosition::new("test_demo"));
         let context = Rc::new(RefCell::new(_context));
 
         let rs = BinlogReader::new(context.clone(), skip_magic_buffer).unwrap();
@@ -160,11 +160,11 @@ impl Iterator for FileBinlogReaderIterator {
                     Some(Err(error))
                 }
             },
-            Ok(data) => {
+            Ok((header, event)) => {
                 self.index += 1;
-                self.context.borrow_mut().update_log_stat_add();
+                self.context.borrow_mut().add_log_stat(event.len() as usize);
 
-                Some(Ok(data))
+                Some(Ok((header, event)))
             }
         }
     }

@@ -514,13 +514,13 @@ fn version_product(version_split: Vec<u8>) -> u64 {
 #[cfg(test)]
 mod test {
     use crate::events::log_context::{ILogContext, LogContext};
-    use crate::events::log_position::LogPosition;
+    use crate::events::log_position::LogFilePosition;
     use crate::events::protocol::format_description_log_event::{server_version_split_with_dot};
 
     #[test]
     fn test_server_version_split_with_dot() {
-        let mut _context:LogContext = LogContext::new(LogPosition::new("AA"));
-        _context.update_log_position_with_offset(66);
+        let mut _context:LogContext = LogContext::new(LogFilePosition::new("AA"));
+        _context.update_position_offset(66);
 
         assert_eq!(server_version_split_with_dot("192.168.9".to_string()), vec![192,168,9]);
         assert_eq!(server_version_split_with_dot("19-a.16B.9".to_string()), vec![19,16,9]);

@@ -13,7 +13,7 @@ use crate::decoder::event_decoder::{LogEventDecoder};
 use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_raw::EventRaw;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
-use crate::events::log_position::LogPosition;
+use crate::events::log_position::LogFilePosition;
 
 pub trait IEventFactory {
     /// 初始化 binlog 解析器
@@ -56,11 +56,8 @@ impl IEventFactory for EventFactory {
         EventFactory::_new(skip_magic_buffer, Some(gtid_set))
     }
 
-    #[instrument]
     fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<BinlogEvent>), ReError> {
         EventFactory::print_env(options);
-
-        let context = &self.context;
 
         let iter = self.reader.read_events(input);
         let remaing_bytes = self.reader.get_source_bytes();
@@ -71,8 +68,7 @@ impl IEventFactory for EventFactory {
 
             if options.is_debug() {
                 let event_type = BinlogEvent::get_type_name(&e);
-                let count = context.borrow().get_log_stat_process_count();
-                debug!("event: {:?}, process_count: {:?}", event_type, count);
+                debug!("event: {:?}", event_type);
             }
 
             events.push(e);
@@ -143,9 +139,9 @@ impl EventFactory {
 
         let _context:LogContext = if gtid_set.is_some() {
             // 将gtid传输至context中，供decode使用
-            LogContext::new_with_gtid(LogPosition::new("BytesBinlogReader"), gtid_set.unwrap())
+            LogContext::new_with_gtid(LogFilePosition::new("BytesBinlogReader"), gtid_set.unwrap())
         } else {
-            LogContext::new(LogPosition::new("BytesBinlogReader"))
+            LogContext::new(LogFilePosition::new("BytesBinlogReader"))
         };
 
         let context = Rc::new(RefCell::new(_context));

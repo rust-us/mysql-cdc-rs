@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use tracing::instrument;
 use binlog::alias::mysql::gtid::gtid::Gtid;
 use binlog::events::log_context::{ILogContext, LogContext, LogContextRef};
+use binlog::events::log_stat::{LogStat, LogStatRef};
 use common::err::CResult;
 use common::err::decode_error::ReError;
 use common::binlog::row::row_string::RowString;
@@ -39,7 +40,9 @@ pub struct BinlogConnection {
     conn: Connection,
 
     options: BinlogOptionsRef,
-    pub log_context: LogContextRef,
+
+    /// binlog 解析过程中的上下文
+    log_context: LogContextRef,
 
     /// gtid
     mysql_gtid: Option<Gtid>,
@@ -68,9 +71,15 @@ impl BinlogConnection {
         }
     }
 
+    pub fn get_log_context(&self) -> LogContextRef {
+        self.log_context.clone()
+    }
+}
+
+impl BinlogConnection {
     fn replicate_mysql(channel: &mut Arc<RefCell<PacketChannel>>,
-        options: &ConnectionOptions,
-        server_id: u32) -> CResult<()> {
+                       options: &ConnectionOptions,
+                       server_id: u32) -> CResult<()> {
 
         if options.binlog.is_none() {
             return Err(ReError::ConnectionError(String::from("BinlogOptions is not found")))
@@ -213,7 +222,7 @@ mod test {
 
                     for e in list {
                         let event_type = BinlogEvent::get_type_name(&e);
-                        let count = binlog_conn.log_context.borrow().get_log_stat_process_count();
+                        let count = binlog_conn.log_context.borrow().load_read_ptr();
                         debug!("event: {:?}, process_count: {:?}", event_type, count);
                     }
                 }

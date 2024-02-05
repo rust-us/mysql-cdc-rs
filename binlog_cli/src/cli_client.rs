@@ -67,9 +67,9 @@ async fn binlog_subscribe_start(binlog_subscribe: &mut BinlogSubscribe, cli_opti
     binlog_subscribe.setup(binlog_config).await.unwrap();
     binlog_subscribe.start().await.unwrap();
 
-    // 延缓启动，便于观察
-    debug!("wait for 1000 millis...");
-    let sleep_millis = std::time::Duration::from_millis(1000);
+    // 延缓启动，便于观察上述配置项信息
+    debug!("wait for 500 millis to-viewing of the above configuration...");
+    let sleep_millis = std::time::Duration::from_millis(500);
     thread::sleep(sleep_millis);
 
     let mut binlogs_warpper = binlog_subscribe.binlogs().await.unwrap();
@@ -85,8 +85,9 @@ async fn binlog_subscribe_start(binlog_subscribe: &mut BinlogSubscribe, cli_opti
                     println!("[{:?}]  \n{:?}\n",
                              event_type, to_string_pretty(&cli_options.get_format(), &e));
                 } else {
-                    println!("[{:?} {}]\n",
-                             event_type, binlog_subscribe.get_log_stat_process_count());
+                    let log_pos = binlog_subscribe.get_log_position();
+                    println!("[{:?} {}], pos {} in {}\n",
+                             event_type, binlog_subscribe.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
                 }
             }
         }
@@ -95,7 +96,7 @@ async fn binlog_subscribe_start(binlog_subscribe: &mut BinlogSubscribe, cli_opti
     if binlogs_warpper.get_during_time().is_some() {
         println!("binlog 读取完成，耗时：{}， 收包总大小 {} bytes.",
                  to_duration_pretty(&binlogs_warpper.get_during_time().unwrap()),
-                 to_bytes_len_pretty(binlogs_warpper.get_receives_bytes_len()));
+                 to_bytes_len_pretty(binlogs_warpper.get_receives_bytes()));
     }
 
     Ok(())
