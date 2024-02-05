@@ -4,4 +4,3 @@
 #![feature(exact_size_is_empty)]
 
 mod binlog;
-mod relay_log;
