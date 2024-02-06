@@ -66,6 +66,9 @@ Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现�
 # CLI
 See [BinlogCLI README.md](binlog_cli/README.md)
 
+## 演示
+http://s.codealy.com/rust_us/mysql_cdc_rs/2024.02%20binlog%20cli%20view.webm
+
 
 # Support Event
 See [Binlog README.md](binlog/README.md)

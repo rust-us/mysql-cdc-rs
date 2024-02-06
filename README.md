@@ -68,6 +68,9 @@ You can check it out in the ` rustup toolchain list `. If not, it will be automa
 # CLI
 See [BinlogCLI README.md](binlog_cli/README.md)
 
+## DEMO VIEW
+http://s.codealy.com/rust_us/mysql_cdc_rs/2024.02%20binlog%20cli%20view.webm
+
 
 # Support Event
 See [Binlog README.md](binlog/README.md)
