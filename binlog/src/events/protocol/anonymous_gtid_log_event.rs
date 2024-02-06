@@ -6,6 +6,7 @@ use serde::Serialize;
 use common::err::decode_error::ReError;
 use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
 use crate::alias::mysql::gtid::gtid::Gtid;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -44,7 +45,8 @@ impl LogEvent for AnonymousGtidLogEvent {
     }
 
     fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef, context: LogContextRef,
-             table_map: Option<&HashMap<u64, TableMapEvent>>) -> Result<AnonymousGtidLogEvent, ReError> where Self: Sized {
+             table_map: Option<&HashMap<u64, TableMapEvent>>,
+             table_cache_manager: Option<&TableCacheManager>,) -> Result<AnonymousGtidLogEvent, ReError> where Self: Sized {
         let (
             flags,
             source_id,

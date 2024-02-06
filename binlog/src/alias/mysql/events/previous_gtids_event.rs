@@ -9,6 +9,7 @@ use crate::alias::mysql::gtid::gtid_set::GtidSet;
 use crate::alias::mysql::gtid::interval::Interval;
 use crate::alias::mysql::gtid::uuid::Uuid;
 use crate::alias::mysql::gtid::uuid_set::UuidSet;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -50,7 +51,8 @@ impl LogEvent for PreviousGtidsLogEvent {
     }
 
     fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef,
-             context: LogContextRef, table_map: Option<&HashMap<u64, TableMapEvent>>) -> Result<Self, ReError> where Self: Sized {
+             context: LogContextRef, table_map: Option<&HashMap<u64, TableMapEvent>>,
+             table_cache_manager: Option<&TableCacheManager>,) -> Result<Self, ReError> where Self: Sized {
         let uuid_set_number = cursor.read_u64::<LittleEndian>()?;
 
         //     let gtid_sets_len = header.borrow().event_length

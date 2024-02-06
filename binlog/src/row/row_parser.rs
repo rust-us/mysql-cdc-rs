@@ -16,7 +16,7 @@ use crate::row::actual_string_type::get_actual_string_type;
 use crate::row::decimal::parse_decimal;
 use crate::row::row_data::{RowData, UpdateRowData};
 use crate::row::rows::{ExtraDataType, RowEventVersion};
-use crate::utils::{read_bitmap_little_endian, read_len_enc_num_with_cursor, read_string, u8_to_bool};
+use crate::utils::{read_bitmap_little_endian, read_len_enc_num, read_string};
 
 pub const TABLE_MAP_NOT_FOUND: &str =
     "No preceding TableMapEvent event was found for the row event. \
@@ -83,7 +83,7 @@ pub fn parse_head(cursor: &mut Cursor<&[u8]>, post_header_len:u8)
         (0, vec![], RowEventVersion::V1)
     };
 
-    let (_, columns_number) = read_len_enc_num_with_cursor(cursor)?;
+    let (_, columns_number) = read_len_enc_num(cursor)?;
 
     Ok((table_id, flags, extra_data_length, extra_data, columns_number as usize, version))
 }

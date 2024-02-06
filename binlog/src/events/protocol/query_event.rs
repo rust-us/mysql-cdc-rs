@@ -16,6 +16,7 @@ use sqlparser::parser::{Parser, ParserError};
 use common::binlog::column::column_type::SrcColumnType;
 use common::err::CResult;
 use crate::ast::query_parser::{QueryParser, TableInfo, TableInfoBuilder};
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::ext::decode_error_ext::decode_error_from;
 use crate::events::event_raw::HeaderRef;
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -504,12 +505,9 @@ impl QueryEvent {
         cursor.read_exact(&mut _query)?;
         let query = extract_string(&_query);
 
-        let parser = QueryParser::new(query.clone());
-        let table_rs = parser.parser_ddl_table_format();
-        let table_info = if table_rs.is_ok() {
-            table_rs.unwrap()
-        } else {
-            None
+        let table_info = match QueryParser::new(query.clone()).parser_ddl_table_format() {
+            Ok(t) => {t}
+            Err(_) => {None}
         };
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
@@ -565,6 +563,7 @@ impl LogEvent for QueryEvent {
         mut header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<QueryEvent, ReError> {
         QueryEvent::parse_with_compress(cursor, header, false, false, context)
     }

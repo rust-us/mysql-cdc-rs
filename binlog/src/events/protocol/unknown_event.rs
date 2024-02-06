@@ -3,6 +3,7 @@ use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
 use common::err::decode_error::ReError;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::{LogContextRef};
@@ -33,7 +34,8 @@ impl LogEvent for UnknownEvent {
         self.header.get_event_length() as i32
     }
 
-    fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef, context: LogContextRef, table_map: Option<&HashMap<u64, TableMapEvent>>)
+    fn parse(cursor: &mut Cursor<&[u8]>, header: HeaderRef, context: LogContextRef, table_map: Option<&HashMap<u64, TableMapEvent>>,
+             table_cache_manager: Option<&TableCacheManager>,)
         -> Result<UnknownEvent, ReError> {
         let checksum = cursor.read_u32::<LittleEndian>()?;
 

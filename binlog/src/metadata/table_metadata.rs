@@ -2,14 +2,13 @@ use std::io;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 use byteorder::ReadBytesExt;
-use nom::Parser;
 use serde::Serialize;
 use common::err::decode_error::ReError;
 use common::binlog::column::column_type::SrcColumnType;
 use crate::events::protocol::table_map_event::{ColumnInfo, get_real_type};
 use crate::metadata::default_charset::DefaultCharset;
 use crate::metadata::metadata_type::MetadataType;
-use crate::utils::{read_len_enc_num_with_cursor, read_len_enc_str_with_cursor};
+use crate::utils::{read_len_enc_num, read_len_enc_str_with_cursor};
 
 /// Contains metadata for table columns.
 ///
@@ -91,7 +90,8 @@ impl TableMetadata {
         }
     }
 
-    pub fn read_extra_metadata<'a>(slice: &'a [u8], column_types: &[u8], shard_column_info_maps: Arc<Mutex<Vec<ColumnInfo>>>) -> Result<Self, ReError> {
+    pub fn read_extra_metadata(cursor: &mut Cursor<&[u8]>, column_types: &[u8], shard_column_info_maps: Arc<Mutex<&mut Vec<ColumnInfo>>>)
+        -> Result<Self, ReError> {
         let mut signedness = None;
         let mut default_charset = None;
         let mut column_charsets = None;
@@ -105,15 +105,13 @@ impl TableMetadata {
         let mut enum_and_set_column_charsets = None;
         let mut column_visibility = None;
 
-        let mut cursor = Cursor::new(slice);
-
         let mut exist_optional_meta_data = false;
         // defaultCharsetPairs is default_charset
 
         while cursor.position() < cursor.get_ref().len() as u64 {
             let type_ = cursor.read_u8()?;
             let metadata_type = MetadataType::try_from(type_).unwrap();
-            let (_use_len, metadata_length) = read_len_enc_num_with_cursor(&mut cursor)?;
+            let (_use_len, metadata_length) = read_len_enc_num(cursor)?;
 
             let mut metadata = vec![0u8; metadata_length as usize];
             cursor.read_exact(&mut metadata)?;
@@ -263,7 +261,7 @@ fn get_numeric_column_count(column_types: &[u8]) -> Result<usize, ReError> {
 
 /// stores the signedness flags extracted from field
 fn read_bitmap_reverted(cursor: &mut Cursor<&[u8]>, bits_number /* is numeric_count */: usize,
-                        metadata_type: MetadataType, shard_column_info_maps: Arc<Mutex<Vec<ColumnInfo>>>) -> Result<Vec<bool>, io::Error> {
+                        metadata_type: MetadataType, shard_column_info_maps: Arc<Mutex<&mut Vec<ColumnInfo>>>) -> Result<Vec<bool>, io::Error> {
 
     let mut result: Vec<bool> = vec![false; bits_number];
     let bytes_number = (bits_number + 7) / 8;
@@ -307,7 +305,7 @@ fn read_bitmap_reverted(cursor: &mut Cursor<&[u8]>, bits_number /* is numeric_co
 /// stores collation numbers extracted from field.
 fn parse_default_charser(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType) -> Result<DefaultCharset, ReError> {
     // get default_charset
-    let (_, default_charset) = read_len_enc_num_with_cursor(cursor)?;
+    let (_, default_charset) = read_len_enc_num(cursor)?;
 
     let charset_collations_pair = parse_int_map(cursor, metadata_type, None)?;
 
@@ -318,11 +316,11 @@ fn parse_default_charser(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType
 }
 
 /// stores collation numbers extracted from field.
-fn parse_int_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_column_info_maps: Option<Arc<Mutex<Vec<ColumnInfo>>>>) -> Result<Vec<u32>, ReError> {
+fn parse_int_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_column_info_maps: Option<Arc<Mutex<&mut Vec<ColumnInfo>>>>) -> Result<Vec<u32>, ReError> {
     let mut result = Vec::new();
 
     while cursor.position() < cursor.get_ref().len() as u64 {
-        let (_, col_index) = read_len_enc_num_with_cursor(cursor)?;
+        let (_, col_index) = read_len_enc_num(cursor)?;
 
         result.push(col_index as u32);
     }
@@ -352,7 +350,7 @@ fn parse_int_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shar
     Ok(result)
 }
 
-fn parse_int_map(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_column_info_maps: Option<Arc<Mutex<Vec<ColumnInfo>>>>) -> Result<Vec<(u32, u32)>, ReError> {
+fn parse_int_map(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_column_info_maps: Option<Arc<Mutex<&mut Vec<ColumnInfo>>>>) -> Result<Vec<(u32, u32)>, ReError> {
     let mut result = Vec::new();
 
     // let (has_map, column_info_maps) = if shard_column_info_maps.is_some() {
@@ -362,8 +360,8 @@ fn parse_int_map(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_
     // };
 
     while cursor.position() < cursor.get_ref().len() as u64 {
-        let (_, col_index) = read_len_enc_num_with_cursor(cursor)?;
-        let (_, col_charset) = read_len_enc_num_with_cursor(cursor)?;
+        let (_, col_index) = read_len_enc_num(cursor)?;
+        let (_, col_charset) = read_len_enc_num(cursor)?;
         result.push((col_index as u32, col_charset as u32));
 
         // if has_map && metadata_type  == MetadataType::PrimaryKeyWithPrefix {
@@ -374,7 +372,7 @@ fn parse_int_map(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_
     Ok(result)
 }
 
-fn parse_string_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_column_info_maps: Arc<Mutex<Vec<ColumnInfo>>>) -> Result<Vec<String>, ReError> {
+fn parse_string_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, shard_column_info_maps: Arc<Mutex<&mut Vec<ColumnInfo>>>) -> Result<Vec<String>, ReError> {
     let mut result = Vec::new();
 
     let mut column_info_maps = shard_column_info_maps.lock().unwrap();
@@ -393,10 +391,10 @@ fn parse_string_array(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, s
     Ok(result)
 }
 
-fn parse_type_values(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, set:bool, shard_column_info_maps: Arc<Mutex<Vec<ColumnInfo>>>) -> Result<Vec<Vec<String>>, ReError> {
+fn parse_type_values(cursor: &mut Cursor<&[u8]>, metadata_type: MetadataType, set:bool, shard_column_info_maps: Arc<Mutex<&mut Vec<ColumnInfo>>>) -> Result<Vec<Vec<String>>, ReError> {
     let mut result = Vec::new();
     while cursor.position() < cursor.get_ref().len() as u64 {
-        let (_, length) = read_len_enc_num_with_cursor(cursor)?;
+        let (_, length) = read_len_enc_num(cursor)?;
 
         let mut type_values = Vec::new();
         for _i in 0..length as usize {

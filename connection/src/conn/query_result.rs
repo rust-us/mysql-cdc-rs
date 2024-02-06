@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
 
-use binlog::utils::read_len_enc_num_with_cursor;
+use binlog::utils::read_len_enc_num;
 use common::binlog::column::column::SrcColumn;
 use common::binlog::column::column_type::SrcColumnType;
 use common::binlog::column::column_value;
@@ -96,7 +96,7 @@ pub fn read_column_set(conn: &mut Connection) -> CResult<Vec<SrcColumn>> {
     let (packet, _) = conn.read_packet_with_check("Query result column load error.")?;
 
     let mut cursor = Cursor::new(packet.as_slice());
-    let column_count = read_len_enc_num_with_cursor(&mut cursor)?.1;
+    let column_count = read_len_enc_num(&mut cursor)?.1;
     let mut columns: Vec<SrcColumn> = Vec::with_capacity(column_count as usize);
     for _ in 0..column_count {
         let (packet, _) = conn.read_packet_with_check("Query result column load error.")?;

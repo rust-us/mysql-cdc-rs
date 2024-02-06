@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use binlog::utils::{read_len_enc_num_with_cursor, read_len_enc_str_with_cursor};
+use binlog::utils::{read_len_enc_num, read_len_enc_str_with_cursor};
 use common::err::CResult;
 
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ impl ResultSetColumnPacket {
         let org_table = read_len_enc_str_with_cursor(&mut cursor)?;
         let name = read_len_enc_str_with_cursor(&mut cursor)?;
         let org_name = read_len_enc_str_with_cursor(&mut cursor)?;
-        let next_length = read_len_enc_num_with_cursor(&mut cursor)?.1;
+        let next_length = read_len_enc_num(&mut cursor)?.1;
         let character_set = cursor.read_u16::<LittleEndian>()?;
         let column_length = cursor.read_u32::<LittleEndian>()?;
         let column_type = cursor.read_u8()?;

@@ -13,6 +13,7 @@ use crate::utils::extract_string;
 use serde::Serialize;
 use tracing::error;
 use common::err::decode_error::ReError;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::{ILogContext, LogContext, LogContextRef};
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -403,6 +404,7 @@ impl LogEvent for FormatDescriptionEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<FormatDescriptionEvent, ReError> {
         // let declare: FormatDescriptionDeclare = context.get_format_description().get_declare();
         let declare: FormatDescriptionDeclare = FormatDescriptionDeclare::new(4);

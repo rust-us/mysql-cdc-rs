@@ -3,6 +3,7 @@ use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
 use common::err::decode_error::{Needed, ReError};
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::declare::log_event::LogEvent;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
@@ -42,6 +43,7 @@ impl LogEvent for IntVarEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<Self, ReError> where Self: Sized {
         let t = cursor.read_u8()?;
         let e_type = match t {

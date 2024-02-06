@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 use common::err::decode_error::ReError;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
 use crate::events::protocol::table_map_event::TableMapEvent;
@@ -69,5 +70,6 @@ pub trait LogEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<Self, ReError> where Self: Sized;
 }

@@ -9,6 +9,7 @@ use common::err::decode_error::ReError;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_raw::HeaderRef;
 use crate::events::protocol::table_map_event::TableMapEvent;
 
@@ -59,6 +60,7 @@ impl LogEvent for RotateEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<RotateEvent, ReError> where Self: Sized {
         let _context = context.borrow();
         let post_header_len = _context

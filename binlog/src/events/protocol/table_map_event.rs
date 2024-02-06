@@ -1,29 +1,24 @@
-use byteorder::ReadBytesExt;
-use bytes::Buf;
-use nom::{
-    bytes::complete::take,
-    combinator::map,
-    number::complete::{le_u16, le_u32, le_u8},
-    IResult,
-};
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
-
 use common::err::decode_error::ReError;
 use serde::Serialize;
+use tracing::error;
 use common::binlog::column::column_type::SrcColumnType;
-
+use common::err::CResult;
 use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::metadata::table_metadata::TableMetadata;
 use crate::{
     events::event_header::Header,
-    utils::{pu64, read_fixed_len_string, read_len_enc_num},
 };
 use crate::binlog_server::{TABLE_MAP, TABLE_MAP_META};
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::BuildType;
+use crate::events::declare::log_event::LogEvent;
 use crate::events::event_raw::HeaderRef;
 use crate::row::decimal::get_meta;
+use crate::utils::{read_bitmap_little_endian_bits, read_len_enc_num, read_string};
 
 /// The event has table defition for row events.
 /// <a href="https://github.com/mysql/mysql-server/blob/mysql-cluster-8.0.22/libbinlogevents/include/rows_event.h#L521">See more</a>
@@ -60,6 +55,9 @@ pub struct TableMapEvent {
     pub column_metadata: Vec<u16>,
     /// Gets columns metadata 字段类型， 每个枚举的值与column_types 对应
     pub column_metadata_type: Vec<SrcColumnType>,
+
+    /// 列信息，包含上述 column_types、column_metadata、column_metadata_type、null_bitmap
+    column_infos: Vec<ColumnInfo>,
 
     /// Gets columns nullability， 用于标识某一列是否允许为 null
     pub null_bitmap: Vec<u8>,
@@ -114,6 +112,7 @@ impl Default for TableMapEvent {
             column_types: vec![],
             column_metadata: vec![],
             column_metadata_type: vec![],
+            column_infos: vec![],
             null_bitmap: vec![],
             table_metadata: Some(TableMetadata::default()),
             build_type: BuildType::BINLOG,
@@ -140,6 +139,11 @@ impl TableMapEvent {
         self.column_metadata_type.clone()
     }
 
+    /// 返回解析出的列信息
+    pub fn get_column_infos(&self) -> &[ColumnInfo] {
+        self.column_infos.as_slice()
+    }
+
     pub fn get_database_name(&self) -> String {
         self.database_name.clone()
     }
@@ -161,6 +165,7 @@ impl TableMapEvent {
     pub fn new(header: Header, table_id: u64, flags: u16, schema_length: u8, schema: String,
                table_name_length: u8, table_name: String, column_count: u64,
                column_types: Vec<u8>, column_metadata: Vec<u16>, column_metadata_type: Vec<SrcColumnType>,
+               column_infos: Vec<ColumnInfo>,
                null_bitmap: Vec<u8>, table_metadata: Option<TableMetadata>) -> TableMapEvent {
 
         TableMapEvent {
@@ -175,324 +180,11 @@ impl TableMapEvent {
             column_types,
             column_metadata,
             column_metadata_type,
+            column_infos,
             null_bitmap,
             table_metadata,
             build_type: BuildType::BINLOG,
         }
-    }
-
-    pub fn parse<'a>(
-        input: &'a [u8],
-        header: HeaderRef,
-        context: LogContextRef,
-        table_map: Option<&HashMap<u64, TableMapEvent>>,
-    ) -> IResult<&'a [u8], TableMapEvent> {
-        let _context = context.borrow();
-
-        let common_header_len = _context.get_format_description().common_header_len;
-        let query_post_header_len = _context
-            .get_format_description()
-            .get_post_header_len(header.borrow_mut().get_event_type() as usize);
-
-        let mut column_info_maps: Vec<ColumnInfo> = Vec::new();
-
-        /* post-header部分 */
-        let (i, table_id): (&'a [u8], u64) = map(take(6usize), |id_raw: &[u8]| {
-            let mut filled = id_raw.to_vec();
-            filled.extend(vec![0, 0]);
-            pu64(&filled).unwrap().1
-        })(input)?;
-
-        // Reserved for future use; currently always 0
-        let (i, flags) = le_u16(i)?;
-
-        /* event-body部分 */
-        let mut current_event_body_pos = 0u32;
-        // event-body 部分长度
-        let data_len =
-            header.borrow_mut().get_event_length() - (common_header_len + query_post_header_len) as u32;
-
-        // Database name is null terminated
-        let (i, (schema_length, schema)) = read_fixed_len_string(i)?;
-        let (i, term) = le_u8(i)?;
-        assert_eq!(term, 0);
-        current_event_body_pos += schema_length as u32 + 1 + 1;
-
-        // Table name is null terminated
-        let (i, (table_name_length, table_name)) = read_fixed_len_string(i)?;
-        let (i, term) = le_u8(i)?; /* termination null */
-        assert_eq!(term, 0);
-        current_event_body_pos += table_name_length as u32 + 1 + 1;
-
-        // Read column information
-        let (i, (_f_size, column_count)) = read_len_enc_num(i)?;
-        current_event_body_pos += _f_size as u32;
-
-        // let mut _column_types: Vec<SrcColumnTypes> = Vec::new();
-        let (i, /* type is Vec<u8>*/ column_types): (&'a [u8], Vec<u8>) =
-            map(take(column_count), |s: &[u8]| {
-                s.iter()
-                    .map(|&t| {
-                        // _column_types.push(SrcColumnTypes::from(t));
-                        column_info_maps.push(ColumnInfo::new(t));
-                        t
-                    })
-                    .collect()
-            })(i)?;
-        current_event_body_pos += column_count as u32;
-
-        // parse_metadata len
-        let (i, (_ml_size, _column_metadata_length)) = read_len_enc_num(i)?;
-        current_event_body_pos += _ml_size as u32;
-
-        // parse_metadata
-        let (i, (_m_size, column_metadata_val, column_metadata)) =
-            TableMapEvent::parse_metadata(i, &column_types).unwrap();
-        for idx in 0..column_metadata_val.len() {
-            let column_info = column_info_maps.get_mut(idx).unwrap();
-            column_info.set_meta(column_metadata_val[idx]);
-        }
-        current_event_body_pos += _m_size;
-
-        let mask_len = (column_count + 7) / 8;
-        let (i, null_bits) = map(take(mask_len), |s: &[u8]| s)(i)?;
-        let null_bitmap =
-            TableMapEvent::read_bitmap_little_endian(null_bits, column_count as usize).unwrap();
-        current_event_body_pos += mask_len as u32;
-
-        for idx in 0..column_count as usize {
-            if null_bitmap[idx] == 0u8 {
-                let bit = null_bitmap[idx];
-                let column_info = column_info_maps.get_mut(idx).unwrap();
-                column_info.set_nullable(bit);
-            }
-        }
-        // let _null_bitmap = null_bitmap.iter().map(|&t| { t > 0 }).collect::<Vec<bool>>();
-
-        let mut table_metadata = None;
-        let i = if data_len > current_event_body_pos + 4 {
-            /// After null_bits field, there are some new fields for extra metadata.
-            let extra_metadata_len = data_len - current_event_body_pos - 4;
-            let (ii, _extra_metadata) = map(take(extra_metadata_len), |s: &[u8]| s)(i)?;
-            let shard_column_info_maps = Arc::new(Mutex::new(column_info_maps));
-            let extra_metadata = TableMetadata::read_extra_metadata(
-                _extra_metadata,
-                &column_types,
-                shard_column_info_maps.clone(),
-            )
-            .unwrap();
-
-            // Table metadata is supported in MySQL 5.6+ and MariaDB 10.5+.
-            table_metadata = Some(extra_metadata);
-
-            ii
-        } else {
-            i
-        };
-
-        let (i, checksum) = le_u32(i)?;
-
-        if let Ok(mut mapping) = TABLE_MAP.lock() {
-            mapping.insert(table_id, column_metadata.clone());
-        }
-        if let Ok(mut mapping) = TABLE_MAP_META.lock() {
-            mapping.insert(table_id, column_metadata_val.clone());
-        }
-
-        // todo  column_info
-        header.borrow_mut().update_checksum(checksum);
-        let e = TableMapEvent {
-            header: Header::copy(header),
-            table_id,
-            flags,
-            schema_length,
-            database_name: schema.clone(),
-            table_name_length,
-            table_name: table_name.clone(),
-            columns_number: column_count,
-            column_types,
-            column_metadata: column_metadata_val,
-            column_metadata_type: column_metadata,
-            null_bitmap,
-            table_metadata,
-            build_type: BuildType::BINLOG,
-        };
-
-        Ok((i, e))
-    }
-
-    pub fn parse_metadata<'a>(
-        input: &'a [u8],
-        column_types: &Vec<u8>,
-    ) -> IResult<&'a [u8], (u32, Vec<u16>, Vec<SrcColumnType>)> {
-        let mut metadata = vec![0u16; column_types.len()];
-        let mut metadata_type = Vec::<SrcColumnType>::with_capacity(column_types.len());
-
-        let mut source = input;
-        let mut _size: u32 = 0u32;
-
-        // See https://mariadb.com/kb/en/library/rows_event_v1/#column-data-formats
-        for idx in 0..column_types.len() {
-            let column_type = SrcColumnType::try_from(column_types[idx]).unwrap();
-
-            let (s, column_type) = if column_type == SrcColumnType::Array {
-                let (s, v) = le_u8(source)?;
-                (s, SrcColumnType::try_from(v).unwrap())
-            } else {
-                (source, column_type)
-            };
-            source = s;
-
-            let (_source, meta, meta_type) = match column_type {
-                // 1 byte metadata
-                // SrcColumnTypes::TinyBlob |
-                // SrcColumnTypes::MediumBlob |
-                // SrcColumnTypes::LongBlob |
-                SrcColumnType::Blob => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Blob)
-                }
-                SrcColumnType::Double => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Double)
-                }
-                SrcColumnType::Float => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Float)
-                }
-                SrcColumnType::Geometry => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Geometry)
-                }
-                SrcColumnType::Time2 => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Time2)
-                }
-                SrcColumnType::DateTime2 => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::DateTime2)
-                }
-                SrcColumnType::Timestamp2 => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Timestamp2)
-                }
-                SrcColumnType::Json => {
-                    let (source, meta) = map(le_u8, |v| v)(source)?;
-                    _size += 1;
-                    (source, meta as u16, SrcColumnType::Json)
-                }
-
-                // 2 bytes little endian
-                SrcColumnType::Bit => {
-                    let (source, meta) = map(le_u16, |v| v)(source)?;
-                    _size += 2;
-                    (source, meta, /*  u16 --> 2 u8 */ SrcColumnType::Bit)
-                }
-                SrcColumnType::VarChar => {
-                    let (source, meta) = map(le_u16, |v| v)(source)?;
-                    _size += 2;
-                    (source, meta, SrcColumnType::VarChar)
-                }
-                SrcColumnType::Decimal |
-                SrcColumnType::NewDecimal => {
-                    // precision
-                    let (source, precision) = map(le_u8, |v| v as u16)(source)?;
-                    let (source, decimals) = map(le_u8, |v| v)(source)?;
-                    let x = get_meta(precision, decimals);
-
-                    _size += 2;
-                    (source, x, SrcColumnType::NewDecimal)
-                }
-
-                // 2 bytes big endian
-                /// log_event.h : The first byte is always MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
-                /// field size, i.e., the number of bytes in the representation of size of the string: 3 or 4.
-                SrcColumnType::Enum | SrcColumnType::Set => {
-                    /*
-                     * log_event.h : The first byte is always
-                     * MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
-                     * field size, i.e., the number of bytes in the
-                     * representation of size of the string: 3 or 4.
-                     */
-                    // real_type, read_u16::<BigEndian>()?
-                    let (source, t) = map(le_u8, |v| v as u16)(source)?;
-                    let mut x = t << 8;
-                    // pack or field length
-                    let (source, len) = map(le_u8, |v| v)(source)?;
-                    x += len as u16;
-
-                    _size += 2;
-                    (source, x, column_type.clone())
-                }
-                SrcColumnType::VarString => {
-                    let (source, t) = map(le_u8, |v| v as u16)(source)?;
-                    let mut x = t << 8;
-                    // pack or field length
-                    let (source, len) = map(le_u8, |v| v)(source)?;
-                    x += len as u16;
-
-                    _size += 2;
-                    (source, x, SrcColumnType::VarString)
-                }
-                SrcColumnType::String => {
-                    let (source, t) = map(le_u8, |v| v as u16)(source)?;
-                    let mut x = t << 8;
-                    // pack or field length
-                    let (source, len) = map(le_u8, |v| v)(source)?;
-                    x += len as u16;
-
-                    _size += 2;
-                    (source, x, SrcColumnType::String)
-                }
-                // 类型的默认 meta 值， 包含 Tiny, Short, Int24, Long, LongLong...
-                _ => (source, 0, column_type.clone()),
-            };
-            metadata[idx] = meta;
-            metadata_type.push(meta_type);
-            source = _source;
-        }
-
-        Ok((source, (_size, metadata, metadata_type)))
-    }
-
-    /// Reads bitmap in little-endian bytes order
-    fn read_bitmap_little_endian<'a>(
-        slice: &'a [u8],
-        column_count: usize,
-    ) -> Result<Vec<u8>, ReError> {
-        let mut result = vec![0; column_count];
-        // let mut result = vec![false; bits_number];
-
-        let mask_len = (column_count + 7) / 8;
-
-        let mut cursor = Cursor::new(slice);
-
-        for bit in 0..mask_len {
-            let flag = &cursor.read_u8()?;
-            let _flag = flag & 0xff;
-
-            if _flag == 0 {
-                continue;
-            }
-
-            for y in 0..8 {
-                let index = (bit << 3) + y;
-                if index == column_count {
-                    break;
-                }
-                // result[index] = (value & (1 << y)) > 0;
-                result[index] = (_flag & (1 << y));
-            }
-        }
-
-        Ok(result)
     }
 
     pub fn copy(source: &TableMapEvent) -> Self  {
@@ -508,9 +200,177 @@ impl TableMapEvent {
             source.column_types.clone(),
             source.column_metadata.clone(),
             source.column_metadata_type.clone(),
+            source.column_infos.clone(),
             source.null_bitmap.clone(),
             source.table_metadata.clone(),
         )
+    }
+
+    fn parse_metadata(
+        cursor: &mut Cursor<&[u8]>,
+        column_types: &Vec<u8>,
+    ) -> CResult<(u32, Vec<u16>, Vec<SrcColumnType>)> {
+        let mut metadata = vec![0u16; column_types.len()];
+        let mut metadata_type = Vec::<SrcColumnType>::with_capacity(column_types.len());
+
+        let mut _size: u32 = 0u32;
+
+        // See https://mariadb.com/kb/en/library/rows_event_v1/#column-data-formats
+        for idx in 0..column_types.len() {
+            let column_type = SrcColumnType::try_from(column_types[idx]).unwrap();
+
+            let column_type = if column_type == SrcColumnType::Array {
+                let v = cursor.read_u8()?;
+                SrcColumnType::try_from(v).unwrap()
+            } else {
+                column_type
+            };
+
+            let (meta, meta_type) = match column_type {
+                // 1 byte metadata
+                // SrcColumnTypes::TinyBlob |
+                // SrcColumnTypes::MediumBlob |
+                // SrcColumnTypes::LongBlob |
+                SrcColumnType::Blob => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Blob)
+                }
+                SrcColumnType::Double => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Double)
+                }
+                SrcColumnType::Float => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Float)
+                }
+                SrcColumnType::Geometry => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Geometry)
+                }
+                SrcColumnType::Time2 => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Time2)
+                }
+                SrcColumnType::DateTime2 => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::DateTime2)
+                }
+                SrcColumnType::Timestamp2 => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Timestamp2)
+                }
+                SrcColumnType::Json => {
+                    let meta = cursor.read_u8()?;
+                    _size += 1;
+                    (meta as u16, SrcColumnType::Json)
+                }
+
+                // 2 bytes little endian
+                SrcColumnType::Bit => {
+                    let meta = cursor.read_u16::<LittleEndian>()?;
+                    _size += 2;
+                    (meta, /*  u16 --> 2 u8 */ SrcColumnType::Bit)
+                }
+                SrcColumnType::VarChar => {
+                    let meta = cursor.read_u16::<LittleEndian>()?;
+                    _size += 2;
+                    (meta, SrcColumnType::VarChar)
+                }
+                SrcColumnType::Decimal |
+                SrcColumnType::NewDecimal => {
+                    // precision
+                    let precision = cursor.read_u8()? as u16;
+                    let decimals = cursor.read_u8()?;
+                    let x = get_meta(precision, decimals);
+
+                    _size += 2;
+                    (x, SrcColumnType::NewDecimal)
+                }
+
+                // 2 bytes big endian
+                /// log_event.h : The first byte is always MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
+                /// field size, i.e., the number of bytes in the representation of size of the string: 3 or 4.
+                SrcColumnType::Enum | SrcColumnType::Set => {
+                    /*
+                     * log_event.h : The first byte is always
+                     * MYSQL_TYPE_VAR_STRING (i.e., 253). The second byte is the
+                     * field size, i.e., the number of bytes in the
+                     * representation of size of the string: 3 or 4.
+                     */
+                    // real_type, read_u16::<BigEndian>()?
+                    let t = cursor.read_u8()? as u16;
+                    let mut x = t << 8;
+                    // pack or field length
+                    let len = cursor.read_u8()?;
+                    x += len as u16;
+
+                    _size += 2;
+                    (x, column_type.clone())
+                }
+                SrcColumnType::VarString => {
+                    let t = cursor.read_u8()? as u16;
+                    let mut x = t << 8;
+                    // pack or field length
+                    let len = cursor.read_u8()?;
+                    x += len as u16;
+
+                    _size += 2;
+                    (x, SrcColumnType::VarString)
+                }
+                SrcColumnType::String => {
+                    let t = cursor.read_u8()? as u16;
+                    let mut x = t << 8;
+                    // pack or field length
+                    let len = cursor.read_u8()?;
+                    x += len as u16;
+
+                    _size += 2;
+                    (x, SrcColumnType::String)
+                }
+                // 类型的默认 meta 值， 包含 Tiny, Short, Int24, Long, LongLong...
+                _ => (0, column_type.clone()),
+            };
+            metadata[idx] = meta;
+            metadata_type.push(meta_type);
+        }
+
+        Ok((_size, metadata, metadata_type))
+    }
+
+    fn filled_column_info(table_cache_manager: Option<&TableCacheManager>, schema:&str, table_name:&str,
+                              column_count:usize,  column_info_maps: &mut Vec<ColumnInfo>) {
+        if table_cache_manager.is_some() {
+            let tm = table_cache_manager.unwrap();
+            if tm.contains(&table_name) {
+                let cache_table_info = tm.get(&table_name).expect(&format!("table_cache_manager get {} error", &table_name));
+
+                let _default_columns = vec![];
+                let columns = cache_table_info.get_columns().unwrap_or(&_default_columns);
+                if columns.len() == column_count {
+                    for idx in 0..column_count {
+                        match columns.get(idx) {
+                            None => {}
+                            Some(column) => {
+                                match column_info_maps.get_mut(idx) {
+                                    None => {}
+                                    Some(column_info) => {column_info.set_name(column.get_name());}
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    error!("TABLE_MAP_EVENT 中，库表{}.{}解析列大小 {} 与元数据列大小 {} 不一致！",
+                        &schema, &table_name, column_count, columns.len());
+                }
+            }
+        }
     }
 }
 
@@ -563,6 +423,10 @@ impl ColumnInfo {
         self.b_type
     }
 
+    pub fn get_name(&mut self) -> String {
+        self.name.clone()
+    }
+
     pub fn set_name(&mut self, name: String) {
         self.name = name;
     }
@@ -590,6 +454,7 @@ impl ColumnInfo {
     pub fn get_meta(&self) -> u16 {
         self.meta
     }
+
     pub fn set_meta(&mut self, meta: u16) {
         self.meta = meta;
     }
@@ -603,8 +468,166 @@ impl ColumnInfo {
     }
 }
 
-// impl LogEvent for TableMapEvent {
-//     fn get_type_name(&self) -> String {
-//         "TableMapEvent".to_string()
-//     }
-// }
+impl LogEvent for TableMapEvent {
+    fn get_type_name(&self) -> String {
+        "TableMapEvent".to_string()
+    }
+
+    fn len(&self) -> i32 {
+        self.header.get_event_length() as i32
+    }
+
+    fn parse(
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        context: LogContextRef,
+        table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,) -> Result<Self, ReError> where Self: Sized {
+
+        let common_header_len = context.borrow().get_format_description().common_header_len;
+        let query_post_header_len = context.borrow()
+            .get_format_description()
+            .get_post_header_len(header.borrow_mut().get_event_type() as usize);
+
+        let mut column_info_maps: Vec<ColumnInfo> = Vec::new();
+
+        /* post-header部分 */
+        let table_id = cursor.read_u48::<LittleEndian>()?;
+
+        // Reserved bytes, Reserved for future use; currently always 0
+        let flags = cursor.read_u16::<LittleEndian>()?;
+        // cursor.seek(SeekFrom::Current(2))?;
+
+        /* event-body部分 */
+        // Database name is null terminated
+        let schema_length = cursor.read_u8()?;
+        let schema = read_string(cursor, schema_length as usize)?;
+        // term is le_u8, eq 0
+        cursor.seek(SeekFrom::Current(1))?;
+
+        // Table name is null terminated
+        let table_name_length = cursor.read_u8()?;
+        let table_name = read_string(cursor, table_name_length as usize)?;
+        // term is le_u8, eq 0
+        let term = cursor.read_u8()?;
+        assert_eq!(term, 0);
+        // cursor.seek(SeekFrom::Current(1))?;
+
+        // Read column information
+        let (_, column_count) = read_len_enc_num(cursor)?;
+        let mut /* type is Vec<u8>*/ column_types = vec![0u8; column_count as usize];
+        cursor.read_exact(&mut column_types)?;
+        for t in &column_types {
+            column_info_maps.push(ColumnInfo::new(*t));
+        }
+        // filled column_info_maps#name
+        TableMapEvent::filled_column_info(table_cache_manager, &schema, &table_name, column_count as usize, &mut column_info_maps);
+
+        // parse_metadata len
+        let (_, _column_metadata_length) = read_len_enc_num(cursor)?;
+        // parse_metadata
+        let (_m_size, column_metadata_val, column_metadata) =
+            TableMapEvent::parse_metadata(cursor, &column_types)?;
+        for idx in 0..column_metadata_val.len() {
+            let column_info = column_info_maps.get_mut(idx).unwrap();
+            column_info.set_meta(column_metadata_val[idx]);
+        }
+
+        let null_bitmap = read_bitmap_little_endian_bits(cursor, column_count as usize)?;
+        for idx in 0..column_count as usize {
+            if null_bitmap[idx] == 0u8 {
+                let bit = null_bitmap[idx];
+                let column_info = column_info_maps.get_mut(idx).unwrap();
+                column_info.set_nullable(bit);
+            }
+        }
+
+        let mut table_metadata = None;
+        let position = cursor.position() as usize;
+        let ref_len = cursor.get_ref().len();
+        if position + 4 < ref_len {
+            // Table metadata is supported in MySQL 5.6+ and MariaDB 10.5+.
+            /// After null_bits field, there are some new fields for extra metadata.
+            let shard_column_info_maps = Arc::new(Mutex::new(&mut column_info_maps));
+
+            let mut extra_metadata_vec = vec![0u8; (ref_len - position - 4) as usize];
+            cursor.read_exact(&mut extra_metadata_vec)?;
+            let mut extra_metadata_cursor = Cursor::new(extra_metadata_vec.as_slice());
+            let extra_metadata = TableMetadata::read_extra_metadata(
+                &mut extra_metadata_cursor,
+                &column_types,
+                shard_column_info_maps.clone(),
+            ).unwrap();
+
+            // Table metadata is supported in MySQL 5.6+ and MariaDB 10.5+.
+            table_metadata = Some(extra_metadata);
+        }
+
+        // println!("{:?}", &column_info_maps);
+
+        let checksum = cursor.read_u32::<LittleEndian>()?;
+        header.borrow_mut().update_checksum(checksum);
+
+        if let Ok(mut mapping) = TABLE_MAP.lock() {
+            mapping.insert(table_id, column_metadata.clone());
+        }
+        if let Ok(mut mapping) = TABLE_MAP_META.lock() {
+            mapping.insert(table_id, column_metadata_val.clone());
+        }
+
+        Ok(TableMapEvent {
+            header: Header::copy(header),
+            table_id,
+            flags,
+            schema_length,
+            database_name: schema.clone(),
+            table_name_length,
+            table_name: table_name.clone(),
+            columns_number: column_count,
+            column_types,
+            column_metadata: column_metadata_val,
+            column_metadata_type: column_metadata,
+            column_infos: column_info_maps,
+            null_bitmap,
+            table_metadata,
+            build_type: BuildType::BINLOG,
+        })
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use std::cell::RefCell;
+    use std::io::Cursor;
+    use std::rc::Rc;
+    use crate::events::declare::log_event::LogEvent;
+    use crate::events::event_header::Header;
+    use crate::events::event_raw::HeaderRef;
+    use crate::events::log_context::LogContext;
+    use crate::events::protocol::table_map_event::TableMapEvent;
+
+    #[test]
+    fn test_1() {
+        assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn test_parser() {
+        let header: Vec<u8> = vec![
+            /* header */203, 140, 129, 101, 19, 1, 0, 0, 0, 60, 0, 0, 0, 165, 4, 0, 0, 0, 0,
+        ];
+        let payload: Vec<u8> = vec![
+            /* payload */90, 0, 0, 0, 0, 0, 1, 0, 4, 116, 101, 115, 116, 0, 9, 105, 110, 116, 95, 116, 97, 98, 108, 101, 0, 6, 1, 2, 9, 3, 8, 1, 0, 63, 1, 1, 0, 196, 100, 206, 107
+        ];
+        let mut cursor = Cursor::new(payload.as_slice());
+        let context = Rc::new(RefCell::new(LogContext::default()));
+
+        let h = Header::parse_v4_header(&header, context.clone()).unwrap();
+        let header: HeaderRef = Rc::new(RefCell::new(h));
+
+        let e = TableMapEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
+        assert_eq!(e.get_table_name(), "int_table");
+        assert_eq!(e.get_database_name(), "test");
+    }
+}

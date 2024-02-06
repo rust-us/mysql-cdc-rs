@@ -62,12 +62,14 @@ impl EventRaw {
 
         let mut bytes : Vec<u8> = Vec::from(input);
         let mut no_enough_data = false;
+        let mut idx = 0;
         loop {
             if no_enough_data || (bytes.len() < header_len) {
                 return Ok((bytes, event_raws));
             }
 
-            let rs = EventRaw::popup(bytes.as_slice(), header_len, context.clone());
+            let rs = EventRaw::popup(bytes.as_slice(), header_len, context.clone(), idx);
+            idx += 1;
 
             match rs {
                 Ok((remaining, raw)) => {
@@ -97,8 +99,11 @@ impl EventRaw {
     }
 
     /// 不提前计算crc的popup
-    fn popup(bytes: &[u8], header_len: usize, context: LogContextRef) -> Result<(Vec<u8>, EventRaw), ReError> {
+    fn popup(bytes: &[u8], header_len: usize, context: LogContextRef, idx: i32) -> Result<(Vec<u8>, EventRaw), ReError> {
         let header_bytes = &bytes[0..header_len];
+        // if idx == 8 {
+        //     println!("{:?}", header_bytes.clone());
+        // }
 
         let header = Header::parse_v4_header(header_bytes, context.clone()).unwrap();
         let event_len = header.get_event_length();
@@ -111,6 +116,9 @@ impl EventRaw {
         let payload_len = event_len - header_len as u32;
 
         let payload_data = &remaining[0..(payload_len as usize)];
+        // if idx == 8 {
+        //     println!("{:?}", payload_data.clone());
+        // }
         let remained = Vec::from(&remaining[(payload_len as usize)..]);
 
         let raw = EventRaw::new_with_payload_crc(header, payload_data.to_vec(), true);

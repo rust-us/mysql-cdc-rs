@@ -49,43 +49,6 @@ pub fn int_fixed<'a>(input: &'a [u8], len: u8) -> IResult<&'a [u8], u64> {
 
 /// parse len encoded int, is PackedLong, return (used_bytes, value).
 ///
-/// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
-pub fn read_len_enc_num<'a>(slice: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> {
-    match /* first_byte */ slice[0] {
-        // 0 -- 250
-        0..=0xfa => map(le_u8, |num: u8| (1, num as u64))(slice),
-        // 251
-        0xfb => {
-            let (i, lead) = take(1usize)(slice)?;
-            map(le_u16, |num: u16| (3, num as u64))(i)
-        },
-        // 252
-        0xfc => {
-            let (i, lead) = take(1usize)(slice)?;
-            map(le_u16, |num: u16| (3, num as u64))(i)
-        }
-        // 253
-        0xfd => {
-            let (i, lead) = take(1usize)(slice)?;
-            let (i, v) = map(take(3usize), |s: &[u8]| {
-                let mut raw = s.to_vec();
-                raw.push(0);
-                raw
-            })(i)?;
-            let (_, num) = pu32(&v).unwrap();
-            Ok((i, (4, num as u64)))
-        }
-        // 254
-        0xfe => {
-            let (i, _) = take(1usize)(slice)?;
-            map(le_u64, |v: u64| (9, v))(i)
-        }
-        // 255
-        0xff => unreachable!(),
-        _ => unreachable!(),
-    }
-}
-
 /// if first byte is less than 0xFB - Integer value is this 1 byte integer
 /// 0xFB - NULL value
 /// 0xFC - Integer value is encoded in the next 2 bytes (3 bytes total)
@@ -96,9 +59,11 @@ pub fn read_len_enc_num<'a>(slice: &'a [u8]) -> IResult<&'a [u8], (usize, u64)> 
 pub fn read_len_enc_num_with_slice(slice: &[u8]) -> Result<(usize, u64), ReError> {
     let mut cursor = Cursor::new(slice);
 
-    read_len_enc_num_with_cursor(&mut cursor)
+    read_len_enc_num(&mut cursor)
 }
 
+/// parse len encoded int, is PackedLong, return (used_bytes, value).
+///
 /// if first byte is less than 0xFB - Integer value is this 1 byte integer
 /// 0xFB - NULL value
 /// 0xFC - Integer value is encoded in the next 2 bytes (3 bytes total)
@@ -106,7 +71,7 @@ pub fn read_len_enc_num_with_slice(slice: &[u8]) -> Result<(usize, u64), ReError
 /// 0xFE - Integer value is encoded in the next 8 bytes (9 bytes total)
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
-pub fn read_len_enc_num_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<(usize, u64), ReError> {
+pub fn read_len_enc_num(cursor: &mut Cursor<&[u8]>) -> Result<(usize, u64), ReError> {
     let first_byte = cursor.read_u8()?;
 
     // 0 -- 250
@@ -141,6 +106,8 @@ pub fn read_string(cursor: &mut Cursor<&[u8]>, size: usize) -> Result<String, Re
 }
 
 /// 读取变长string，允许null值出现
+///
+/// ref: https://dev.mysql.com/doc/internals/en/string.html#packet-Protocol::LengthEncodedString
 pub fn read_len_enc_str_with_cursor_allow_null(cursor: &mut Cursor<&[u8]>) -> Result<Option<String>, ReError> {
     let first_byte = cursor.read_u8()?;
 
@@ -163,20 +130,13 @@ pub fn read_len_enc_str_with_cursor_allow_null(cursor: &mut Cursor<&[u8]>) -> Re
     Ok(Some(read_string(cursor, length as usize)?))
 }
 
-pub fn read_len_enc_str_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<String, ReError> {
-    let (_, length) = read_len_enc_num_with_cursor(cursor)?;
-
-    Ok(read_string(cursor, length as usize)?)
-}
-
 /// parse length encoded string
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/string.html#packet-Protocol::LengthEncodedString
-pub fn read_len_enc_str<'a>(input: &'a [u8]) -> IResult<&'a [u8], String> {
-    let (i, (_, str_len)) = read_len_enc_num(input)?;
-    map(take(str_len), |s: &[u8]| {
-        String::from_utf8_lossy(s).to_string()
-    })(i)
+pub fn read_len_enc_str_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<String, ReError> {
+    let (_, length) = read_len_enc_num(cursor)?;
+
+    Ok(read_string(cursor, length as usize)?)
 }
 
 pub fn read_null_term_string_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<String, ReError> {
@@ -212,67 +172,59 @@ pub fn read_variable_len_string(input: &[u8], len: usize) -> String {
 /// 第一个byte申明长度len，后续len个byte为存储的值
 ///
 /// ref: https://dev.mysql.com/doc/internals/en/string.html#packet-Protocol::FixedLengthString
-pub fn read_fixed_len_string(input: &[u8]) -> IResult<&[u8], (u8, String)> {
-    let (i, len) = le_u8(input)?;
-    map(take(len), move |s: &[u8]| {
-        (len, String::from_utf8_lossy(s).to_string())
-    })(i)
+pub fn read_fixed_len_string_with_cursor(cursor: &mut Cursor<&[u8]>) -> Result<String, ReError> {
+    let len = cursor.read_u8()?;
+
+    read_string(cursor, len as usize)
 }
 
 /// Reads bitmap in little-endian bytes order
 pub fn read_bitmap_little_endian_bits(cursor: &mut Cursor<&[u8]>, bits_number: usize)
                                  -> Result<Vec<u8>, io::Error> {
-
     let mut result = vec![0; bits_number];
 
     let bytes_number = (bits_number + 7) / 8;
-    for i in 0..bytes_number {
-        let value = cursor.read_u8()?;
+    for bit in 0..bytes_number {
+        let flag = cursor.read_u8()?;
+        //  fixed
+        let _flag = flag & 0xff;
+        if _flag == 0 {
+            continue;
+        }
+
         for y in 0..8 {
-            let index = (i << 3) + y;
+            let index = (bit << 3) + y;
             if index == bits_number {
                 break;
             }
-            result[index] = (value & (1 << y));
+            result[index] = (flag & (1 << y));
         }
     }
 
     Ok(result)
 }
-
-/// Reads bitmap in little-endian bytes order
-// pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize)
-//                                  -> Result<Vec<bool>, io::Error> {
-//
-//     let bitmap_little_endian_bits = read_bitmap_little_endian_bits(cursor, bits_number)?;
-//
-//     Ok(u8_to_bool(&bitmap_little_endian_bits))
-// }
 
 pub fn read_bitmap_little_endian(cursor: &mut Cursor<&[u8]>, bits_number: usize) -> Result<Vec<bool>, io::Error> {
     let mut result = vec![false; bits_number];
+
     let bytes_number = (bits_number + 7) / 8;
-    for i in 0..bytes_number {
-        let value = cursor.read_u8()?;
+    for bit in 0..bytes_number {
+        let flag = cursor.read_u8()?;
+        //  fixed
+        let _flag = flag & 0xff;
+        if _flag == 0 {
+            continue;
+        }
+
         for y in 0..8 {
-            let index = (i << 3) + y;
+            let index = (bit << 3) + y;
             if index == bits_number {
                 break;
             }
-            result[index] = (value & (1 << y)) > 0;
+            result[index] = (flag & (1 << y)) > 0;
         }
     }
     Ok(result)
-}
-
-pub fn u8_to_bool(source: &Vec<u8>) -> Vec<bool> {
-    let mut target = vec![false; source.len()];
-
-    for i in 0..source.len() {
-        target[i] = source[i] > 0;
-    }
-
-    target
 }
 
 /// Reads bitmap in big-endian bytes order

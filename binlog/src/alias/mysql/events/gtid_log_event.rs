@@ -7,6 +7,7 @@ use common::err::CResult;
 use common::err::decode_error::ReError;
 use crate::alias::mysql::gtid::gtid::Gtid;
 use crate::alias::mysql::gtid::uuid::Uuid;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::declare::log_event::LogEvent;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
@@ -140,7 +141,8 @@ impl LogEvent for GtidLogEvent {
 
     fn parse(cursor: &mut Cursor<&[u8]>,
              header: HeaderRef, context: LogContextRef,
-             table_map: Option<&HashMap<u64, TableMapEvent>>) -> Result<Self, ReError> where Self: Sized {
+             table_map: Option<&HashMap<u64, TableMapEvent>>,
+             table_cache_manager: Option<&TableCacheManager>,) -> Result<Self, ReError> where Self: Sized {
         let (
             flags,
             source_id,

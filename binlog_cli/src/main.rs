@@ -2,6 +2,7 @@ mod cli_client;
 mod cli_options;
 mod pretty_util;
 
+use std::env::current_dir;
 use std::fmt::{Debug};
 use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};

@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use dashmap::mapref::one::Ref;
 use common::binlog::column::column_type::SrcColumnType;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 
@@ -145,6 +146,7 @@ impl LogEvent for DeleteRowsEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<DeleteRowsEvent, ReError> {
         let _context = context.borrow();
         let post_header_len = _context

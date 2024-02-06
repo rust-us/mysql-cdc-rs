@@ -3,6 +3,7 @@ use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
 use common::err::decode_error::ReError;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
@@ -37,6 +38,7 @@ impl LogEvent for StopEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<StopEvent, ReError> where Self: Sized {
         let checksum = cursor.read_u32::<LittleEndian>()?;
 

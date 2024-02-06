@@ -34,6 +34,26 @@ impl TableCacheManager {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn contains(&self, key: &str) -> bool {
+        self.map.contains_key(key)
+    }
+
+    pub fn get(&self, key: &str) -> Option<&TableInfo> {
+        self.map.get(key)
+    }
+
     // pub fn rename_table_info(&mut self) -> bool {
     // }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_1() {
+        assert_eq!(1, 1);
+    }
 }

@@ -3,6 +3,7 @@ use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::Serialize;
 use common::err::decode_error::ReError;
+use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::declare::log_event::LogEvent;
 use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
@@ -66,6 +67,7 @@ impl LogEvent for UserVarEvent {
         header: HeaderRef,
         context: LogContextRef,
         table_map: Option<&HashMap<u64, TableMapEvent>>,
+        table_cache_manager: Option<&TableCacheManager>,
     ) -> Result<UserVarEvent, ReError> where Self: Sized {
         let name_len = cursor.read_u32::<LittleEndian>()?;
         let name = read_string(cursor, name_len as usize)?;
@@ -150,7 +152,7 @@ mod tests {
         ];
         let mut cursor = Cursor::new(payload.as_slice());
 
-        let event = UserVarEvent::parse(&mut cursor, HeaderRef::default(), LogContextRef::default(), None).unwrap();
+        let event = UserVarEvent::parse(&mut cursor, HeaderRef::default(), LogContextRef::default(), None, None).unwrap();
         assert_eq!(String::from("foo"), event.name);
         assert_eq!(false, event.value.is_none());
 

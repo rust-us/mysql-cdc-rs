@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::io::Cursor;
-use serde::Serialize;
 use tracing::{error, info};
 use common::err::decode_error::{Needed, ReError};
 use crate::alias::mysql::events::gtid_log_event::GtidLogEvent;
 use crate::alias::mysql::events::previous_gtids_event::PreviousGtidsLogEvent;
-use crate::ast::query_parser::TableInfoBuilder;
 use crate::b_type::LogEventType;
 use crate::binlog_server::TABLE_MAP_EVENT;
 use crate::decoder::event_decoder_impl::{parse_append_block, parse_begin_load_query, parse_create_file, parse_delete_file, parse_exec_load, parse_execute_load_query, parse_heartbeat, parse_incident, parse_load, parse_new_load, parse_rand, parse_row_query};
@@ -111,7 +109,7 @@ impl LogEventDecoder {
         let has_gtid = context.borrow().get_gtid_set().is_some();
         let binlog_event = match type_ {
             LogEventType::UNKNOWN_EVENT => {
-                let event = UnknownEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = UnknownEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 /* updating position in context */
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
@@ -120,14 +118,14 @@ impl LogEventDecoder {
 
             // 1 START_EVENT_V3事件 在version 4 中被FORMAT_DESCRIPTION_EVENT是binlog替代
             LogEventType::START_EVENT_V3 => {
-                let e = StartV3Event::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let e = StartV3Event::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 Ok(BinlogEvent::StartV3(e))
             },
 
             LogEventType::QUERY_EVENT => {
-                let event = QueryEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = QueryEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
 
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 header.borrow_mut().update_gtid(
@@ -144,14 +142,14 @@ impl LogEventDecoder {
             },
 
             LogEventType::STOP_EVENT => {
-                let e = StopEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let e = StopEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 Ok(BinlogEvent::Stop(e))
             },
 
             LogEventType::ROTATE_EVENT => {
-                let event = RotateEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = RotateEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 // updating new position in context
                 context.borrow_mut().force_set_log_position(LogFilePosition::new_with_position(&event.get_file_name(), *&event.get_binlog_position()));
 
@@ -159,52 +157,66 @@ impl LogEventDecoder {
             },
 
             LogEventType::INTVAR_EVENT => {
-                let event = IntVarEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = IntVarEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 Ok(BinlogEvent::IntVar(event))
             },
 
             LogEventType::LOAD_EVENT => {
-                let (a, e) = parse_load(slice, header).unwrap();
+                let (a, e) = parse_load(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },
 
             LogEventType::SLAVE_EVENT => {
                 // can never happen (unused event)， also unsupported SLAVE_EVENT
-                let e = SlaveEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let e = SlaveEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 Ok(BinlogEvent::Slave(e))
             },
 
             LogEventType::CREATE_FILE_EVENT => {
-                let (a, e) = parse_create_file(slice, header).unwrap();
+                let (a, e) = parse_create_file(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },
             LogEventType::APPEND_BLOCK_EVENT => {
-                let (a, e) = parse_append_block(slice, header).unwrap();
+                let (a, e) = parse_append_block(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },  // 9
             LogEventType::EXEC_LOAD_EVENT => {
-                let (a, e) = parse_exec_load(slice, header).unwrap();
+                let (a, e) = parse_exec_load(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },     // 10
             LogEventType::DELETE_FILE_EVENT => {
-                let (a, e) = parse_delete_file(slice, header).unwrap();
+                let (a, e) = parse_delete_file(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },   // 11
             LogEventType::NEW_LOAD_EVENT => {
-                let (a, e) = parse_new_load(slice, header).unwrap();
+                let (a, e) = parse_new_load(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },      // 12
             LogEventType::RAND_EVENT => {   // 13
-                let (a, e) = parse_rand(slice, header).unwrap();
+                let (a, e) = parse_rand(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
                 // header.put_gtid
             },
             LogEventType::USER_VAR_EVENT => {    // 14
-                let event = UserVarEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = UserVarEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 header.borrow_mut().update_gtid(
                     context.borrow().get_gtid_set(),
@@ -215,7 +227,7 @@ impl LogEventDecoder {
             },
 
             LogEventType::FORMAT_DESCRIPTION_EVENT => {   // 15
-                let event = FormatDescriptionEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = FormatDescriptionEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 context.borrow_mut().set_format_description(event.clone());
 
@@ -223,7 +235,7 @@ impl LogEventDecoder {
             },
 
             LogEventType::XID_EVENT => { // 16
-                let event = XidLogEvent::parse(&mut cursor, header.clone(), context.clone(), None).unwrap();
+                let event = XidLogEvent::parse(&mut cursor, header.clone(), context.clone(), None, None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 header.borrow_mut().update_gtid(
                     context.borrow().get_gtid_set(),
@@ -233,16 +245,21 @@ impl LogEventDecoder {
                 Ok(BinlogEvent::XID(event))
             },
             LogEventType::BEGIN_LOAD_QUERY_EVENT => {
-                let (a, e) = parse_begin_load_query(slice, header).unwrap();
+                let (a, e) = parse_begin_load_query(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },      // 17
             LogEventType::EXECUTE_LOAD_QUERY_EVENT => {
-                let (a, e) = parse_execute_load_query(slice, header).unwrap();
+                let (a, e) = parse_execute_load_query(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },    // 18
 
             LogEventType::TABLE_MAP_EVENT => {     // 19
-                let (i, event) = TableMapEvent::parse(slice, header.clone(), context.clone(), None).unwrap();
+                let event = TableMapEvent::parse(&mut cursor, header.clone(), context.clone(),
+                                                      Some(&self.table_map), Some(&self.table_cache_manager)).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 context.borrow_mut().put_table(event.get_table_id(), event.clone());
 
@@ -259,25 +276,31 @@ impl LogEventDecoder {
             },
 
             LogEventType::INCIDENT_EVENT => {
-                let (a, e) = parse_incident(slice, header).unwrap();
+                let (a, e) = parse_incident(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },      // 26
             LogEventType::HEARTBEAT_LOG_EVENT => {
-                let (a, e) = parse_heartbeat(slice, header).unwrap();
+                let (a, e) = parse_heartbeat(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
             },     // 27
 
             LogEventType::IGNORABLE_LOG_EVENT => {    // 28
                 // do nothing , just ignore log event
                 let event_ignore = IgnorableLogEvent::parse(&mut cursor,
-                                                            header.clone(), context.clone(), Some(&self.table_map)).unwrap();
+                                                            header.clone(), context.clone(), Some(&self.table_map), None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 Ok(BinlogEvent::IgnorableLogEvent)
             },
 
             LogEventType::ROWS_QUERY_LOG_EVENT => {   // 29
-                let (a, e) = parse_row_query(slice, header).unwrap();
+                let (a, e) = parse_row_query(slice, header.clone()).unwrap();
+                context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
+
                 Ok(e)
                 // header.put_gtid
             },
@@ -287,7 +310,7 @@ impl LogEventDecoder {
             LogEventType::WRITE_ROWS_EVENT_V1 | // 23
             LogEventType::WRITE_ROWS_EVENT => { // 30
                 let mut event = WriteRowsEvent::parse(&mut cursor,
-                                                      header.clone(), context.clone(), Some(&self.table_map)).unwrap();
+                                                      header.clone(), context.clone(), Some(&self.table_map), None).unwrap();
 
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 event.fill_assembly_table(context.clone()).unwrap();
@@ -303,7 +326,7 @@ impl LogEventDecoder {
             LogEventType::UPDATE_ROWS_EVENT_V1 | // 24
             LogEventType::UPDATE_ROWS_EVENT => { // 31
                 let event_rs = UpdateRowsEvent::parse(&mut cursor,
-                                                       header.clone(), context.clone(), Some(&self.table_map));
+                                                       header.clone(), context.clone(), Some(&self.table_map), None);
 
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
@@ -320,7 +343,7 @@ impl LogEventDecoder {
             LogEventType::DELETE_ROWS_EVENT_V1 | // 25
             LogEventType::DELETE_ROWS_EVENT => { // 32
                 let mut event = DeleteRowsEvent::parse(&mut cursor,
-                                                       header.clone(), context.clone(), Some(&self.table_map)).unwrap();
+                                                       header.clone(), context.clone(), Some(&self.table_map), None).unwrap();
 
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
                 event.fill_assembly_table(context.clone()).unwrap();
@@ -334,7 +357,7 @@ impl LogEventDecoder {
 
             LogEventType::GTID_LOG_EVENT => { // 33
                 let event = GtidLogEvent::parse(&mut cursor,
-                                                header.clone(), context.clone(), Some(&self.table_map)).unwrap();
+                                                header.clone(), context.clone(), Some(&self.table_map), None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 {
@@ -357,7 +380,7 @@ impl LogEventDecoder {
 
             LogEventType::ANONYMOUS_GTID_LOG_EVENT => { // 34
                 let event = AnonymousGtidLogEvent::parse(&mut cursor,
-                                                         header.clone(), context.clone(), Some(&self.table_map)).unwrap();
+                                                         header.clone(), context.clone(), Some(&self.table_map), None).unwrap();
                 let event = event.gtid_event;
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
@@ -380,7 +403,7 @@ impl LogEventDecoder {
 
             LogEventType::PREVIOUS_GTIDS_LOG_EVENT => {  // 35
                 let event = PreviousGtidsLogEvent::parse(&mut cursor,
-                                                         header.clone(), context.clone(), Some(&self.table_map)).unwrap();
+                                                         header.clone(), context.clone(), Some(&self.table_map), None).unwrap();
                 context.borrow_mut().update_position_offset(header.borrow().get_log_pos());
 
                 Ok(BinlogEvent::PreviousGtidsLog(event))
