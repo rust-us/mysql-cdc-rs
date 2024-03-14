@@ -50,7 +50,7 @@ pub enum DstColumnType {
     Map = 50,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Value {
     Null,
 

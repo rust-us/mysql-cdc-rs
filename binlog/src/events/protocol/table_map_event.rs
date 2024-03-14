@@ -423,7 +423,7 @@ impl ColumnInfo {
         self.b_type
     }
 
-    pub fn get_name(&mut self) -> String {
+    pub fn get_name(&self) -> String {
         self.name.clone()
     }
 

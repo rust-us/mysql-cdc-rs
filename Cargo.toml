@@ -11,8 +11,25 @@ members = [
     "./tests",
 ]
 
+[workspace.package]
+version = "0.0.2"
+description = "MYSQL CDC"
+authors = ["fengyang <yueny09@163.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+publish = true
+autobenches = true
+include = ["src/", "LICENSE-*", "README.md", "README.en.md", "CHANGELOG.md", "COPYRIGHT"]
+
 # 统一管理三方lib的版本号
 [workspace.dependencies]
+connection = { path = "connection", version = "0.0.2" }
+memory = { path = "memory", version = "0.0.2" }
+common = { path = "common", version = "0.0.2" }
+binlog = { path = "binlog", version = "0.0.2" }
+binlog_cli = { path = "binlog_cli", version = "0.0.2" }
+
 tokio = {version = "1.32.0", features = ["full"]}
 async-trait = "0.1.73"
 uuid = "1.4.1"
@@ -67,3 +84,9 @@ pem = "2"
 
 # 二进制序列化工具
 bincode = "1.3.3"
+# 自动生成get/set方法宏
+getset = "0.1.2"
+# memory-mapped file
+memmap2 = "0.9.4"
+# crc-check
+checksum = "0.2.1"

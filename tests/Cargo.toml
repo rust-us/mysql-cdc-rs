@@ -1,11 +1,17 @@
 [package]
 name = "tests"
-version = "0.3.0"
-edition = "2021"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+common = { workspace = true }
+binlog = { workspace = true }
+
 tokio = { workspace = true }
 async-trait ={ workspace = true }
 uuid = { workspace = true }
@@ -16,7 +22,4 @@ serde = { workspace = true, optional = true }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
-common = { path = "../common" }
-binlog = { path = "../binlog" }
 log = "0.4.20"

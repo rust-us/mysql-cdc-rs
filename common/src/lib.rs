@@ -15,3 +15,4 @@ pub mod memory_ext;
 pub mod util;
 mod decimal_util;
 pub mod binlog;
+pub mod file_util;

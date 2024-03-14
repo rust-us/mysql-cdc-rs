@@ -1,7 +1,10 @@
 [package]
 name = "common"
-version = "0.3.0"
-edition = "2021"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
 
 [features]
 default = []
@@ -11,6 +14,8 @@ mock_api = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+memory = { workspace = true }
+
 tokio = { workspace = true }
 async-trait ={ workspace = true }
 uuid = { workspace = true }
@@ -35,5 +40,3 @@ dashmap = { workspace = true }
 once_cell = { workspace = true }
 
 regex = { workspace = true }
-
-memory = { path = "../memory" }
