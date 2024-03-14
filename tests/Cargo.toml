@@ -11,6 +11,7 @@ publish = { workspace = true }
 [dependencies]
 common = { workspace = true }
 binlog = { workspace = true }
+relay_log = { workspace = true }
 
 tokio = { workspace = true }
 async-trait ={ workspace = true }
