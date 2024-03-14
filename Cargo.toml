@@ -9,6 +9,7 @@ members = [
     "./connection",
     "./binlog_cli",
     "./tests",
+    "./relay_log",
 ]
 
 [workspace.package]
@@ -29,6 +30,7 @@ memory = { path = "memory", version = "0.0.2" }
 common = { path = "common", version = "0.0.2" }
 binlog = { path = "binlog", version = "0.0.2" }
 binlog_cli = { path = "binlog_cli", version = "0.0.2" }
+relay_log = { path = "relay_log", version = "0.0.2" }
 
 tokio = {version = "1.32.0", features = ["full"]}
 async-trait = "0.1.73"
