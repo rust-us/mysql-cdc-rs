@@ -24,6 +24,8 @@ Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现�
 # Development environment
 为了降低执行错误的概率并改进功能特征， 我们统一了Rust工具链的版本，并切换了以下命令：
 
+* [Windows 操作系统如何安装 Rust 开发环境](https://zhuanlan.zhihu.com/p/704426216)
+
 ```text
  rustup default nightly
 ```

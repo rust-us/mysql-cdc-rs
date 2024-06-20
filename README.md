@@ -27,6 +27,8 @@ Please note the lib currently has the following limitations:
 In order to reduce the probability of execution errors and improve the functional features,
 we unify the versions of the Rust toolchain and switch the following commands:
 
+* [How to install Rust development environment in Windows operating system](https://zhuanlan.zhihu.com/p/704426216)
+
 ```text
  rustup default nightly
 ```
