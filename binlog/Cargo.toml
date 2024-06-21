@@ -1,0 +1,40 @@
+[package]
+name = "binlog"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+common = { workspace = true }
+
+tokio = { workspace = true }
+async-trait ={ workspace = true }
+uuid = { workspace = true }
+hex = { workspace = true }
+lru = { workspace = true }
+bytes = { workspace = true }
+byteorder = { workspace = true }
+dashmap = { workspace = true }
+thiserror = { workspace = true }
+bitflags = { workspace = true }
+nom = { workspace = true }
+lazy_static = { workspace = true }
+num_enum = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+ringbuffer = { workspace = true }
+pin-utils = { workspace = true }
+
+###################################
+## 其他模块不依赖，只在 cli 模块中进行声明
+###################################
+sqlparser = "0.43.1"
+

@@ -1,0 +1,32 @@
+[package]
+name = "binlog_cli"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+common = { workspace = true }
+binlog = { workspace = true }
+connection = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+tokio = { workspace = true }
+async-trait ={ workspace = true }
+num_enum = { workspace = true }
+mysql_common = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+###################################
+## 其他模块不依赖，只在 cli 模块中进行声明
+###################################
+# Duration 的格式化输出。
+pretty-duration = "0.1.1"
+byte-unit = "5.1.4"

@@ -1,0 +1,38 @@
+# RC mysql configuration
+[rc_mysql]
+# rc multi address
+addr = ["127.0.0.1:3001"]
+username = "root"
+password = "Aa123456"
+# raft shard stats fresh, default 10s, min: 5s, max: 60s
+raft_stats_fresh_interval_ms = 60000
+
+# RC metadata configuration
+[rc_metadata]
+addr = "127.0.0.1:3306"
+username = "root"
+password = "wang"
+database = "hdb_meta"
+# automatically fresh table schema, default 10s, min 5s, max 60s
+metadata_stats_fresh_interval_ms = 10000
+
+# 读取binlog的数据库配置
+[binlog]
+## 数据源的mysql地址
+host = "192.168.42.237"
+## 数据源的mysql端口
+port = 3306
+# 数据源的mysql用户名
+username = "root"
+# 数据源的mysql密码
+password = "Aa123456"
+# 4 * 1024 * 1024
+payload_buffer_size = 4194304
+#file = "mysql-bin.000005"
+#position = 4
+#binlog_path = "/tmp"
+
+[core]
+max_memory = "256MB"
+# 日志输出路径
+log_dir = "/tmp/replayer"

@@ -1,0 +1,42 @@
+[package]
+name = "common"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
+
+[features]
+default = []
+# enable some mock api
+mock_api = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+memory = { workspace = true }
+
+tokio = { workspace = true }
+async-trait ={ workspace = true }
+uuid = { workspace = true }
+hex = { workspace = true }
+lru = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+nom = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+
+futures-util = { workspace = true }
+futures-executor = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+num_enum = { workspace = true }
+# del
+mysql_common = { workspace = true }
+bigdecimal = { workspace = true }
+dashmap = { workspace = true }
+once_cell = { workspace = true }
+
+regex = { workspace = true }

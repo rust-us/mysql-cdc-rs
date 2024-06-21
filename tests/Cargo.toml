@@ -1,0 +1,26 @@
+[package]
+name = "tests"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+common = { workspace = true }
+binlog = { workspace = true }
+relay_log = { workspace = true }
+
+tokio = { workspace = true }
+async-trait ={ workspace = true }
+uuid = { workspace = true }
+hex = { workspace = true }
+lru = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true, optional = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+log = "0.4.20"
