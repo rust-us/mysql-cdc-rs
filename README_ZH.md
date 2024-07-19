@@ -61,8 +61,38 @@ Rust CDC 客户端。 是MySQL binlog解析器的干净、方便的 Rust实现�
 ```
 
 
-
 # How to Use
+```
+# cargo tree
+cargo build
+
+
+```
+
+
+## FAQ
+### Windows环境编译报错。 error: failed to run custom build command for `openssl-sys v0.9.102`
+```
+Caused by:
+  process didn't exit successfully: `mysql-cdc-rs\target\debug\build\openssl-sys-94071a3d762a0669\build-script-main` (exit code: 101)
+  --- stdout
+  cargo:rerun-if-env-changed=X86_64_PC_WINDOWS_MSVC_OPENSSL_NO_VENDOR
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_NO_VENDOR unset
+  cargo:rerun-if-env-changed=OPENSSL_NO_VENDOR
+  OPENSSL_NO_VENDOR unset
+  running "perl" "./Configure" "--prefix=/mysql-cdc-rs/target/debug/build/openssl-sys-5ad9f46fc53da764/out/openssl-build/install" "--openssldir=SYS$MANAGER:[OPENSSL]" "no-dso" "no-shared" "no-ssl3" "no-tests" "no-comp" "no-zlib" "no-zlib-dynamic" "--libdir=lib" "no-md2" "no-rc5" "no-weak-ssl-ciphers" "no-camellia" "no-idea" "no-seed" "no-capieng" "no-asm" "VC-WIN64A"
+
+  Error configuring OpenSSL build:
+      Command: "perl" "./Configure" "--prefix=/mysql-cdc-rs/target/debug/build/openssl-sys-5ad9f46fc53da764/out/openssl-build/install" "--openssldir=SYS$MANAGER:[OPENSSL]" "no-dso" "no-shared" "no-ssl3" "no-tests" "no-comp" "no-zlib" "no-zlib-dynamic" "--libdir=lib" "no-md2" "no-rc5" "no-weak-ssl-ciphers" "no-camellia" "no-idea" "no-seed" "no-capieng" "no-asm" "VC-WIN64A"
+      Failed to execute: program not found
+
+```
+说明使用perl程序进行编译配置。
+从 https://strawberryperl.com/ 下载windows安装包。
+安装后，重启命令行终端， 再次build。
+
+[strawberry-perl-5.38.2.2-64bit.msi](https://objects.githubusercontent.com/github-production-release-asset-2e65be/23202375/9607de7a-4b03-487e-ba56-8ab08fbc6f1b?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=releaseassetproduction%2F20240719%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240719T060555Z&X-Amz-Expires=300&X-Amz-Signature=6a4ea30401540fca31ca2e92d6fee29883633484d50b226bddd0e85dc728eb6a&X-Amz-SignedHeaders=host&actor_id=9307298&key_id=0&repo_id=23202375&response-content-disposition=attachment%3B%20filename%3Dstrawberry-perl-5.38.2.2-64bit.msi&response-content-type=application%2Foctet-stream)
+
 
 
 # CLI

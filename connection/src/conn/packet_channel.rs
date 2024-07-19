@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
-use std::os::fd::AsRawFd;
 use std::{fmt, io, net};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
