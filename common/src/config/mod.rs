@@ -1,24 +1,39 @@
+mod load_style;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use crate::binlog::PAYLOAD_BUFFER_SIZE;
+use crate::config::load_style::LoadStyle;
 
 use crate::err::decode_error::ReError;
 
-pub struct Config {
-    pub core: RepConfig,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FConfig {
+    config: RepConfig,
 
-    max_memory: usize,
+    /// 配置的加载方式
+    load_style: LoadStyle,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RepConfig {
+    app_name: String,
+
     pub binlog: BinlogConfig,
     pub rc_mysql: RcMySQL,
     pub rc_metadata: RcMetadata,
-    pub core: CoreConfig,
+    pub base: BaseConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BaseConfig {
+    max_memory: Option<String>,
+
+    /// 日志输出路径
+    log_dir: Option<String>,
 }
 
 /// Binlog 配置
@@ -59,21 +74,23 @@ pub struct RcMetadata {
     pub metadata_stats_fresh_interval_ms: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CoreConfig {
-    max_memory: Option<String>,
-
-    /// 日志输出路径
-    log_dir: Option<String>,
+impl Default for FConfig {
+    fn default() -> Self {
+        FConfig {
+            config: RepConfig::default(),
+            load_style: LoadStyle::DEFAULT,
+        }
+    }
 }
 
 impl Default for RepConfig {
     fn default() -> Self {
         RepConfig {
+            app_name: String::from(""),
+            base: BaseConfig::default(),
             binlog: BinlogConfig::default(),
             rc_mysql: RcMySQL::default(),
             rc_metadata: RcMetadata::default(),
-            core: CoreConfig::default(),
         }
     }
 }
@@ -116,16 +133,33 @@ impl Default for BinlogConfig {
     }
 }
 
-impl Default for CoreConfig {
+impl Default for BaseConfig {
     fn default() -> Self {
-        CoreConfig {
+        BaseConfig {
             max_memory: None,
             log_dir: Some(String::from("/tmp/replayer")),
         }
     }
 }
 
-impl CoreConfig {
+impl FConfig {
+    pub fn new(c: RepConfig) -> Self {
+        FConfig {
+            config: c,
+            load_style: LoadStyle::YAML,
+        }
+    }
+
+    pub fn get_config(self) -> RepConfig {
+        self.config
+    }
+
+    pub fn get_load_style(self) -> LoadStyle {
+        self.load_style.clone()
+    }
+}
+
+impl BaseConfig {
     pub fn get_log_dir(&self) -> Option<String> {
         self.log_dir.clone()
     }
@@ -135,18 +169,10 @@ impl CoreConfig {
 pub fn read_config<P: AsRef<Path>>(path: P) -> Result<RepConfig, ReError> {
     let mut file = File::open(path.as_ref())?;
     let mut s = String::new();
+
     let _ = file.read_to_string(&mut s);
     toml::from_str(s.as_str())
         .map_err(|e| ReError::ConfigFileParseErr(e.to_string()))
-}
-
-impl Config {
-    pub fn create(core: RepConfig) -> Self {
-        Self {
-            core,
-            max_memory: 0,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -157,7 +183,9 @@ mod test {
     #[test]
     fn test() -> CResult<()> {
         let c = read_config("../conf/replayer.toml");
-        assert!(c.is_ok());
+
+        let rs =c.is_ok();
+        assert!(rs);
         Ok(())
     }
 }

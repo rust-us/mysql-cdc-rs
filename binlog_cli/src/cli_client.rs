@@ -49,6 +49,10 @@ impl Server for CliClient {
 
         binlog_subscribe_start(&mut self.binlog_subscribe, &self.cli_options, &self.binlog_server, &self.binlog_config).await.unwrap();
 
+        let log_pos = self.binlog_subscribe.get_log_position();
+        println!("load_read_ptr: [{}], pos {} in {}",
+                 self.binlog_subscribe.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
+
         Ok(())
     }
 
@@ -82,12 +86,16 @@ async fn binlog_subscribe_start(binlog_subscribe: &mut BinlogSubscribe, cli_opti
                 let event_type = BinlogEvent::get_type_name(&e);
 
                 if cli_options.is_debug() {
-                    println!("[{:?}]  \n{:?}\n",
-                             event_type, to_string_pretty(&cli_options.get_format(), &e));
-                } else {
                     let log_pos = binlog_subscribe.get_log_position();
-                    println!("[{:?} {}], pos {} in {}\n",
-                             event_type, binlog_subscribe.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
+                    println!("[{:?} {}], pos {} in {} \n{:?}\n",
+                             event_type, binlog_subscribe.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name(),
+                             to_string_pretty(&cli_options.get_format(), &e));
+                } else {
+                    if cli_options.is_print_logs() {
+                        let log_pos = binlog_subscribe.get_log_position();
+                        println!("[{:?} {}], pos {} in {}\n",
+                                 event_type, binlog_subscribe.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
+                    }
                 }
             }
         }
@@ -134,9 +142,9 @@ pub fn to_string_pretty<T: Sized + Serialize + Debug>(f: &Format, val: &T) -> St
     }
 }
 
-pub fn conver_format(format: &Option<String>) -> Format {
+pub fn conver_format(format: &String) -> Format {
     match format {
-        Some(ff) => {
+        ff => {
             let f = Format::try_from(ff.as_str());
 
             match f {
@@ -144,12 +152,9 @@ pub fn conver_format(format: &Option<String>) -> Format {
                     fff
                 },
                 Err(e) => {
-                    Format::None
+                    Format::Yaml
                 }
             }
-        },
-        None => {
-            Format::None
         }
     }
 }

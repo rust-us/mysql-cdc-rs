@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use connection::binlog::lifecycle::lifecycle::BinlogLifecycle;
-use common::config::{BinlogConfig, read_config, RepConfig};
+use common::config::{BinlogConfig, FConfig, read_config, RepConfig};
 use common::err::CResult;
 use common::err::decode_error::ReError;
 use common::log::tracing_factory::{OutputType, TracingFactory, TracingFactoryOptions};
@@ -43,8 +43,8 @@ pub(crate) struct CliArgs {
     #[arg(short, long, help = "enable debug mode", default_value_t = false)]
     pub debug: bool,
 
-    #[arg(short, long, help = "output format: [yaml | json]")]
-    pub format: Option<String>,
+    #[arg(short, long, help = "output format: [yaml | json], default Yaml", default_value = "yaml")]
+    pub format: String,
 
     ///////////////////////////////////////////////////
     // Binlog Options //
@@ -107,18 +107,13 @@ impl TryFrom<&str> for Format {
 async fn main() -> CResult<()> {
     let args = CliArgs::parse();
     let format = conver_format(&args.format);
-    eprintln!("args: {} ", to_string_pretty(&format, &args));
+    eprintln!("args: \n{} ", to_string_pretty(&format, &args));
 
-    let default_conf = get_config_path(&args);
-    let rep_config = if default_conf.is_some() {
-        let rep_conf = read_config(default_conf.unwrap())?;
+    let config = load_config(&args);
+    let rep_config = config.get_config();
+    eprintln!("load config: \n{}", to_string_pretty(&format, &rep_config));;
 
-        rep_conf
-    } else {
-        RepConfig::default()
-    };
-
-    let log_opt = TracingFactoryOptions::new(args.debug, OutputType::LOG, rep_config.core.get_log_dir());
+    let log_opt = TracingFactoryOptions::new(args.debug, OutputType::LOG, rep_config.base.get_log_dir());
     let log_factory = TracingFactory::init_log_with_options(log_opt);
     // TracingFactory::init_log(args.debug);
     eprintln!("log_dir: {:?}", log_factory.get_log_dir());
@@ -126,13 +121,13 @@ async fn main() -> CResult<()> {
     let mut binlog_config = rep_config.binlog;
 
     if args.debug {
-        eprintln!("default_binlog_config: \n{}", to_string_pretty(&format, &binlog_config));;
+        eprintln!("load binlog config: \n{}", to_string_pretty(&format, &binlog_config));
     }
 
     // merge binlog settings
     merge(&mut binlog_config, &args).expect("merge default binlog_config and args error!");
 
-    eprintln!("binlog_config: {}", to_string_pretty(&format, &binlog_config));
+    eprintln!("final binlog config: {}", to_string_pretty(&format, &binlog_config));
 
     let cli_f_d_ = match args.debug {true => {"-d"},false => {""}};
     let cli_f_ = format!("{}", cli_f_d_);
@@ -154,25 +149,35 @@ async fn main() -> CResult<()> {
     Ok(())
 }
 
+// 加载配置文件， 读取配置
+fn load_config(args: &CliArgs) -> FConfig {
+    let default_conf = get_config_path(&args);
+
+    let _config =
+        if default_conf.is_some() {
+            let rep_conf_rs = read_config(default_conf.unwrap());
+
+            FConfig::new(rep_conf_rs.unwrap())
+        } else {
+            FConfig::default()
+        };
+
+    _config
+}
+
 fn get_config_path(args: &CliArgs) -> Option<PathBuf> {
     let path = {
         if args.config.is_some() {
             return Some(args.config.as_ref().unwrap().clone());
         }
 
-        // if test {
-        //     let pwd = current_dir().unwrap_or("/".into());
-        //
-        //     let path_ = if pwd.ends_with("/common") {
-        //         "../conf/replayer.toml"
-        //     } else {
-        //         "./conf/replayer.toml"
-        //     }.into();
-        //
-        //     Some(path_)
-        // } else {
-            None
-        // }
+        let mut pwd = current_dir().unwrap_or("/".into());
+        // ./conf/replayer.toml
+        pwd.push("conf");
+        pwd.push("replayer");
+        pwd.set_extension("toml");
+
+        Some(pwd)
     };
 
     path
