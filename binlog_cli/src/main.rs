@@ -1,6 +1,5 @@
 mod cli_client;
 mod cli_options;
-mod pretty_util;
 
 use std::env::current_dir;
 use std::fmt::{Debug};
@@ -8,12 +7,13 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use connection::binlog::lifecycle::lifecycle::BinlogLifecycle;
-use common::config::{BinlogConfig, FConfig, read_config, RepConfig};
+use common::config::{BinlogConfig, FConfig, read_config};
+use common::config::load_style::Format;
 use common::err::CResult;
-use common::err::decode_error::ReError;
 use common::log::tracing_factory::{OutputType, TracingFactory, TracingFactoryOptions};
+use common::pretty_util::to_string_pretty;
 use common::server::{Server};
-use crate::cli_client::{CliClient, conver_format, to_string_pretty};
+use crate::cli_client::{CliClient};
 use crate::cli_options::CliOptions;
 
 #[derive(Parser, Serialize, Debug, Clone)]
@@ -76,37 +76,10 @@ enum Commands {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub enum Format {
-    Json,
-
-    Yaml,
-
-    None,
-}
-
-impl TryFrom<&str> for Format {
-    type Error = (ReError);
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "yaml" => {
-                Ok(Format::Yaml)
-            },
-            "json" => {
-                Ok(Format::Json)
-            },
-            _ => {
-                Err(ReError::String(String::from("Format error")))
-            }
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> CResult<()> {
     let args = CliArgs::parse();
-    let format = conver_format(&args.format);
+    let format = Format::format(&args.format);
     eprintln!("args: \n{} ", to_string_pretty(&format, &args));
 
     let config = load_config(&args);
@@ -140,7 +113,7 @@ async fn main() -> CResult<()> {
     eprintln!(" ╩ ╩ ╩ ╚═╝ ╩ ╩═╝ Rust us Binlog CLI {}", cli_output);
     eprintln!();
 
-    let mut client = CliClient::new(CliOptions::new(args.debug, format), binlog_config);
+    let mut client = CliClient::new(CliOptions::new_with_log(args.debug, format), binlog_config);
     client.start().await?;
 
     // let mut shundown = ShutdownHandle::create();
@@ -185,17 +158,17 @@ fn get_config_path(args: &CliArgs) -> Option<PathBuf> {
 
 fn merge(binlog_config: &mut BinlogConfig, args: &CliArgs) -> CResult<bool> {
     if args.host.is_some() {
-        binlog_config.host = args.host.clone();
+        binlog_config.set_host(args.host.clone());
     }
-    if binlog_config.host.is_none() {
-        binlog_config.host = Some("127.0.0.1".to_string());
+    if binlog_config.have_host() {
+        binlog_config.set_host(Some("127.0.0.1".to_string()));
     }
 
     if args.port.is_some() {
-        binlog_config.port = args.port.clone();
+        binlog_config.set_port(args.port.clone());
     }
-    if binlog_config.port.is_none() {
-        binlog_config.port = Some(3306);
+    if binlog_config.have_port() {
+        binlog_config.set_port(Some(3306));
     }
 
     if args.username.is_some() {

@@ -11,6 +11,7 @@ members = [
     "./binlog",
     "./connection",
     "./binlog_cli",
+    "./web",
     "./tests",
     "./relay_log",
 ]
@@ -34,12 +35,18 @@ common = { path = "common", version = "0.0.2" }
 binlog = { path = "binlog", version = "0.0.2" }
 binlog_cli = { path = "binlog_cli", version = "0.0.2" }
 relay_log = { path = "relay_log", version = "0.0.2" }
+web = { path = "web", version = "0.0.2" }
 
-tokio = {version = "1.32.0", features = ["full"]}
+tokio = {version = "1.38.0", features = ["full"]}
+tokio-stream = "0.1.15"
+
 async-trait = "0.1.73"
-uuid = "1.4.1"
+env_logger = "0.11"
+futures-util = { version = "^0.3.29", default-features = false, features = ["std"] }
+futures-executor="^0.3.29"
 # 十六进制数据编码
 hex = "0.4.2"
+log = "0.4"
 lru = "0.12.1"
 bytes = "1.5.0"
 byteorder = "1.5.0"
@@ -47,6 +54,8 @@ thiserror = "1.0.50"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"
 serde_yaml = "0.9.27"
+serde_bytes = "~0.11.12"
+serde_derive = "~1.0.126"
 structopt = "0.3.16"
 bitflags = { version = "2.4.1", features = [] }
 nom = "7"
@@ -62,9 +71,6 @@ chrono = "0.4.31"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 tracing-appender = "0.2.3"
-
-futures-util="^0.3.29"
-futures-executor="^0.3.29"
 
 toml = "^0.8.8"
 mysql_common = "^0.30.6"
@@ -96,3 +102,8 @@ getset = "0.1.2"
 memmap2 = "0.9.4"
 # crc-check
 checksum = "0.2.1"
+uuid = "1.4.1"
+
+# Duration 的格式化输出。
+pretty-duration = "0.1.1"
+byte-unit = "5.1.4"

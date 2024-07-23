@@ -1,4 +1,4 @@
-mod load_style;
+pub mod load_style;
 
 use std::fs::File;
 use std::io::Read;
@@ -39,8 +39,8 @@ pub struct BaseConfig {
 /// Binlog 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinlogConfig {
-    pub host: Option<String>,
-    pub port: Option<i16>,
+    host: Option<String>,
+    port: Option<i16>,
     pub username: String,
     pub password: String,
 
@@ -162,6 +162,46 @@ impl FConfig {
 impl BaseConfig {
     pub fn get_log_dir(&self) -> Option<String> {
         self.log_dir.clone()
+    }
+}
+
+impl BinlogConfig {
+    pub fn get_host(&self) -> &str {
+        match self.host.as_ref() {
+            None => {
+                ""
+            }
+            Some(s) => {
+                &s
+            }
+        }
+    }
+
+    pub fn set_host(&mut self, host: Option<String>) {
+        self.host = host
+    }
+
+    pub fn have_host(&self) -> bool {
+        self.host.is_none()
+    }
+
+    pub fn get_port(&self) -> i16 {
+        match self.port.as_ref() {
+            None => {
+                0
+            }
+            Some(p) => {
+                p.clone()
+            }
+        }
+    }
+
+    pub fn set_port(&mut self, port: Option<i16>) {
+        self.port = port
+    }
+
+    pub fn have_port(&self) -> bool {
+        self.port.is_none()
     }
 }
 

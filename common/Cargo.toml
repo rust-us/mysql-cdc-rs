@@ -25,6 +25,7 @@ bytes = { workspace = true }
 thiserror = { workspace = true }
 nom = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
 toml = { workspace = true }
 
 futures-util = { workspace = true }
@@ -40,3 +41,6 @@ dashmap = { workspace = true }
 once_cell = { workspace = true }
 
 regex = { workspace = true }
+
+pretty-duration = { workspace = true }
+byte-unit = { workspace = true }

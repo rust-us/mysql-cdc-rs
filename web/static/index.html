@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Binlog Console Echo</title>
+
+    <link href="https://s.codealy.com/favicon.ico" rel="shortcut icon" type="image/x-icon">
+
+    <!-- 重置样式表和公共样式表以及主页样式表 -->
+    <link rel="stylesheet" href="https://s.codealy.com/whosly/reset.css" type="text/css">
+    <link rel="stylesheet" href="https://s.codealy.com/whosly/public.css" type="text/css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"/>
+
+    <link rel="stylesheet" href="https://s.codealy.com/whosly/s/bootstrap/4.5.3/css/bootstrap.min.css"/>
+    <link href="https://cdn.bootcss.com/sweetalert/1.1.3/sweetalert.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="/static/css/index.css"/>
+
+
+    <!--<script src="https://s.codealy.com/whosly/s/js/jQuery/jquery-3.3.1.min.js"></script>-->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+
+    <style>
+        #log_area {
+            width: 100%;
+            height: 20em;
+            overflow: auto;
+            margin: 0.5em 0 20px;
+            /* 浅米色背景 */
+            background-color: #fff7e8;
+            /* 设置边框为虚线 */
+            border: 1px dashed #ced4da;
+            /* 设置内边距，以便文本不紧贴边框 */
+            padding: 5px;
+            border-radius: 5px;
+            position: relative;
+            /* 设置div的显示类型为块级，这是默认设置，但明确写出有助于理解 */
+            display: block;
+        }
+
+        .grid-dashed-background {
+            background-image:
+                    linear-gradient(to right, #000 1px, rgba(255, 247, 232, 0) 1px), /* 虚线1px，间隔8px（因为从1px黑色到9px结束是8px间隔） */
+                    linear-gradient(to bottom, #000 1px, rgba(255, 247, 232, 0) 1px);
+            /* 控制渐变单元的大小，现在每个单元包括1px的虚线和8px的间隔，共9px */
+            background-size: 10px 10px; /* 10px = 1px虚线 + 8px间隔 */
+            background-position: 0 0, 0 0;
+            background-repeat: repeat, repeat;
+            color: #fff;
+            display: flex;
+        }
+
+        #connect_status_info {
+            padding: 0 0.2em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="center-horizontal">
+        <h1>数据库信息（仅为示例，请勿直接用于生产环境）</h1>
+        <p>请注意：下面的信息仅为示例，请按需要输入。</p>
+
+        <ul>
+            <li>数据库IP地址: <span>127.0.0.1</span>（示例IP）</li>
+            <li>端口: <span>3306</span>（MySQL常用端口）</li>
+        </ul>
+
+        <p>此为演示示例，不作为实际应用功能。</p>
+
+
+        <form id="log_form_data">
+            <div class="form-group">
+                <div class="input-group mb-3">
+                    <div class="input-group-prepend">
+                        <label class="input-group-text" for="choose_type">订阅方式</label>
+                    </div>
+                    <select class="custom-select" id="choose_type" name="choose_type">
+                        <option value="-1" selected>Choose...</option>
+                        <option value="binlog">Binlog</option>
+<!--                        <option value="2">Binlog</option>-->
+<!--                        <option value="3">Binlog</option>-->
+                    </select>
+                </div>
+
+                <div class="input-group mb-3">
+                    <!-- IP输入组件 开始 -->
+                    <div class="input-group-prepend ip-input-group" data-plugin="ipinput" aria-label="With IP Address"
+                         id="host">
+                        <span class="input-group-text">IP Address</span>
+                        <div class="ip-input-group-w d-flex">
+                            <div class="ip-input-group-input flex-fill"><input type="text" placeholder="127" class="form-control form-control-sm"></div>
+                            <div class="ip-input-group-span">:</div>
+                            <div class="ip-input-group-input flex-fill"><input type="text" placeholder="0" class="form-control form-control-sm"></div>
+                            <div class="ip-input-group-span">:</div>
+                            <div class="ip-input-group-input flex-fill"><input type="text" placeholder="0" class="form-control form-control-sm"></div>
+                            <div class="ip-input-group-span">:</div>
+                            <div class="ip-input-group-input flex-fill"><input type="text" placeholder="1" class="form-control form-control-sm"></div>
+                        </div>
+                    </div>
+                    <!-- IP输入组件 结束 -->
+                </div>
+
+                <div class="input-group mb-3">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text" for="port">端口</span>
+                    </div>
+                    <input type="text" id=“port” name="port" class="form-control" placeholder="数据库系统端口号, 3306" aria-label="port" aria-describedby="port">
+
+                    <div class="input-group-prepend">
+                        <span class="input-group-text" for="username">用户名</span>
+                    </div>
+                    <input type="text" id=“username” name="username" class="form-control" placeholder="root" aria-label="username" aria-describedby="username">
+
+                    <div class="input-group-prepend">
+                        <span class="input-group-text" for="passwd">密码</span>
+                    </div>
+                    <input type="text" id="passwd" name="passwd" class="form-control" placeholder="123456" aria-label="passwd" aria-describedby="passwd">
+                </div>
+
+            </div>
+        </form>
+
+        <button id="connect_subscribe" class="btn btn-primary">订阅</button>
+        <span id="connect_status_info">disconnected</span>
+
+<!--        <form id="chat_send_form">-->
+<!--            <input type="text" id="chat_send_text" />-->
+<!--            <input type="submit" id="send" />-->
+<!--        </form>-->
+
+        <div id="log_area" class="form-group grid-dashed-background"></div>
+
+        <section>
+            <h2>Usage</h2>
+            <p>After connecting, subscribe binlog info and the server will echo your binlog event message.</p>
+        </section>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
+    <script src="https://s.codealy.com/whosly/s/bootstrap/4.5.3/js/bootstrap.min.js"></script>
+    <script src="https://unpkg.com/sweetalert@2.1.2/dist/sweetalert.min.js"></script>
+
+    <!-- Additional JS for more complex validation can be added here -->
+    <script src="/static/js/index.js"></script>
+    <script src="/static/js/ws.js"></script>
+
+</body>
+</html>

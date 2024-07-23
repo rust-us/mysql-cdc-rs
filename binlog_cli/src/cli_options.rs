@@ -1,5 +1,6 @@
 use serde::{Serialize};
-use crate::Format;
+use common::config::load_style::Format;
+use connection::binlog::binlog_subscribe::SubscribeOptions;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CliOptions {
@@ -40,6 +41,10 @@ impl CliOptions {
 
     pub fn get_format(&self) -> Format {
         self.format.clone()
+    }
+
+    pub fn to_subscribe_options(&self) -> SubscribeOptions {
+        SubscribeOptions::new(self.debug, self.print_logs, self.format.clone())
     }
 }
 

@@ -1,0 +1,50 @@
+[package]
+name = "web"
+version = { workspace = true }
+description.workspace = true
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+readme.workspace = true
+publish = { workspace = true }
+#autobenches.workspace = true
+include.workspace = true
+
+[[bin]]
+name = "web"
+path = "src/main.rs"
+
+[[bin]]
+name = "websocket-client"
+path = "src/client.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+common = { workspace = true }
+connection = { workspace = true }
+binlog = { workspace = true }
+binlog_cli = { workspace = true }
+
+env_logger.workspace = true
+futures-util = { workspace = true, features = ["sink"] }
+log.workspace = true
+
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+async-trait ={ workspace = true }
+lazy_static = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_derive = { workspace = true }
+
+actix-web = { version = "4.8.0"}
+actix = "0.13"
+actix-codec = "0.5"
+actix-cors = "0.7"
+actix-files = "0.6.6"
+actix-http = "3.8.0"
+actix-session = "0.9"
+actix-utils = "3"
+actix-web-actors = "4.3.0"
+actix-ws = "0.2.5"
+awc = "3.2"
