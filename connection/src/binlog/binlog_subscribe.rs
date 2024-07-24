@@ -51,23 +51,54 @@ unsafe impl Send for BinlogSubscribe {}
 #[async_trait::async_trait]
 impl Server for BinlogSubscribe {
     #[instrument]
-    async fn start(&mut self) -> Result<(), ReError> {
-        println!("BinlogSubscribe start");
+    async fn start(&mut self) -> CResult<()> {
+        let c = self.get_binlog_config();
+        self.setup(&c).await.unwrap();
+        self.start_in().await.unwrap();
 
-        match self.conn.as_mut().unwrap().try_connect() {
-            Ok(rs) => {
-                debug!("服务启动成功。尝试连接成功！！！");
+        // 延缓启动，便于观察上述配置项信息
+        debug!("wait for 500 millis to-viewing of the above configuration...");
+        let sleep_millis = std::time::Duration::from_millis(500);
+        thread::sleep(sleep_millis);
+
+        let mut binlogs_warpper = self.binlogs().await.unwrap();
+        // 读取binlog 数据
+        for x in binlogs_warpper.get_iter() {
+            if x.is_ok() {
+                let list = x.unwrap();
+
+                for e in list {
+                    let event_type = BinlogEvent::get_type_name(&e);
+
+                    // 输出事件的详细信息
+                    if self.subscribe_options.is_debug() {
+                        let log_pos = self.get_log_position();
+                        println!("[{:?} {}], pos {} in {} \n{:?}\n",
+                                 event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name(),
+                                 to_string_pretty(&self.subscribe_options.get_format(), &e));
+                    } else {
+                        // 输出简要信息
+                        if self.subscribe_options.is_print_logs() {
+                            let log_pos = self.get_log_position();
+                            println!("[{:?} {}], pos {} in {}\n",
+                                     event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
+                        }
+                    }
+                }
             }
-            Err(err) => {
-                error!("数据库 {} 连接失败!", format!("{}:{}", self.binlog_config.get_host(), self.binlog_config.get_port()));
-                return Err(err);
-            }
+        }
+
+        // 输出耗时信息
+        if binlogs_warpper.get_during_time().is_some() {
+            println!("binlog 读取完成，耗时：{}， 收包总大小 {} bytes.",
+                     to_duration_pretty(&binlogs_warpper.get_during_time().unwrap()),
+                     to_bytes_len_pretty(binlogs_warpper.get_receives_bytes()));
         }
 
         Ok(())
     }
 
-    async fn shutdown(&mut self, graceful: bool) -> Result<(), ReError> {
+    async fn shutdown(&mut self, graceful: bool) -> CResult<()> {
         println!("BinlogSubscribe shutdown");
 
         Ok(())
@@ -136,48 +167,17 @@ impl BinlogSubscribe {
         self.binlog_config.clone()
     }
 
-    pub async fn binlog_subscribe_start(&mut self,
-                                    binlog_config: &BinlogConfig) -> Result<(), ReError> {
-        self.setup(binlog_config).await.unwrap();
-        self.start().await.unwrap();
+    async fn start_in(&mut self) -> Result<(), ReError> {
+        println!("BinlogSubscribe start");
 
-        // 延缓启动，便于观察上述配置项信息
-        debug!("wait for 500 millis to-viewing of the above configuration...");
-        let sleep_millis = std::time::Duration::from_millis(500);
-        thread::sleep(sleep_millis);
-
-        let mut binlogs_warpper = self.binlogs().await.unwrap();
-        // 读取binlog 数据
-        for x in binlogs_warpper.get_iter() {
-            if x.is_ok() {
-                let list = x.unwrap();
-
-                for e in list {
-                    let event_type = BinlogEvent::get_type_name(&e);
-
-                    // 输出事件的详细信息
-                    if self.subscribe_options.is_debug() {
-                        let log_pos = self.get_log_position();
-                        println!("[{:?} {}], pos {} in {} \n{:?}\n",
-                                 event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name(),
-                                 to_string_pretty(&self.subscribe_options.get_format(), &e));
-                    } else {
-                        // 输出简要信息
-                        if self.subscribe_options.is_print_logs() {
-                            let log_pos = self.get_log_position();
-                            println!("[{:?} {}], pos {} in {}\n",
-                                     event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
-                        }
-                    }
-                }
+        match self.conn.as_mut().unwrap().try_connect() {
+            Ok(rs) => {
+                debug!("服务启动成功。尝试连接成功！！！");
             }
-        }
-
-        // 输出耗时信息
-        if binlogs_warpper.get_during_time().is_some() {
-            println!("binlog 读取完成，耗时：{}， 收包总大小 {} bytes.",
-                     to_duration_pretty(&binlogs_warpper.get_during_time().unwrap()),
-                     to_bytes_len_pretty(binlogs_warpper.get_receives_bytes()));
+            Err(err) => {
+                error!("数据库 {} 连接失败!", format!("{}:{}", self.binlog_config.get_host(), self.binlog_config.get_port()));
+                return Err(err);
+            }
         }
 
         Ok(())

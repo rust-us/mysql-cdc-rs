@@ -97,3 +97,9 @@ impl<T> From<std::sync::PoisonError<T>> for WebError {
         WebError::Value(err.to_string())
     }
 }
+
+impl<T: num_enum::TryFromPrimitive> From<num_enum::TryFromPrimitiveError<T>> for WebError {
+    fn from(err: num_enum::TryFromPrimitiveError<T>) -> Self {
+        WebError::Value(err.to_string())
+    }
+}

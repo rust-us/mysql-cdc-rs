@@ -8,7 +8,7 @@ pub struct RegisterStrategyEvent {
 
 impl WSSStrategy for RegisterStrategyEvent {
     fn action(&self) -> WResult<Option<String>> {
-        Ok(None)
+        Ok(Some("Register Success".to_string()))
     }
 
     fn code(&self) -> i16 {

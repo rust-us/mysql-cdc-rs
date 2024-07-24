@@ -16,24 +16,30 @@ mock_api = []
 [dependencies]
 memory = { workspace = true }
 
-tokio = { workspace = true }
 async-trait ={ workspace = true }
-uuid = { workspace = true }
-hex = { workspace = true }
-lru = { workspace = true }
 bytes = { workspace = true }
-thiserror = { workspace = true }
-nom = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_yaml = { workspace = true }
-toml = { workspace = true }
-
+byte-unit = { workspace = true }
+chrono = { workspace = true }
 futures-util = { workspace = true }
 futures-executor = { workspace = true }
+hex = { workspace = true }
+lru = { workspace = true }
+nom = { workspace = true }
+num_enum = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
-num_enum = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+fnv = { workspace = true }
+rand = { workspace = true }
+
+pretty-duration = { workspace = true }
+
 # del
 mysql_common = { workspace = true }
 bigdecimal = { workspace = true }
@@ -41,6 +47,3 @@ dashmap = { workspace = true }
 once_cell = { workspace = true }
 
 regex = { workspace = true }
-
-pretty-duration = { workspace = true }
-byte-unit = { workspace = true }

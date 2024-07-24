@@ -81,9 +81,13 @@ once_cell = "1.19.0"
 
 clap = { version = "4.4.14", features = ["derive", "cargo", "suggestions"] }
 
+# uuid and sha
 sha1 = "0.10.5"
 sha2 = "0.10.6"
 rand = "0.8.4"
+uuid = "1.4.1"
+fnv = "1.0"
+
 dirs = "3.0.2"
 openssl = { version = "0.10", features = ["vendored"] }
 #reqwest = "0.10.10"
@@ -102,7 +106,6 @@ getset = "0.1.2"
 memmap2 = "0.9.4"
 # crc-check
 checksum = "0.2.1"
-uuid = "1.4.1"
 
 # Duration 的格式化输出。
 pretty-duration = "0.1.1"

@@ -5,17 +5,15 @@ use common::err::decode_error::ReError;
 use common::server::Server;
 use crate::web_error::WResult;
 use crate::wss::event::WSEvent;
-use crate::wss::server::MyWebSocket;
-use crate::wss::strategy::Ignore::IgnoreStrategyEvent;
+use crate::wss::strategy::ignore::IgnoreStrategyEvent;
 use crate::wss::strategy::register::RegisterStrategyEvent;
 use crate::wss::strategy::unknow::UnknowStrategyEvent;
 use crate::wss::strategy::WSSStrategy;
-use crate::wss::WSSContext::WSSContext;
+use crate::wss::wss_action_type::ActionType;
+use crate::wss::wsscontext::WSSContext;
 
 #[derive(Clone)]
 pub struct WSSFactory {
-    server: Rc<RefCell<MyWebSocket>>,
-
     context: Rc<RefCell<WSSContext>>
 }
 
@@ -38,7 +36,6 @@ impl WSSFactory {
         let c = WSSContext::default();
 
         WSSFactory {
-            server: Rc::new(RefCell::new(MyWebSocket::new())),
             context: Rc::new(RefCell::new(c)),
         }
     }
@@ -50,47 +47,32 @@ impl WSSFactory {
         self.context.borrow().is_ready()
     }
 
-    pub fn strategy_with(&self, action: i16, data: HashMap<String, String>) -> WResult<Option<String>> {
+    pub fn strategy(&self, action: ActionType, data: HashMap<String, String>) -> WResult<Option<String>> {
         let strategy = self.get_strategy_with(action, data);
 
         let rs : WResult<Option<String>> = strategy.action();
-
-        return match rs {
-            Ok(o) => {
-                match o {
-                    None => {
-                        Ok(None)
-                    }
-                    Some(msg) => {
-                        if action == 0 {
-                            Ok(Some(format!("Binlog Server 连接成功。{}", msg)))
-                        } else {
-                            Ok(Some(msg))
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                Err(err)
-            }
-        }
+        return rs;
     }
 
-    pub fn strategy(&self, e: &WSEvent) -> WResult<Option<String>> {
-        self.strategy_with(e.get_action(), e.get_body())
-    }
+    fn get_strategy_with(&self, action: ActionType, data: HashMap<String, String>) -> Box<dyn WSSStrategy> {
+        let s: Box<dyn WSSStrategy> = match action {
+            ActionType::CONNECTION => {
+                Box::new(RegisterStrategyEvent::new(data))
+            }
+            ActionType::IGNORE => {
+                Box::new(IgnoreStrategyEvent::new())
+            }
+            ActionType::UNKNOW => {
+                Box::new(UnknowStrategyEvent::new(data))
+            }
+        };
 
-    fn get_strategy_with(&self, action: i16, data: HashMap<String, String>) -> Box<dyn WSSStrategy> {
-        if action == 0 {
-            return Box::new(IgnoreStrategyEvent::new());
-        }else if action == 1 {
-            return Box::new(RegisterStrategyEvent::new(data));
-        }
-
-        return Box::new(UnknowStrategyEvent::new(data));
+        return s
     }
 
     fn get_strategy(&self, e: &WSEvent) -> Box<dyn WSSStrategy> {
-        self.get_strategy_with(e.get_action(), e.get_body())
+        let t = ActionType::try_from(e.get_action()).unwrap();
+
+        self.get_strategy_with(t, e.get_body())
     }
 }

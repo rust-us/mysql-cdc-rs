@@ -1,43 +1,39 @@
-use std::fmt::Debug;
+use std::cell::RefCell;
+use std::sync::Arc;
 use binlog::binlog_server::BinlogServer;
 use common::config::BinlogConfig;
 use common::err::decode_error::ReError;
-use common::server::{Server};
-use connection::binlog::binlog_subscribe::BinlogSubscribe;
-use crate::cli_options::CliOptions;
+use common::server::Server;
+use connection::binlog::binlog_subscribe::{BinlogSubscribe, SubscribeOptions};
 
 #[derive(Debug)]
-pub struct CliClient {
-    binlog_config: BinlogConfig,
-
+pub struct WSSContext {
     binlog_server: BinlogServer,
 
     binlog_subscribe: BinlogSubscribe,
 }
 
-impl CliClient {
-    pub fn new(cli_options: CliOptions, binlog_config: BinlogConfig) -> Self {
-        let binlog_server = BinlogServer::new();
-        let binlog_subscribe= BinlogSubscribe::new(
-            cli_options.is_debug(),
-            binlog_config.clone(),
-            cli_options.to_subscribe_options()
-        );
+impl Default for WSSContext {
+    fn default() -> Self {
+        let binlog_config = BinlogConfig::default();
 
-        CliClient {
-            binlog_config,
+        let binlog_server = BinlogServer::new();
+        let binlog_subscribe= BinlogSubscribe::new(false, binlog_config,
+                                                   SubscribeOptions::default());
+
+        WSSContext {
             binlog_server,
             binlog_subscribe,
         }
     }
 }
 
-unsafe impl Send for CliClient {}
+unsafe impl Send for WSSContext {}
 
 #[async_trait::async_trait]
-impl Server for CliClient {
+impl Server for WSSContext {
     async fn start(&mut self) -> Result<(), ReError> {
-        println!("CliClient start");
+        println!("WSS Binlog start");
 
         self.binlog_server.start().await.unwrap();
         self.binlog_subscribe.start().await.unwrap();
@@ -50,11 +46,24 @@ impl Server for CliClient {
     }
 
     async fn shutdown(&mut self, graceful: bool) -> Result<(), ReError> {
-        println!("CliClient shutdown");
+        println!("WSS Binlog shutdown");
 
         self.binlog_server.shutdown(graceful).await?;
         self.binlog_subscribe.shutdown(graceful).await?;
 
         Ok(())
+    }
+}
+
+impl WSSContext {
+    pub fn create() -> Self {
+        WSSContext::default()
+    }
+
+    /// 是否准备就绪
+    /// true: 准备就绪
+    /// false: 未准备就绪
+    pub fn is_ready(&self) -> bool {
+        true
     }
 }

@@ -5,20 +5,40 @@ mod wss;
 mod web_error;
 
 use actix_web::{web, App, HttpServer, Error, Responder, HttpResponse, middleware, HttpRequest};
-use actix::{Actor, StreamHandler};
+use actix::{Actor, Addr, StreamHandler};
 use actix_files::Files;
 use actix_web_actors::ws;
+use actix_web_actors::ws::WsResponseBuilder;
+use common::time_util::now_str;
+use common::uuid::uuid_timestamp;
 
 use crate::api::default::{data, index, favicon, get_static_dir};
 use crate::config::constant::CFG;
-use crate::wss::server::MyWebSocket;
+use crate::wss::server::{MyWebSocket, SendMessage, WsContext};
+use crate::wss::session_manager::SessionManager;
 
 /// WebSocket handshake and start `MyWebSocket` actor.
 async fn index_echo_ws(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
-    let resp = ws::start(MyWebSocket::new(), &req, stream);
+    let session_id = get_session_id(&req, uuid_timestamp());
+
+    let build = WsResponseBuilder::new(MyWebSocket::new(Some(session_id.clone())), &req, stream);
+    let resp = build.start_with_addr();
 
     println!("{:?}", resp);
-    resp
+
+    match resp {
+        Ok((addr, resp)) => {
+            let context = WsContext::new(addr, session_id.clone(), now_str());
+            context.do_send("Binlog Server 连接成功");
+
+            SessionManager::ws_insertupdate(session_id, context);
+
+            Ok(resp)
+        }
+        Err(err) => {
+            Err(err)
+        }
+    }
 }
 
 #[actix_web::main]
@@ -50,6 +70,16 @@ async fn main() -> std::io::Result<()> {
         .await
 }
 
+fn get_session_id(req: &HttpRequest, default:String) -> String {
+    // 从HTTP头中获取sessionId
+    let mut session_id = req.headers().get("X-Session-Id").and_then(|h| h.to_str().ok()).unwrap_or_default();
+
+    if session_id.is_empty() {
+        session_id = default.as_str();
+    }
+
+    return session_id.to_string();
+}
 
 #[cfg(test)]
 mod test {

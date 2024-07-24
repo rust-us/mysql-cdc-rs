@@ -1,13 +1,17 @@
-use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use actix::Message;
 
 use actix::prelude::*;
 use actix_http::ws::{CloseCode, CloseReason};
 use actix_web_actors::ws;
+use common::err::CResult;
 use crate::web_error::{WebError, WResult};
 use crate::wss::event::WSEvent;
+use crate::wss::session_manager::SessionManager;
 use crate::wss::strategy::factory::WSSFactory;
+use crate::wss::wss_action_type::ActionType;
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -23,47 +27,12 @@ pub struct MyWebSocket {
     hb: Instant,
 
     fatory: Option<Rc<WSSFactory>>,
-}
-
-impl MyWebSocket {
-    pub fn new() -> Self {
-        Self {
-            hb: Instant::now(),
-            fatory: None,
-        }
-    }
-
-    /// 是否准备就绪
-    /// true: 准备就绪
-    /// false: 未准备就绪
-    pub fn is_ready(&self) -> bool {
-        self.fatory.is_some() && self.fatory.as_ref().unwrap().is_ready()
-    }
-
-    /// helper method that sends ping to client every 5 seconds (HEARTBEAT_INTERVAL).
-    ///
-    /// also this method checks heartbeats from client
-    fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
-        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            // check client heartbeats
-            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                // heartbeat timed out
-                println!("Websocket Client heartbeat failed, disconnecting!");
-
-                // stop actor
-                ctx.stop();
-
-                // don't try to send a ping
-                return;
-            }
-
-            ctx.ping(b"");
-        });
-    }
+    
+    session_id: Option<String>,
 }
 
 impl Actor for MyWebSocket {
-    type Context = ws::WebsocketContext<Self>;
+    type Context = ws::WebsocketContext<MyWebSocket>;
 
     /// Method is called on actor start. We start the heartbeat process here.
     fn started(&mut self, ctx: &mut Self::Context) {
@@ -75,9 +44,7 @@ impl Actor for MyWebSocket {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
     /// process websocket messages
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        // // 接收到信息
-        // println!("Received WS: {msg:?}");
-
+        // 接收到信息
         match msg {
             // Ping message.
             Ok(ws::Message::Ping(msg)) => {
@@ -108,7 +75,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
                         match msg {
                             None => {}
                             Some(resp) => {
-                                ctx.text(resp)
+                                ctx.text(resp);
                             }
                         }
                     }
@@ -116,10 +83,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
                         let msg = format!("Cause : {}", err.to_string());
                         println!("{}", &msg);
 
-                        ctx.close(Some(
+                        self.ctx_close(ctx, Some(
                             CloseReason::from((CloseCode::Abnormal, msg))
                         ));
-                        ctx.stop();
                     }
                 }
             },
@@ -134,40 +100,148 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
                     }
                 }
 
-                ctx.close(reason);
-                ctx.stop();
+                self.ctx_close(ctx, reason);
             },
             _ => (),
-            // _ => ctx.stop(),
+            // _ =>  self.ctx_close(ctx, None);,
         }
     }
 }
 
 impl MyWebSocket {
-    /// 执行策略
-    fn exec_action(&mut self, e: &WSEvent) -> WResult<Option<String>> {
-        println!(" {:?}", e);
-
-        if self.is_ready() {
-            return self.fatory.as_ref().unwrap().strategy(e);
+    pub fn new(session_id: Option<String>) -> Self {
+        Self {
+            hb: Instant::now(),
+            fatory: None,
+            session_id,
         }
+    }
 
-        match e.get_action() {
-            0 => {
-                if !self.is_ready() {
-                    let f = WSSFactory::create();
-                    let rc = Rc::new(f);
-                    self.fatory = Some(rc);
+    /// 是否准备就绪
+    /// true: 准备就绪
+    /// false: 未准备就绪
+    pub fn is_ready(&self) -> bool {
+        self.fatory.is_some() && self.fatory.as_ref().unwrap().is_ready()
+    }
+
+    fn setup(&mut self) -> () {
+        if !self.is_ready() {
+            let factory = WSSFactory::create();
+            self.fatory = Some(Rc::new(factory));
+
+            self.do_send("Register setup Success").unwrap();
+        }
+    }
+
+    fn do_send(&self, msg: &str) -> WResult<bool> {
+        return match self.session_id.as_ref() {
+            None => {
+                Ok(false)
+            }
+            Some(cid) => {
+                let context = SessionManager::ws_get(cid);
+
+                match context {
+                    None => {
+                        Ok(false)
+                    }
+                    Some(ws_context) => {
+                        ws_context.do_send(msg);
+
+                        Ok(true)
+                    }
                 }
-            },
-            _ => {
-                //.
             }
         }
+    }
+
+    /// helper method that sends ping to client every 5 seconds (HEARTBEAT_INTERVAL).
+    ///
+    /// also this method checks heartbeats from client
+    fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            // check client heartbeats
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                // heartbeat timed out
+                println!("Websocket Client heartbeat failed, disconnecting!");
+
+                // stop actor
+                ctx.stop();
+
+                // don't try to send a ping
+                return;
+            }
+
+            ctx.ping(b"");
+        });
+    }
+
+    fn ctx_close(&self, ctx: &mut <Self as Actor>::Context, reason: Option<CloseReason>) {
+        if self.session_id.is_some() {
+            let key = self.session_id.as_ref().unwrap().as_str();
+            let _context: Option<Arc<WsContext>> = SessionManager::ws_remove(key);
+            println!("ctx_close {:?}", _context);
+        }
+
+        ctx.close(reason);
+
+        ctx.stop();
+    }
+
+    /// 执行策略
+    fn exec_action(&mut self, e: &WSEvent) -> WResult<Option<String>> {
+        let mut action = ActionType::try_from(e.get_action())?;
+        match action {
+            ActionType::CONNECTION => {
+                self.setup();
+            }
+            _ => {}
+        }
 
         if self.is_ready() {
-            return self.fatory.as_ref().unwrap().strategy(e);
+            return self.fatory.as_ref().unwrap().strategy(action, e.get_body());
         }
         return Err(WebError::Value("Server is not ready".to_string()));
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct SendMessage(pub String);
+
+impl SendMessage {
+    pub fn new(msg: String) -> Self {
+        SendMessage(msg)
+    }
+}
+
+impl Handler<SendMessage> for MyWebSocket {
+    type Result = ();
+
+    fn handle(&mut self, msg: SendMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.text(msg.0);
+    }
+}
+
+#[derive(Debug)]
+pub struct WsContext {
+    addr: Addr<MyWebSocket>,
+
+    cid: String,
+
+    create_time: String,
+}
+
+impl WsContext {
+    pub fn new(addr: Addr<MyWebSocket>, cid: String, now: String) -> Self {
+        WsContext {
+            addr,
+            cid,
+            create_time: now,
+        }
+    }
+
+    pub fn do_send(&self, msg: &str) {
+        self.addr.do_send(SendMessage(String::from(msg)));
     }
 }

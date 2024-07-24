@@ -112,7 +112,8 @@ function connect() {
 
     // 接收消息时触发
     ws.addEventListener('message', (ev) => {
-        record_log('Received from server: ' + ev.data, 'message')
+        // 'Received from server: ' + ev.data, 'message'
+        record_log(ev.data, 'message')
     });
 
     ws.onclose = function(event) {
@@ -156,7 +157,7 @@ function disconnect() {
 
 function updateConnectionStatus() {
     if (ws) {
-        record_log_clear();
+        // record_log_clear();
 
         $connect_status_info.style.backgroundColor = 'transparent'
         $connect_status_info.style.color = 'green'

@@ -28,6 +28,7 @@ binlog_cli = { workspace = true }
 env_logger.workspace = true
 futures-util = { workspace = true, features = ["sink"] }
 log.workspace = true
+num_enum = { workspace = true }
 
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
@@ -36,6 +37,7 @@ lazy_static = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_derive = { workspace = true }
+uuid = { workspace = true }
 
 actix-web = { version = "4.8.0"}
 actix = "0.13"
