@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use actix::Message;
@@ -6,7 +5,7 @@ use actix::Message;
 use actix::prelude::*;
 use actix_http::ws::{CloseCode, CloseReason};
 use actix_web_actors::ws;
-use common::err::CResult;
+use tokio::runtime::Runtime;
 use crate::web_error::{WebError, WResult};
 use crate::wss::event::WSEvent;
 use crate::wss::session_manager::SessionManager;
@@ -26,9 +25,13 @@ pub struct MyWebSocket {
     /// otherwise we drop connection.
     hb: Instant,
 
-    fatory: Option<Rc<WSSFactory>>,
+    fatory: Option<Arc<WSSFactory>>,
     
     session_id: Option<String>,
+
+    /// 一个 `current_thread` 模式的 `tokio` 运行时，
+    /// 使用阻塞的方式来执行异步的操作
+    rt: Arc<Runtime>,
 }
 
 impl Actor for MyWebSocket {
@@ -110,10 +113,23 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
 
 impl MyWebSocket {
     pub fn new(session_id: Option<String>) -> Self {
+        // 构建一个 tokio 运行时： Runtime
+        let rt =
+            // 同步方法中调用异步的连接方法。 同步等待。
+            // 由于 current_thread 运行时并不生成新的线程，只是运行在已有的主线程上，因此只有当 block_on 被调用后，该运行时才能执行相应的操作。
+            // 一旦 block_on 返回，那运行时上所有生成的任务将再次冻结，直到 block_on 的再次调用。
+            // tokio::runtime::Builder::new_current_thread()
+            // 使用多线程模式
+            tokio::runtime::Builder::new_multi_thread()
+                // 启用所有tokio特性， 如 IO 和定时器服务
+            .enable_all()
+            .build().unwrap();
+
         Self {
             hb: Instant::now(),
             fatory: None,
             session_id,
+            rt: Arc::new(rt),
         }
     }
 
@@ -127,7 +143,7 @@ impl MyWebSocket {
     fn setup(&mut self) -> () {
         if !self.is_ready() {
             let factory = WSSFactory::create();
-            self.fatory = Some(Rc::new(factory));
+            self.fatory = Some(Arc::new(factory));
 
             self.do_send("Register setup Success").unwrap();
         }
@@ -191,15 +207,17 @@ impl MyWebSocket {
     /// 执行策略
     fn exec_action(&mut self, e: &WSEvent) -> WResult<Option<String>> {
         let mut action = ActionType::try_from(e.get_action())?;
+
         match action {
             ActionType::CONNECTION => {
                 self.setup();
+                action = ActionType::StartBinlog;
             }
             _ => {}
         }
 
         if self.is_ready() {
-            return self.fatory.as_ref().unwrap().strategy(action, e.get_body());
+            return self.fatory.as_ref().unwrap().strategy_action(self.rt.clone(), action, e.get_body());
         }
         return Err(WebError::Value("Server is not ready".to_string()));
     }

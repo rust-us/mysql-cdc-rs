@@ -6,10 +6,11 @@ use crate::web_error::WebError;
 #[derive(Eq, PartialEq)]
 pub enum ActionType {
     CONNECTION = 0,
+    StartBinlog = 1,
 
-    IGNORE = 1,
+    IGNORE = 10,
 
-    UNKNOW = -1,
+    Unknown = -1,
 }
 
 impl TryFrom<String> for ActionType {
@@ -20,17 +21,14 @@ impl TryFrom<String> for ActionType {
             "CONNECTION" => {
                 Ok(Self::CONNECTION)
             },
+            "StartBinlog" => {
+                Ok(Self::StartBinlog)
+            },
             "IGNORE" => {
                 Ok(Self::IGNORE)
             },
-            "UNKNOW" => {
-                Ok(Self::UNKNOW)
-            },
             _ => {
-                Ok(Self::UNKNOW)
-                // Err(WebError::Value(
-                //     format!("unknown ActionType: {}", value)
-                // ))
+                Ok(Self::Unknown)
             }
         }
     }

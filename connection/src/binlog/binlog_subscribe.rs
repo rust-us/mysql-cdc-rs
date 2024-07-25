@@ -46,22 +46,19 @@ pub struct SubscribeOptions {
     format: Format,
 }
 
-unsafe impl Send for BinlogSubscribe {}
-
 #[async_trait::async_trait]
 impl Server for BinlogSubscribe {
-    #[instrument]
     async fn start(&mut self) -> CResult<()> {
         let c = self.get_binlog_config();
-        self.setup(&c).await.unwrap();
-        self.start_in().await.unwrap();
+        self.setup(&c).expect("BinlogSubscribe setup Error!");
+        self.start_in().expect("BinlogSubscribe start Error!");
 
         // 延缓启动，便于观察上述配置项信息
         debug!("wait for 500 millis to-viewing of the above configuration...");
         let sleep_millis = std::time::Duration::from_millis(500);
         thread::sleep(sleep_millis);
 
-        let mut binlogs_warpper = self.binlogs().await.unwrap();
+        let mut binlogs_warpper = self.binlogs().await?;
         // 读取binlog 数据
         for x in binlogs_warpper.get_iter() {
             if x.is_ok() {
@@ -108,7 +105,7 @@ impl Server for BinlogSubscribe {
 #[async_trait::async_trait]
 impl BinlogLifecycle for BinlogSubscribe {
     #[instrument]
-    async fn setup(&mut self, binlog_config: &BinlogConfig) -> CResult<()> {
+    fn setup(&mut self, binlog_config: &BinlogConfig) -> CResult<()> {
         let mut opts = ConnectionOptions::new(
             binlog_config.get_host().to_string(),
             binlog_config.get_port(),
@@ -167,7 +164,7 @@ impl BinlogSubscribe {
         self.binlog_config.clone()
     }
 
-    async fn start_in(&mut self) -> Result<(), ReError> {
+    fn start_in(&mut self) -> Result<(), ReError> {
         println!("BinlogSubscribe start");
 
         match self.conn.as_mut().unwrap().try_connect() {

@@ -1,4 +1,5 @@
-use std::io;
+use std::fmt::Display;
+use std::{fmt, io};
 use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -59,6 +60,39 @@ pub enum ReError {
     MetadataMockErr(String),
 }
 
+impl Display for ReError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+        match self {
+            ReError::BUG(s) | ReError::Error(s) | ReError::ASTParserError(s)
+            | ReError::ConnectionError(s) | ReError::String(s) | ReError::Failure(s)
+            | ReError::ConfigFileParseErr(s) | ReError::TableSchemaIntoErr(s) | ReError::RcMysqlUrlErr(s)
+            | ReError::RcMysqlQueryErr(s) | ReError::OpRaftErr(s) | ReError::MysqlQueryErr(s)
+            | ReError::OpTableNotExistErr(s) | ReError::OpSchemaNotExistErr(s) | ReError::OpMetadataErr(s)
+            | ReError::MetadataMockErr(s) => {
+                write!(f, "{}", s)
+            }
+            ReError::Incomplete(n) => {
+                write!(f, "{}", n)
+            }
+            ReError::IoError(err) => {
+                write!(f, "{}", err.to_string())
+            }
+            ReError::Utf8Error(err) => {
+                write!(f, "{}", err.to_string())
+            }
+            ReError::FromUtf8Error(err) => {
+                write!(f, "{}", err.to_string())
+            }
+            ReError::FromHexError(err) => {
+                write!(f, "{}", err.to_string())
+            }
+            ReError::ParseIntError(err) => {
+                write!(f, "{}", err.to_string())
+            }
+        }
+    }
+}
+
 impl From<io::Error> for ReError {
     fn from(error: io::Error) -> Self {
         ReError::IoError(error)
@@ -109,6 +143,28 @@ pub enum Needed {
     MissingNull,
 
     InvalidData(String),
+}
+
+impl Display for Needed {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+        match self {
+            Needed::Unknown => {
+                write!(f, "Unknown")
+            }
+            Needed::NoEnoughData => {
+                write!(f, "NoEnoughData")
+            }
+            Needed::InvalidUtf8 => {
+                write!(f, "InvalidUtf8")
+            }
+            Needed::MissingNull => {
+                write!(f, "MissingNull")
+            }
+            Needed::InvalidData(s) => {
+                write!(f, "{}", s)
+            }
+        }
+    }
 }
 
 impl ReError {

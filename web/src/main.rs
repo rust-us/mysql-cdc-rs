@@ -24,8 +24,6 @@ async fn index_echo_ws(req: HttpRequest, stream: web::Payload) -> Result<HttpRes
     let build = WsResponseBuilder::new(MyWebSocket::new(Some(session_id.clone())), &req, stream);
     let resp = build.start_with_addr();
 
-    println!("{:?}", resp);
-
     match resp {
         Ok((addr, resp)) => {
             let context = WsContext::new(addr, session_id.clone(), now_str());
@@ -41,7 +39,8 @@ async fn index_echo_ws(req: HttpRequest, stream: web::Payload) -> Result<HttpRes
     }
 }
 
-#[actix_web::main]
+// #[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 

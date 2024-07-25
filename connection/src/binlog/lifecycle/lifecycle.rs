@@ -7,7 +7,7 @@ use crate::binlog::binlog_events_wrapper::{BinlogEventsWrapper};
 #[async_trait::async_trait]
 pub trait BinlogLifecycle: Server {
     /// 初始化
-    async fn setup(&mut self, binlog_config: &BinlogConfig) -> CResult<()>;
+    fn setup(&mut self, binlog_config: &BinlogConfig) -> CResult<()>;
 
     async fn binlogs(&mut self) -> Result<BinlogEventsWrapper, ReError>;
 

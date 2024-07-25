@@ -66,6 +66,7 @@ pub trait ILogContext {
 }
 
 pub type LogContextRef = Rc<RefCell<LogContext>>;
+// pub type LogContextRef = Arc<RwLock<LogContext>>;
 
 #[derive(Debug, Clone)]
 pub struct LogContext {

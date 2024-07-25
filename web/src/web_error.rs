@@ -50,6 +50,12 @@ impl serde::de::Error for WebError {
     }
 }
 
+impl From<common::err::decode_error::ReError> for WebError {
+    fn from(err: common::err::decode_error::ReError) -> Self {
+        WebError::Parse(err.to_string())
+    }
+}
+
 impl From<std::num::ParseFloatError> for WebError {
     fn from(err: std::num::ParseFloatError) -> Self {
         WebError::Parse(err.to_string())
