@@ -23,19 +23,6 @@ Please note the lib currently has the following limitations:
 * Doesn't handle split packets (16MB and more).
 
 
-# Development environment
-In order to reduce the probability of execution errors and improve the functional features,
-we unify the versions of the Rust toolchain and switch the following commands:
-
-* [How to install Rust development environment in Windows operating system](https://zhuanlan.zhihu.com/p/704426216)
-
-```text
- rustup default nightly
-```
-
-You can check it out in the ` rustup toolchain list `. If not, it will be automatically downloaded.
-
-
 # Architecture
 ## mysql-cdc-rs-architecture
 ![Module dependency](./doc/architecture/mysql-cdc-rs-architecture.png)
@@ -64,12 +51,102 @@ You can check it out in the ` rustup toolchain list `. If not, it will be automa
 ```
 
 
-# How to Use
+# Development environment
+In order to reduce the probability of execution errors and improve the functional features,
+we unify the versions of the Rust toolchain and switch the following commands:
+
+* [How to install Rust development environment in Windows operating system](https://zhuanlan.zhihu.com/p/704426216)
+
+## Env
+
+```
+$ rustup install nightly
+
+$ rustup toolchain list
+stable-aarch64-apple-darwin (default)
+nightly-aarch64-apple-darwin (override)
+
+#$ rustup override set nightly
+# Or 
+$ rustup default nightly
+
+$ rustup toolchain list
+stable-x86_64-pc-windows-msvc (default)
+nightly-x86_64-pc-windows-msvc (active)
+```
+
+You can check it out in the ` rustup toolchain list `. If not, it will be automatically downloaded.
+
+## Test
+### RunTest
+
+```
+$ cargo test
+running 2 tests
+test tests::bench_add_two ... ok
+test tests::it_works ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+### 运行 benchmark
+Install [gnuplots](http://www.gnuplot.info/)
+
+Add
+```
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
+```
+
+编写测试文件($PROJECT/benches/my_benchmark.rs)
+```
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 1,
+        1 => 1,
+        n => fibonacci(n-1) + fibonacci(n-2),
+    }
+}
+
+fn criterion_benchmark(c: &mut Criterion) {
+    c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);
+```
+
+```
+$ cargo bench
+test result: ok. 0 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running benches\aes_bencher.rs (target\release\deps\aes_bencher-f9a9ea35aca2ab2d.exe)
+Gnuplot not found, using plotters backend
+add_two                 time:   [604.03 ps 619.40 ps 636.72 ps]
+                        change: [-2.3923% +0.4866% +3.6080%] (p = 0.76 > 0.05)
+                        No change in performance detected.
+
+# 显示详细日志
+cargo bench --bench aes_benchmark -- --verbose
+
+# 只运行特定测试
+cargo bench -p cryptolib --bench sm4_benchmark
+cargo bench --bench aes_benchmark -- -n "AES Parallel"
+```
+
+报告在目录 `target\criterion` 下查看
+
+## How to Use
+
 ```
 # cargo tree
 cargo build
-
-
 ```
 
 
