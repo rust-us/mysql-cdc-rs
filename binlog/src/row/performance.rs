@@ -367,8 +367,8 @@ mod tests {
         assert_eq!(count_set_bits_optimized(&data[..2], 16), 12);
         
         // Test partial last byte
-        assert_eq!(count_set_bits_optimized(&data, 20), 16); // 8 + 4 + 4 bits set
-        assert_eq!(count_set_bits_optimized(&data, 18), 14); // 8 + 4 + 2 bits set
+        assert_eq!(count_set_bits_optimized(&data, 20), 14); // 8 + 4 + 2 bits set (first 4 bits of 0b10101010 = 0b1010 = 2 bits)
+        assert_eq!(count_set_bits_optimized(&data, 18), 13); // 8 + 4 + 1 bits set (first 2 bits of 0b10101010 = 0b10 = 1 bit)
     }
 
     #[test]

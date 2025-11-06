@@ -81,14 +81,29 @@ impl BinlogReader<&[u8], BinlogEvent> for BytesBinlogReader {
         self.source_bytes = remaining_bytes;
         self.event_raw_iter = Arc::new(event_raws.clone().into_iter());
 
-        Box::new(BytesBinlogReaderIterator {
-            index: 0,
-            source_bytes: self.source_bytes.clone(),
-            skip_magic_buffer: self.skip_magic_buffer,
-            decoder: self.decoder.clone(),
-            context: self.context.clone(),
-            event_raws,
-        })
+        // Parse events directly and update decoder state
+        let mut events = Vec::new();
+        for event_raw in &event_raws {
+            let header = event_raw.get_header();
+            let full_packet = event_raw.get_payload();
+            match self.decoder.event_parse(full_packet, header.clone(), self.context.clone()) {
+                Ok(event) => {
+                    self.context.borrow_mut().add_log_stat(event.len() as usize);
+                    events.push(Ok(event));
+                },
+                Err(error) => {
+                    if let ReError::IoError(io_error) = &error {
+                        if let ErrorKind::UnexpectedEof = io_error.kind() {
+                            // Skip incomplete events
+                            continue;
+                        }
+                    }
+                    events.push(Err(error));
+                }
+            }
+        }
+
+        Box::new(events.into_iter())
     }
 
     #[inline]

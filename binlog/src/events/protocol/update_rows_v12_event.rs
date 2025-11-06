@@ -339,13 +339,13 @@ impl LogEvent for UpdateRowsEvent {
             }
         }
         
-        // Use enhanced parsing with difference detection enabled by default
+        // Use enhanced parsing with difference detection disabled by default
         let rows = row_parser.parse_update_row_data_list_enhanced(
             &mut _rows_data_cursor,
             table_id,
             &before_image,
             &after_image,
-            true, // Enable difference detection
+            false, // Disable difference detection by default
             None, // No partial column filtering
         )?;
 

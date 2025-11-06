@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, ErrorKind, Read, Seek, SeekFrom};
 use std::sync::{Arc, RwLock};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -18,6 +18,7 @@ use crate::row::row_data::{RowData, UpdateRowData};
 use crate::row::rows::{ExtraDataType, RowEventVersion};
 use crate::row::event_handler::RowEventHandlerRegistry;
 use crate::row::performance::{OptimizedRowParser, RowDataPool, RowParsingStats, ZeroCopyBitmap, read_bitmap_zero_copy, count_set_bits_optimized};
+use crate::row::monitoring::{RowParsingMonitor, MonitoringConfig};
 use crate::utils::{read_bitmap_little_endian, read_len_enc_num, read_string};
 
 pub const TABLE_MAP_NOT_FOUND: &str =
@@ -28,6 +29,7 @@ You possibly started replication in the middle of logical event group.";
 #[derive(Debug, Clone)]
 pub struct TableMapCache {
     cache: Arc<RwLock<HashMap<u64, TableMapEvent>>>,
+    insertion_order: Arc<RwLock<VecDeque<u64>>>,
     max_size: usize,
 }
 
@@ -35,6 +37,7 @@ impl TableMapCache {
     pub fn new(max_size: usize) -> Self {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
+            insertion_order: Arc::new(RwLock::new(VecDeque::new())),
             max_size,
         }
     }
@@ -42,15 +45,23 @@ impl TableMapCache {
     pub fn insert(&self, table_id: u64, table_map: TableMapEvent) -> Result<(), ReError> {
         let mut cache = self.cache.write()
             .map_err(|_| ReError::String("Failed to acquire write lock on table map cache".to_string()))?;
+        let mut order = self.insertion_order.write()
+            .map_err(|_| ReError::String("Failed to acquire write lock on insertion order".to_string()))?;
+        
+        // If key already exists, remove it from order first
+        if cache.contains_key(&table_id) {
+            order.retain(|&x| x != table_id);
+        }
         
         // Simple LRU: if cache is full, remove oldest entry
-        if cache.len() >= self.max_size {
-            if let Some(oldest_key) = cache.keys().next().copied() {
+        if cache.len() >= self.max_size && !cache.contains_key(&table_id) {
+            if let Some(oldest_key) = order.pop_front() {
                 cache.remove(&oldest_key);
             }
         }
         
         cache.insert(table_id, table_map);
+        order.push_back(table_id);
         Ok(())
     }
 
@@ -58,6 +69,14 @@ impl TableMapCache {
         let cache = self.cache.read()
             .map_err(|_| ReError::String("Failed to acquire read lock on table map cache".to_string()))?;
         Ok(cache.get(&table_id).cloned())
+    }
+
+    pub fn get_with_stats(&self, table_id: u64) -> Result<(Option<TableMapEvent>, bool), ReError> {
+        let cache = self.cache.read()
+            .map_err(|_| ReError::String("Failed to acquire read lock on table map cache".to_string()))?;
+        let result = cache.get(&table_id).cloned();
+        let is_hit = result.is_some();
+        Ok((result, is_hit))
     }
 
     pub fn contains(&self, table_id: u64) -> Result<bool, ReError> {
@@ -69,7 +88,10 @@ impl TableMapCache {
     pub fn clear(&self) -> Result<(), ReError> {
         let mut cache = self.cache.write()
             .map_err(|_| ReError::String("Failed to acquire write lock on table map cache".to_string()))?;
+        let mut order = self.insertion_order.write()
+            .map_err(|_| ReError::String("Failed to acquire write lock on insertion order".to_string()))?;
         cache.clear();
+        order.clear();
         Ok(())
     }
 
@@ -88,6 +110,7 @@ pub struct RowParser {
     optimized_parser: OptimizedRowParser,
     row_pool: RowDataPool,
     stats: RowParsingStats,
+    monitor: RowParsingMonitor,
     enable_optimizations: bool,
 }
 
@@ -99,6 +122,7 @@ impl RowParser {
             optimized_parser: OptimizedRowParser::new(),
             row_pool: RowDataPool::new(100),
             stats: RowParsingStats::new(),
+            monitor: RowParsingMonitor::new(),
             enable_optimizations: true,
         }
     }
@@ -112,6 +136,19 @@ impl RowParser {
         let mut parser = Self::new(cache_size);
         parser.enable_optimizations = false;
         parser
+    }
+
+    /// Create a new parser with custom monitoring configuration
+    pub fn new_with_monitoring(cache_size: usize, monitoring_config: MonitoringConfig) -> Self {
+        Self {
+            table_cache: TableMapCache::new(cache_size),
+            event_handlers: RowEventHandlerRegistry::new(),
+            optimized_parser: OptimizedRowParser::new(),
+            row_pool: RowDataPool::new(100),
+            stats: RowParsingStats::new(),
+            monitor: RowParsingMonitor::with_config(monitoring_config),
+            enable_optimizations: true,
+        }
     }
     
     /// Enable or disable performance optimizations
@@ -144,6 +181,36 @@ impl RowParser {
         self.row_pool.clear();
     }
 
+    /// Get the monitoring system
+    pub fn get_monitor(&self) -> &RowParsingMonitor {
+        &self.monitor
+    }
+
+    /// Get mutable access to the monitoring system
+    pub fn get_monitor_mut(&mut self) -> &mut RowParsingMonitor {
+        &mut self.monitor
+    }
+
+    /// Get comprehensive statistics report
+    pub fn get_statistics_report(&self) -> crate::row::monitoring::StatisticsReport {
+        self.monitor.get_statistics_report()
+    }
+
+    /// Reset monitoring statistics
+    pub fn reset_monitoring_statistics(&mut self) {
+        self.monitor.reset_statistics();
+    }
+
+    /// Update monitoring configuration
+    pub fn update_monitoring_config(&mut self, config: MonitoringConfig) {
+        self.monitor.update_config(config);
+    }
+
+    /// Generate a human-readable monitoring summary
+    pub fn generate_monitoring_summary(&self) -> String {
+        self.monitor.get_statistics_report().generate_summary()
+    }
+
     /// Register a table map event in the local cache
     pub fn register_table_map(&self, table_id: u64, table_map: TableMapEvent) -> Result<(), ReError> {
         self.table_cache.insert(table_id, table_map)
@@ -152,6 +219,17 @@ impl RowParser {
     /// Get table map from local cache
     pub fn get_table_map(&self, table_id: u64) -> Result<Option<TableMapEvent>, ReError> {
         self.table_cache.get(table_id)
+    }
+
+    /// Get table map from local cache with cache statistics tracking
+    pub fn get_table_map_with_stats(&mut self, table_id: u64) -> Result<Option<TableMapEvent>, ReError> {
+        let (result, is_hit) = self.table_cache.get_with_stats(table_id)?;
+        if is_hit {
+            self.monitor.record_cache_hit();
+        } else {
+            self.monitor.record_cache_miss();
+        }
+        Ok(result)
     }
 
     /// Parse row data list for INSERT/DELETE events
@@ -244,6 +322,7 @@ impl RowParser {
             if let Err(e) = self.event_handlers.process_update(&table_map, &row_before_update, &row_after_update) {
                 self.event_handlers.on_error(&table_map, &e).ok();
                 self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                self.monitor.record_error(&e, Some(&table_map), false);
                 return Err(e);
             }
 
@@ -254,6 +333,9 @@ impl RowParser {
 
         // Notify handlers that table processing is ending
         self.event_handlers.process_table_end(&table_map)?;
+
+        // Record the update operation in monitoring
+        self.monitor.record_update_operation(&table_map, &rows);
 
         Ok(rows)
     }
@@ -390,8 +472,16 @@ impl RowParser {
         // Update statistics
         let end_pos = cursor.position();
         let bytes_processed = end_pos - start_pos;
-        let parse_time = start_time.elapsed().as_nanos() as u64;
-        self.stats.add_row(bytes_processed, parse_time);
+        let parse_time_duration = start_time.elapsed();
+        let parse_time_ns = parse_time_duration.as_nanos() as u64;
+        
+        // Update legacy stats for backward compatibility
+        self.stats.add_row(bytes_processed, parse_time_ns);
+        
+        // Update comprehensive monitoring if row parsing was successful
+        if let Ok(ref row_data) = result {
+            self.monitor.record_row_parsed(table_map, row_data, parse_time_duration, bytes_processed);
+        }
         
         result
     }
@@ -458,6 +548,7 @@ impl RowParser {
         // Notify handlers that table processing is starting
         if let Err(e) = self.event_handlers.process_table_start(&table_map) {
             self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+            self.monitor.record_error(&e, Some(&table_map), false);
             return Err(e);
         }
 
@@ -473,6 +564,7 @@ impl RowParser {
                     if let Err(e) = self.event_handlers.process_insert(&table_map, &row) {
                         self.event_handlers.on_error(&table_map, &e).ok();
                         self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                        self.monitor.record_error(&e, Some(&table_map), false);
                         return Err(e);
                     }
                     rows.push(row);
@@ -484,6 +576,7 @@ impl RowParser {
                     } else {
                         error!("IO error during row parsing: {:?}", io_error);
                         self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                        self.monitor.record_error(&ReError::IoError(io_error.kind().into()), Some(&table_map), false);
                         return Err(ReError::IoError(io_error));
                     }
                 }
@@ -492,6 +585,7 @@ impl RowParser {
                     // Notify handlers of the error
                     self.event_handlers.on_error(&table_map, &error).ok();
                     self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                    self.monitor.record_error(&error, Some(&table_map), false);
                     return Err(error);
                 }
             }
@@ -499,6 +593,9 @@ impl RowParser {
 
         // Notify handlers that table processing is ending
         self.event_handlers.process_table_end(&table_map)?;
+
+        // Record the insert operation in monitoring
+        self.monitor.record_insert_operation(&table_map, &rows);
 
         Ok(rows)
     }
@@ -516,6 +613,7 @@ impl RowParser {
         // Notify handlers that table processing is starting
         if let Err(e) = self.event_handlers.process_table_start(&table_map) {
             self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+            self.monitor.record_error(&e, Some(&table_map), false);
             return Err(e);
         }
 
@@ -531,6 +629,7 @@ impl RowParser {
                     if let Err(e) = self.event_handlers.process_delete(&table_map, &row) {
                         self.event_handlers.on_error(&table_map, &e).ok();
                         self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                        self.monitor.record_error(&e, Some(&table_map), false);
                         return Err(e);
                     }
                     rows.push(row);
@@ -542,6 +641,7 @@ impl RowParser {
                     } else {
                         error!("IO error during row parsing: {:?}", io_error);
                         self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                        self.monitor.record_error(&ReError::IoError(io_error.kind().into()), Some(&table_map), false);
                         return Err(ReError::IoError(io_error));
                     }
                 }
@@ -550,6 +650,7 @@ impl RowParser {
                     // Notify handlers of the error
                     self.event_handlers.on_error(&table_map, &error).ok();
                     self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                    self.monitor.record_error(&error, Some(&table_map), false);
                     return Err(error);
                 }
             }
@@ -557,6 +658,9 @@ impl RowParser {
 
         // Notify handlers that table processing is ending
         self.event_handlers.process_table_end(&table_map)?;
+
+        // Record the delete operation in monitoring
+        self.monitor.record_delete_operation(&table_map, &rows);
 
         Ok(rows)
     }
