@@ -1,0 +1,145 @@
+# Binlog CLI 配置文件模板
+# 复制此文件并根据你的环境进行修改
+
+[base]
+# 日志文件存储目录
+log_dir = "./logs"
+
+# 最大内存使用限制 (可选)
+# 支持的单位: B, KB, MB, GB, TB
+# 示例: "1GB", "512MB", "2GB"
+# max_memory = "1GB"
+
+[binlog]
+# MySQL 服务器配置
+host = "localhost"
+port = 3306
+username = "root"
+password = "your_password"
+
+# 服务器 ID (用于复制)
+# 确保此 ID 在 MySQL 集群中是唯一的
+server_id = 1001
+
+# 可选: 指定起始 binlog 文件和位置
+# 如果不指定，将从当前位置开始读取
+# start_file = "mysql-bin.000001"
+# start_position = 4
+
+# 可选: 数据库过滤器
+# 只处理指定数据库的事件
+# database_filter = ["myapp", "analytics"]
+
+# 可选: 表过滤器  
+# 只处理指定表的事件
+# table_filter = ["users", "orders", "products"]
+
+# 可选: 事件类型过滤器
+# 只处理指定类型的事件
+# 支持的类型: INSERT, UPDATE, DELETE, DDL
+# event_filter = ["INSERT", "UPDATE", "DELETE"]
+
+# 可选: SSL 配置 (如果 MySQL 启用了 SSL)
+# ssl_ca = "/path/to/ca.pem"
+# ssl_cert = "/path/to/client-cert.pem" 
+# ssl_key = "/path/to/client-key.pem"
+
+# 可选: 连接超时设置 (秒)
+# connect_timeout = 30
+# read_timeout = 60
+
+# 可选: 重连配置
+# max_reconnect_attempts = 5
+# reconnect_interval = 10
+
+# 可选: 缓冲区配置
+# buffer_size = 8192
+# max_buffer_size = 1048576
+
+[output]
+# 输出格式: yaml, json
+format = "yaml"
+
+# 是否美化输出 (仅对 JSON 有效)
+pretty_print = true
+
+# 输出文件 (可选，如果不指定则输出到标准输出)
+# output_file = "/path/to/output.log"
+
+# 是否包含元数据
+include_metadata = true
+
+# 时间戳格式
+# 支持的格式: rfc3339, unix, custom
+timestamp_format = "rfc3339"
+
+# 自定义时间戳格式 (当 timestamp_format = "custom" 时使用)
+# custom_timestamp_format = "%Y-%m-%d %H:%M:%S"
+
+[logging]
+# 日志级别: trace, debug, info, warn, error
+level = "info"
+
+# 日志输出目标: console, file, both
+target = "both"
+
+# 日志文件名模式
+file_pattern = "binlog_cli_%Y%m%d.log"
+
+# 日志文件轮转配置
+max_file_size = "100MB"
+max_files = 10
+
+# 是否在控制台显示彩色日志
+colored_output = true
+
+[performance]
+# 批处理大小
+batch_size = 1000
+
+# 处理间隔 (毫秒)
+processing_interval = 100
+
+# 内存检查间隔 (秒)
+memory_check_interval = 60
+
+# 是否启用性能统计
+enable_stats = true
+
+# 统计报告间隔 (秒)
+stats_interval = 300
+
+[monitoring]
+# 是否启用健康检查
+enable_health_check = true
+
+# 健康检查间隔 (秒)
+health_check_interval = 30
+
+# 是否启用指标收集
+enable_metrics = false
+
+# 指标输出格式: prometheus, json
+metrics_format = "prometheus"
+
+# 指标输出端点 (HTTP 服务器)
+# metrics_endpoint = "0.0.0.0:9090"
+
+[advanced]
+# 是否启用实验性功能
+enable_experimental = false
+
+# 自定义处理器插件路径 (实验性)
+# plugin_path = "/path/to/plugins"
+
+# 是否启用压缩 (对于大量数据)
+enable_compression = false
+
+# 压缩算法: gzip, lz4, zstd
+compression_algorithm = "gzip"
+
+# 是否启用加密 (对于敏感数据)
+enable_encryption = false
+
+# 加密密钥文件路径
+# encryption_key_file = "/path/to/encryption.key"
