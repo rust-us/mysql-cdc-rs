@@ -6,7 +6,7 @@ use tracing::error;
 use common::binlog::column::column_type::SrcColumnType;
 use common::binlog::column::column_value::SrcColumnValue;
 use common::err::decode_error::ReError;
-use crate::column::column_parser::{parse_bit, parse_blob, parse_date, parse_date_time, parse_date_time2, parse_string, parse_time, parse_time2, parse_timestamp, parse_timestamp2, parse_year};
+use crate::utils::{parse_bit, parse_blob, parse_date, parse_date_time, parse_date_time2, parse_string, parse_time, parse_time2, parse_timestamp, parse_timestamp2, parse_year};
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::{ExtraData, ExtraDataFormat, Flags, Payload};
 use crate::binlog_server::TABLE_MAP_EVENT;

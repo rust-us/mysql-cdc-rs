@@ -1,1 +1,9 @@
 pub mod column_parser;
+pub mod type_decoder;
+pub mod column_metadata;
+pub mod column_value_unified;
+pub mod decoders;
+pub mod custom_decoder;
+pub mod charset;
+pub mod string_optimization;
+pub mod performance;
