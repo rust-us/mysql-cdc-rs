@@ -11,11 +11,11 @@ log_dir = "/tmp/replayer"
 ## 数据源的mysql地址
 host = "127.0.0.1"
 ## 数据源的mysql端口
-port = 13306
+port = 13308
 # 数据源的mysql用户名
 username = "root"
 # 数据源的mysql密码
-password = "123456"
+password = "A123456."
 # 4 * 1024 * 1024
 payload_buffer_size = 4194304
 #file = "mysql-bin.000005"

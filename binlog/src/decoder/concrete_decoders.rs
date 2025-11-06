@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::Cursor;
-use common::err::decode_error::ReError;
+use common::err::decode_error::{ReError, ErrorContext};
 use crate::b_type::LogEventType;
 use crate::events::binlog_event::BinlogEvent;
 use crate::events::event_raw::HeaderRef;
@@ -35,6 +35,9 @@ use crate::decoder::event_decoder_impl::{
     parse_delete_file, parse_new_load, parse_rand, parse_begin_load_query,
     parse_execute_load_query, parse_incident, parse_heartbeat, parse_row_query
 };
+
+// Additional imports for I/O operations
+use std::io::Read;
 
 /// Decoder for Unknown events
 #[derive(Debug)]
@@ -377,6 +380,155 @@ impl EventDecoder for XidLogEventDecoder {
     }
 }
 
+/// Decoder for Rand events
+#[derive(Debug)]
+pub struct RandEventDecoder;
+
+impl EventDecoder for RandEventDecoder {
+    fn event_type(&self) -> u8 { LogEventType::RAND_EVENT.as_u8() }
+    fn name(&self) -> &'static str { "RandEventDecoder" }
+
+    fn decode(
+        &self,
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        _context: LogContextRef,
+        _table_map: Option<&HashMap<u64, TableMapEvent>>,
+        _table_cache_manager: Option<&TableCacheManager>,
+    ) -> Result<BinlogEvent, ReError> {
+        let remaining_bytes = cursor.get_ref().len() - cursor.position() as usize;
+        let mut buffer = vec![0u8; remaining_bytes];
+        cursor.read_exact(&mut buffer).map_err(|e| ReError::IoError(e))?;
+        
+        let result = parse_rand(&buffer, header);
+        match result {
+            Ok((_, event)) => Ok(event),
+            Err(e) => Err(ReError::EventParseError {
+                message: format!("Failed to parse RAND event: {:?}", e),
+                context: ErrorContext::new().with_operation("parse_rand".to_string()),
+                source: None,
+            })
+        }
+    }
+}
+
+/// Decoder for UserVar events
+#[derive(Debug)]
+pub struct UserVarEventDecoder;
+
+impl EventDecoder for UserVarEventDecoder {
+    fn event_type(&self) -> u8 { LogEventType::USER_VAR_EVENT.as_u8() }
+    fn name(&self) -> &'static str { "UserVarEventDecoder" }
+
+    fn decode(
+        &self,
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        context: LogContextRef,
+        _table_map: Option<&HashMap<u64, TableMapEvent>>,
+        _table_cache_manager: Option<&TableCacheManager>,
+    ) -> Result<BinlogEvent, ReError> {
+        let event = UserVarEvent::parse(cursor, header, context, None, None)?;
+        Ok(BinlogEvent::UserVar(event))
+    }
+}
+
+/// Decoder for BeginLoadQuery events
+#[derive(Debug)]
+pub struct BeginLoadQueryEventDecoder;
+
+impl EventDecoder for BeginLoadQueryEventDecoder {
+    fn event_type(&self) -> u8 { LogEventType::BEGIN_LOAD_QUERY_EVENT.as_u8() }
+    fn name(&self) -> &'static str { "BeginLoadQueryEventDecoder" }
+
+    fn decode(
+        &self,
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        _context: LogContextRef,
+        _table_map: Option<&HashMap<u64, TableMapEvent>>,
+        _table_cache_manager: Option<&TableCacheManager>,
+    ) -> Result<BinlogEvent, ReError> {
+        let remaining_bytes = cursor.get_ref().len() - cursor.position() as usize;
+        let mut buffer = vec![0u8; remaining_bytes];
+        cursor.read_exact(&mut buffer).map_err(|e| ReError::IoError(e))?;
+        
+        let result = parse_begin_load_query(&buffer, header);
+        match result {
+            Ok((_, event)) => Ok(event),
+            Err(e) => Err(ReError::EventParseError {
+                message: format!("Failed to parse BEGIN_LOAD_QUERY event: {:?}", e),
+                context: ErrorContext::new().with_operation("parse_begin_load_query".to_string()),
+                source: None,
+            })
+        }
+    }
+}
+
+/// Decoder for ExecuteLoadQuery events
+#[derive(Debug)]
+pub struct ExecuteLoadQueryEventDecoder;
+
+impl EventDecoder for ExecuteLoadQueryEventDecoder {
+    fn event_type(&self) -> u8 { LogEventType::EXECUTE_LOAD_QUERY_EVENT.as_u8() }
+    fn name(&self) -> &'static str { "ExecuteLoadQueryEventDecoder" }
+
+    fn decode(
+        &self,
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        _context: LogContextRef,
+        _table_map: Option<&HashMap<u64, TableMapEvent>>,
+        _table_cache_manager: Option<&TableCacheManager>,
+    ) -> Result<BinlogEvent, ReError> {
+        let remaining_bytes = cursor.get_ref().len() - cursor.position() as usize;
+        let mut buffer = vec![0u8; remaining_bytes];
+        cursor.read_exact(&mut buffer).map_err(|e| ReError::IoError(e))?;
+        
+        let result = parse_execute_load_query(&buffer, header);
+        match result {
+            Ok((_, event)) => Ok(event),
+            Err(e) => Err(ReError::EventParseError {
+                message: format!("Failed to parse EXECUTE_LOAD_QUERY event: {:?}", e),
+                context: ErrorContext::new().with_operation("parse_execute_load_query".to_string()),
+                source: None,
+            })
+        }
+    }
+}
+
+/// Decoder for RowsQuery events
+#[derive(Debug)]
+pub struct RowsQueryLogEventDecoder;
+
+impl EventDecoder for RowsQueryLogEventDecoder {
+    fn event_type(&self) -> u8 { LogEventType::ROWS_QUERY_LOG_EVENT.as_u8() }
+    fn name(&self) -> &'static str { "RowsQueryLogEventDecoder" }
+
+    fn decode(
+        &self,
+        cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        _context: LogContextRef,
+        _table_map: Option<&HashMap<u64, TableMapEvent>>,
+        _table_cache_manager: Option<&TableCacheManager>,
+    ) -> Result<BinlogEvent, ReError> {
+        let remaining_bytes = cursor.get_ref().len() - cursor.position() as usize;
+        let mut buffer = vec![0u8; remaining_bytes];
+        cursor.read_exact(&mut buffer).map_err(|e| ReError::IoError(e))?;
+        
+        let result = parse_row_query(&buffer, header);
+        match result {
+            Ok((_, event)) => Ok(event),
+            Err(e) => Err(ReError::EventParseError {
+                message: format!("Failed to parse ROWS_QUERY event: {:?}", e),
+                context: ErrorContext::new().with_operation("parse_rows_query".to_string()),
+                source: None,
+            })
+        }
+    }
+}
+
 /// Function to register all standard decoders
 pub fn register_standard_decoders(registry: &crate::decoder::event_decoder_registry::EventDecoderRegistry) -> Result<(), ReError> {
     // Register all standard event decoders
@@ -395,6 +547,13 @@ pub fn register_standard_decoders(registry: &crate::decoder::event_decoder_regis
     registry.register_decoder(Box::new(PreviousGtidsLogEventDecoder))?;
     registry.register_decoder(Box::new(FormatDescriptionEventDecoder))?;
     registry.register_decoder(Box::new(XidLogEventDecoder))?;
+    
+    // Register additional event decoders
+    registry.register_decoder(Box::new(RandEventDecoder))?;
+    registry.register_decoder(Box::new(UserVarEventDecoder))?;
+    registry.register_decoder(Box::new(BeginLoadQueryEventDecoder))?;
+    registry.register_decoder(Box::new(ExecuteLoadQueryEventDecoder))?;
+    registry.register_decoder(Box::new(RowsQueryLogEventDecoder))?;
 
     // Register MySQL 8.0+ specific decoders
     crate::decoder::mysql8_decoders::register_mysql8_decoders(registry)?;

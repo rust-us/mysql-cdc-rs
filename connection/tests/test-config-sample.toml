@@ -1,0 +1,19 @@
+# 这是一个示例配置文件，用于测试配置加载功能
+# 不包含真实的数据库连接信息
+
+[mysql]
+host = "example.com"
+port = 3306
+username = "testuser"
+password = "testpass"
+database = "testdb"
+timeout = 30
+ssl = false
+
+[test]
+enabled = false  # 设置为 false 以避免实际连接
+verbose = true
+
+[binlog]
+enabled = false  # 设置为 false 以避免实际连接
+buffer_size = 4096

@@ -395,25 +395,3 @@ impl Connection {
         return client_flags;
     }
 }
-
-#[cfg(test)]
-mod test {
-    use crate::conn::connection::{Connection, IConnection};
-    use crate::conn::connection_options::ConnectionOptions;
-
-    #[test]
-    fn test_conn() {
-        let mut opts = ConnectionOptions::default();
-        opts.update_auth(String::from("root"), String::from("123456"));
-
-        let mut conn = Connection::new(opts);
-        let channel_rs = conn.try_connect();
-        assert!(channel_rs.is_ok());
-
-        let query = conn
-            .query(String::from("select 1+ 1"))
-            .expect("test_conn error");
-        let values = &query[0].as_slice();
-        assert_eq!(values[0].clone().unwrap(), "2")
-    }
-}

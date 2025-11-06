@@ -1,0 +1,40 @@
+# MySQL 集成测试配置文件模板
+# 复制此文件为 test-config.toml 并填入你的 MySQL 服务器信息
+
+[mysql]
+# MySQL 服务器主机地址
+host = "localhost"
+
+# MySQL 服务器端口
+port = 3306
+
+# 用户名
+username = "root"
+
+# 密码
+password = "123456"
+
+# 数据库名（可选，默认使用 test）
+database = "test"
+
+# 连接超时时间（秒，可选）
+timeout = 30
+
+# 是否启用 SSL（可选，默认 false）
+ssl = false
+
+[test]
+# 是否运行需要真实 MySQL 服务器的集成测试
+# 如果设置为 false，相关测试将被跳过
+enabled = true
+
+# 测试时是否输出详细日志
+verbose = false
+
+# binlog 测试相关配置
+[binlog]
+# 是否测试 binlog 功能（需要 REPLICATION 权限）
+enabled = true
+
+# binlog 缓冲区大小（字节）
+buffer_size = 3072

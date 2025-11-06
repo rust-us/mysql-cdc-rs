@@ -81,13 +81,13 @@ impl TracingFactory {
                     OutputType::STDOUT => {
                         // let (non_blocking, _guard) = tracing_appender::non_blocking(io::stdout);
 
-                        tracing_subscriber::fmt()
+                        let _ = tracing_subscriber::fmt()
                             .with_max_level(level)
                             .event_format(format)
                             .pretty()
                             // .with_writer(non_blocking)
                             // sets this to be the default, global collector for this application.
-                            .init();
+                            .try_init();
                     },
                     OutputType::LOG => {
                         // debug 模式下，std 与 log 同时输出。 否则只输出 file
@@ -95,13 +95,13 @@ impl TracingFactory {
 
                         let merge = file_appender.and(io::stdout);
 
-                        tracing_subscriber::fmt()
+                        let _ = tracing_subscriber::fmt()
                             .with_max_level(level)
                             .event_format(format)
                             .pretty()
                             .with_writer(merge)
                             // sets this to be the default, global collector for this application.
-                            .init();
+                            .try_init();
                     }
                 };
 

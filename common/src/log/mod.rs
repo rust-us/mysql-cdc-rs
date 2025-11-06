@@ -9,6 +9,8 @@ pub fn init_test_log() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
         .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("set default subscriber failed");
+    
+    // Ignore the error if a global subscriber has already been set
+    let _ = tracing::subscriber::set_global_default(subscriber);
 }
 

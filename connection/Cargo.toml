@@ -35,3 +35,6 @@ native-tls = { workspace = true }
 pem = { workspace = true }
 
 chrono = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }
