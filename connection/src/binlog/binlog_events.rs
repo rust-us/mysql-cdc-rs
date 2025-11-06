@@ -33,18 +33,18 @@ pub struct BinlogEvents {
 
 impl BinlogEvents {
     pub fn new(channel: Arc<RefCell<PacketChannel>>, log_context: LogContextRef, checksum: ChecksumType,
-               payload_buffer_size: usize) -> Self {
-        let mut parser = LogEventDecoder::new();
+               payload_buffer_size: usize) -> Result<Self, ReError> {
+        let mut parser = LogEventDecoder::new()?;
 
         let options = EventReaderOption::debug_with_payload_buffer_size(payload_buffer_size);
 
-        Self {
+        Ok(Self {
             channel,
             parser,
             options,
             log_context,
             payload_buffer: Vec::with_capacity(payload_buffer_size),
-        }
+        })
     }
 
     pub fn read_event(&mut self, packet: &[u8]) -> CResult<Vec<BinlogEvent>> {
@@ -103,7 +103,7 @@ impl Default for BinlogEvents {
     fn default() -> Self {
         BinlogEvents {
             channel: Arc::new(RefCell::new(PacketChannel::default())),
-            parser: LogEventDecoder::new(),
+            parser: LogEventDecoder::new().expect("Failed to create LogEventDecoder"),
             options: EventReaderOption::default(),
             log_context: Rc::new(RefCell::new(LogContext::default())),
             payload_buffer: Vec::new(),

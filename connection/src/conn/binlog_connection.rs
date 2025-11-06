@@ -166,7 +166,7 @@ impl IBinlogConnection for BinlogConnection {
 
         BinlogConnection::replicate_mysql(&mut channel.clone(), &self.conn.options, server_id)?;
 
-        let binlogs = BinlogEvents::new(channel.clone(), self.log_context.clone(), checksum, payload_buffer_size);
+        let binlogs = BinlogEvents::new(channel.clone(), self.log_context.clone(), checksum, payload_buffer_size)?;
         Ok(BinlogEventsWrapper::new(Arc::new(RefCell::new(binlogs))))
     }
 }
