@@ -3,7 +3,7 @@ use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::row::row_data::{RowData};
-use crate::row::row_parser::{parse_head, parse_row_data_list};
+use crate::row::parser::{parse_head, RowParser};
 use crate::row::rows;
 use crate::row::rows::{RowEventVersion, STMT_END_F};
 use crate::utils::{read_bitmap_little_endian};
@@ -195,8 +195,18 @@ impl LogEvent for WriteRowsEvent {
         cursor.read_exact(&mut rows_data_vec)?;
 
         let mut rows_data_cursor = Cursor::new(rows_data_vec.as_slice());
-        let rows =
-            parse_row_data_list(&mut rows_data_cursor, table_map.unwrap(), table_id, &columns_present);
+        
+        // Create a row parser with default cache size
+        let mut row_parser = RowParser::with_default_cache();
+        
+        // Register table maps from the provided table_map
+        if let Some(table_maps) = table_map {
+            for (tid, tmap) in table_maps {
+                row_parser.register_table_map(*tid, tmap.clone())?;
+            }
+        }
+        
+        let rows = row_parser.parse_row_data_list(&mut rows_data_cursor, table_id, &columns_present);
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
 

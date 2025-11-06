@@ -3,7 +3,7 @@ use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::events::declare::log_event::LogEvent;
 use crate::events::protocol::table_map_event::TableMapEvent;
 use crate::row::row_data::UpdateRowData;
-use crate::row::row_parser::{parse_head, parse_update_row_data_list};
+use crate::row::parser::{parse_head, RowParser};
 use crate::row::rows::{RowEventVersion, STMT_END_F};
 use crate::utils::read_bitmap_little_endian;
 use crate::ExtraData;
@@ -18,6 +18,54 @@ use common::binlog::column::column_type::SrcColumnType;
 use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
+
+/// Statistics for update event analysis
+#[derive(Debug, Clone)]
+pub struct UpdateEventStatistics {
+    pub total_rows: usize,
+    pub total_columns: usize,
+    pub total_changed_fields: usize,
+    pub partial_updates: usize,
+    pub total_memory_usage: usize,
+    pub difference_memory_overhead: usize,
+    pub average_change_percentage: f64,
+    pub memory_overhead_percentage: f64,
+}
+
+impl UpdateEventStatistics {
+    pub fn new() -> Self {
+        Self {
+            total_rows: 0,
+            total_columns: 0,
+            total_changed_fields: 0,
+            partial_updates: 0,
+            total_memory_usage: 0,
+            difference_memory_overhead: 0,
+            average_change_percentage: 0.0,
+            memory_overhead_percentage: 0.0,
+        }
+    }
+
+    pub fn finalize(&mut self) {
+        if self.total_columns > 0 {
+            self.average_change_percentage = 
+                (self.total_changed_fields as f64 / self.total_columns as f64) * 100.0;
+        }
+        
+        if self.total_memory_usage > 0 {
+            self.memory_overhead_percentage = 
+                (self.difference_memory_overhead as f64 / self.total_memory_usage as f64) * 100.0;
+        }
+    }
+
+    pub fn partial_update_ratio(&self) -> f64 {
+        if self.total_rows > 0 {
+            (self.partial_updates as f64 / self.total_rows as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+}
 
 /// Represents one or many updated rows in row based replication.
 /// Includes versions before and after update.
@@ -94,6 +142,107 @@ impl UpdateRowsEvent {
 
     pub fn get_rows(&self) -> &[UpdateRowData] {
         self.rows.as_slice()
+    }
+
+    /// Get rows with mutable access for difference analysis
+    pub fn get_rows_mut(&mut self) -> &mut [UpdateRowData] {
+        &mut self.rows
+    }
+
+    /// Get only rows that have actual changes (for sparse update optimization)
+    pub fn get_changed_rows(&self) -> Vec<&UpdateRowData> {
+        self.rows
+            .iter()
+            .filter(|row| {
+                if let Some(diff) = row.get_difference_readonly() {
+                    diff.changed_count > 0
+                } else {
+                    // If no difference computed, assume there are changes
+                    true
+                }
+            })
+            .collect()
+    }
+
+    /// Get only rows that have actual changes (mutable version for analysis)
+    pub fn get_changed_rows_mut(&mut self) -> Vec<&mut UpdateRowData> {
+        // First, compute differences for all rows that don't have them
+        for row in &mut self.rows {
+            if row.get_difference_readonly().is_none() && row.enable_difference_detection {
+                row.compute_difference();
+            }
+        }
+        
+        // Then filter for rows with changes
+        self.rows
+            .iter_mut()
+            .filter(|row| {
+                if let Some(diff) = row.get_difference_readonly() {
+                    diff.changed_count > 0
+                } else {
+                    // If no difference computed, assume there are changes
+                    true
+                }
+            })
+            .collect()
+    }
+
+    /// Get update statistics for this event
+    pub fn get_update_statistics(&mut self) -> UpdateEventStatistics {
+        let mut stats = UpdateEventStatistics::new();
+        
+        for row in &mut self.rows {
+            let diff = row.get_difference();
+            stats.total_rows += 1;
+            stats.total_columns += diff.total_columns;
+            stats.total_changed_fields += diff.changed_count;
+            
+            if diff.is_partial_update() {
+                stats.partial_updates += 1;
+            }
+            
+            let memory_stats = row.get_memory_stats();
+            stats.total_memory_usage += memory_stats.total_size;
+            stats.difference_memory_overhead += memory_stats.difference_size;
+        }
+        
+        stats.finalize();
+        stats
+    }
+
+    /// Convert to incremental updates for memory optimization
+    pub fn to_incremental_updates(&mut self) -> Vec<crate::row::row_data::IncrementalUpdate> {
+        self.rows
+            .iter_mut()
+            .map(|row| row.to_incremental_update())
+            .collect()
+    }
+
+    /// Check if this event contains mostly sparse updates
+    pub fn is_sparse_update_event(&mut self, threshold_percentage: f64) -> bool {
+        if self.rows.is_empty() {
+            return false;
+        }
+        
+        // First, compute differences for all rows that don't have them
+        for row in &mut self.rows {
+            if row.get_difference_readonly().is_none() && row.enable_difference_detection {
+                row.compute_difference();
+            }
+        }
+        
+        let sparse_count = self.rows
+            .iter()
+            .filter(|row| {
+                if let Some(diff) = row.get_difference_readonly() {
+                    diff.change_percentage() < threshold_percentage
+                } else {
+                    false // If no difference computed, not considered sparse
+                }
+            })
+            .count();
+            
+        (sparse_count as f64 / self.rows.len() as f64) * 100.0 >= 50.0 // 50% of rows are sparse
     }
 }
 
@@ -179,12 +328,25 @@ impl LogEvent for UpdateRowsEvent {
         cursor.read_exact(&mut _rows_data_vec)?;
 
         let mut _rows_data_cursor = Cursor::new(_rows_data_vec.as_slice());
-        let rows = parse_update_row_data_list(
+        
+        // Create a row parser with default cache size
+        let mut row_parser = RowParser::with_default_cache();
+        
+        // Register table maps from the provided table_map
+        if let Some(table_maps) = table_map {
+            for (tid, tmap) in table_maps {
+                row_parser.register_table_map(*tid, tmap.clone())?;
+            }
+        }
+        
+        // Use enhanced parsing with difference detection enabled by default
+        let rows = row_parser.parse_update_row_data_list_enhanced(
             &mut _rows_data_cursor,
-            table_map.unwrap(),
             table_id,
             &before_image,
             &after_image,
+            true, // Enable difference detection
+            None, // No partial column filtering
         )?;
 
         let checksum = cursor.read_u32::<LittleEndian>()?;
