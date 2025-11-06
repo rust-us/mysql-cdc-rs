@@ -50,7 +50,7 @@ impl BinlogReader<&[u8], BinlogEvent> for BytesBinlogReader {
         Ok(Self {
             source_bytes: vec![],
             skip_magic_buffer,
-            decoder: LogEventDecoder::new(),
+            decoder: LogEventDecoder::new().unwrap(),
             context,
             event_raw_iter: Arc::new(event_raw_list.clone().into_iter().clone()),
         })

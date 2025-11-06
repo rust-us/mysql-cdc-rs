@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 description = "MYSQL CDC"
 authors = ["fengyang <yueny09@163.com>"]
 edition = "2021"
@@ -29,13 +29,13 @@ include = ["src/", "LICENSE-*", "README.md", "README.en.md", "CHANGELOG.md", "CO
 
 # 统一管理三方lib的版本号
 [workspace.dependencies]
-connection = { path = "connection", version = "0.0.2" }
-memory = { path = "memory", version = "0.0.2" }
-common = { path = "common", version = "0.0.2" }
-binlog = { path = "binlog", version = "0.0.2" }
-binlog_cli = { path = "binlog_cli", version = "0.0.2" }
-relay_log = { path = "relay_log", version = "0.0.2" }
-web = { path = "web", version = "0.0.2" }
+connection = { path = "connection", version = "0.0.3" }
+memory = { path = "memory", version = "0.0.3" }
+common = { path = "common", version = "0.0.3" }
+binlog = { path = "binlog", version = "0.0.3" }
+binlog_cli = { path = "binlog_cli", version = "0.0.3" }
+relay_log = { path = "relay_log", version = "0.0.3" }
+web = { path = "web", version = "0.0.3" }
 
 tokio = {version = "1.38.0", features = ["full"]}
 tokio-stream = "0.1.15"

@@ -40,7 +40,7 @@ impl BinlogReader<File, (Header, BinlogEvent)> for FileBinlogReader {
             stream: none,
             // is_symlink: false,
             skip_magic_buffer,
-            decoder: LogEventDecoder::new(),
+            decoder: LogEventDecoder::new().unwrap(),
             payload_buffer: vec![0; PAYLOAD_BUFFER_SIZE],
             context: context.clone(),
             eof: false,

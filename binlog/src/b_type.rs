@@ -252,4 +252,8 @@ impl LogEventType {
     pub fn as_val(self) -> usize {
         self as usize
     }
+
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
 }

@@ -27,9 +27,9 @@ pub trait IEventFactory {
     ///
     /// * `input`:
     /// * `skip_magic_buffer`:  是否跳过magic_number. true 表明已经跳过了（也就是说bytes中不存在magic_buffer）。 false指仍需执行 magic_number校验
-    ///
-    ///                 剩余字节
-    /// returns: Result<(&[u8], Vec<Event>), ReError>
+    /// Parse bytes into binlog events
+    /// 
+    /// Returns: Result<(remaining_bytes, events), ReError>
     ///
     fn parser_bytes(&mut self, input: &[u8], options: &EventReaderOption) -> Result<(Vec<u8>, Vec<BinlogEvent>), ReError>;
 

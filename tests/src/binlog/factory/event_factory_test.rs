@@ -17,7 +17,7 @@ mod test {
 
     ///EventRaw 转为 Event
     fn event_raw_to_event(raw: &EventRaw, context: LogContextRef) -> Result<BinlogEvent, ReError> {
-        let mut decoder = LogEventDecoder::new();
+        let mut decoder = LogEventDecoder::new()?;
 
         let header = raw.get_header();
         let full_packet = raw.get_payload();

@@ -187,10 +187,11 @@ impl FormatDescriptionEvent {
     /// returns: u8, 该事件类型的 Post-Header 部分的长度
     ///
     /// # Examples
-    ///
-    /// ```
-    ///   let query_post_header_len = context.borrow().get_format_description().get_post_header_len(header.get_event_type() as usize);
-    ///   query_post_header_len
+    /// Get the post header length for a specific event type
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let query_post_header_len = format_desc.get_post_header_len(event_type as usize);
     /// ```
     pub fn get_post_header_len(&self, b_type: usize) -> u8 {
         self.post_header_len[b_type - 1]
@@ -368,6 +369,7 @@ impl LogEvent for FormatDescriptionEvent {
     }
 
 
+    /// ```text
     /// format_desc event格式   [startPos : Len]
     /// +=====================================+
     /// | event  | timestamp         0 : 4    |  ==> 前面4个字节是固定的magic number,值为0x6e6962fe。
@@ -399,6 +401,7 @@ impl LogEvent for FormatDescriptionEvent {
     /// |        | checksum      76+n+5 : 4   |
     /// |        +----------------------------+
     /// +=====================================+
+    /// ```
     fn parse(
         cursor: &mut Cursor<&[u8]>,
         header: HeaderRef,

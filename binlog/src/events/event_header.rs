@@ -30,6 +30,7 @@ pub const CURRENT_GTID_LAST_COMMIT: &str = "curt_gtid_lct";
 ///
 /// binlog 采用小端序列，也就说 server-id 为1 的u32 应该为 0x01 0x00 0x00 0x00。
 ///
+/// ```text
 ///                      [startPos : Len]
 /// +=====================================+
 /// | event  | timestamp         0 : 4    |  ==> 前面4个字节是固定的magic number,值为0x6e6962fe。
@@ -44,6 +45,7 @@ pub const CURRENT_GTID_LAST_COMMIT: &str = "curt_gtid_lct";
 /// |        +----------------------------+
 /// |        | flags            17 : 2    |
 /// +=====================================+
+/// ```
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct Header {
     /// 4字节的 timestamp, Provides creation time in seconds from Unix.

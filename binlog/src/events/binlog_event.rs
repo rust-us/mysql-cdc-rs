@@ -4,6 +4,7 @@ use crate::events::{
 };
 
 use crate::events::declare::log_event::LogEvent;
+use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::protocol::delete_rows_v12_event::DeleteRowsEvent;
 use crate::events::protocol::format_description_log_event::FormatDescriptionEvent;
 use crate::alias::mysql::events::previous_gtids_event::PreviousGtidsLogEvent;
@@ -27,6 +28,7 @@ use crate::events::protocol::xid_event::XidLogEvent;
 ///
 /// @see  https://dev.mysql.com/doc/dev/mysql-server/latest/namespacemysql_1_1binlog_1_1event.html
 ///
+/// ```text
 /// event数据结构:         [startPos : Len]
 /// +=====================================+
 /// | event  | timestamp         0 : 4    |
@@ -47,6 +49,7 @@ use crate::events::protocol::xid_event::XidLogEvent;
 /// | data   +----------------------------+
 /// |        | variable part              |
 /// +=====================================+
+/// ```
 #[derive(Debug, Serialize, Clone)]
 pub enum BinlogEvent {
     /// 0, ref: https://dev.mysql.com/doc/internals/en/ignored-events.html#unknown-event
@@ -283,71 +286,169 @@ pub enum BinlogEvent {
 }
 
 impl BinlogEvent {
-    pub fn get_type_name(value: &BinlogEvent) -> String {
-        match value {
-            BinlogEvent::Unknown { .. } => "UnknownEvent".to_owned(),
-            BinlogEvent::StartV3 { .. } => "StartV3Event".to_owned(),
-            BinlogEvent::Query(e) => "QueryEvent".to_owned(),
-            BinlogEvent::Stop { .. } => "StopEvent".to_owned(),
-            BinlogEvent::Rotate { .. } => "RotateEvent".to_string(),
-            BinlogEvent::IntVar { .. } => "IntVarEvent".to_string(),
-            BinlogEvent::Load { .. } => "LoadEvent".to_string(),
-            BinlogEvent::Slave { .. } => "SlaveEvent".to_string(),
-            BinlogEvent::CreateFile { .. } => "CreateFileEvent".to_string(),
-            BinlogEvent::AppendBlock { .. } => "AppendBlockEvent".to_string(),
-            BinlogEvent::ExecLoad { .. } => "ExecLoadEvent".to_string(),
-            BinlogEvent::DeleteFile { .. } => "DeleteFileEvent".to_string(),
-            BinlogEvent::NewLoad { .. } => "NewLoadEvent".to_string(),
-            BinlogEvent::Rand { .. } => "RandEvent".to_string(),
-            BinlogEvent::UserVar { .. } => "UserVarEvent".to_string(),
-            BinlogEvent::FormatDescription(e) => "FormatDescriptionEvent".to_string(),
-            BinlogEvent::XID { .. } => "XIDEvent".to_string(),
-            BinlogEvent::BeginLoadQuery { .. } => "BeginLoadQueryEvent".to_string(),
-            BinlogEvent::ExecuteLoadQueryEvent { .. } => "ExecuteLoadQueryEvent".to_string(),
-            BinlogEvent::TableMap { .. } => "TableMapEvent".to_string(),
-            BinlogEvent::PreGaWriteRowsEvent { .. } => "PreGaWriteRowsEvent".to_string(),
-            BinlogEvent::PreGaUpdateRowsEvent { .. } => "PreGaUpdateRowsEvent".to_string(),
-            BinlogEvent::PreGaDeleteRowsEvent { .. } => "PreGaDeleteRowsEvent".to_string(),
-            BinlogEvent::Incident { .. } => "IncidentEvent".to_string(),
-            BinlogEvent::Heartbeat { .. } => "HeartbeatEvent".to_string(),
-            BinlogEvent::IgnorableLogEvent { .. } => "IgnorableLogEvent".to_string(),
-            BinlogEvent::RowQuery { .. } => "RowQueryEvent".to_string(),
-            BinlogEvent::WriteRows { .. } => "WriteRowsEvent".to_string(),
-            BinlogEvent::UpdateRows { .. } => "UpdateRowsEvent".to_string(),
-            BinlogEvent::DeleteRows { .. } => "DeleteRowsEvent".to_string(),
-            BinlogEvent::GtidLog(e) => "GtidLogEvent".to_string(),
-            BinlogEvent::AnonymousGtidLog(e) => "AnonymousGtidLog".to_string(),
-            BinlogEvent::PreviousGtidsLog(e) => "PreviousGtidsLog".to_string(),
-            BinlogEvent::TRANSACTION_CONTEXT => "TRANSACTION_CONTEXT_Event".to_string(),
-            BinlogEvent::VIEW_CHANGE => "VIEW_CHANGE_Event".to_string(),
-            BinlogEvent::XA_PREPARE_LOG => "XA_PREPARE_LOG_Event".to_string(),
-            BinlogEvent::PARTIAL_UPDATE_ROWS => "PARTIAL_UPDATE_ROWS_Event".to_string(),
-            BinlogEvent::TRANSACTION_PAYLOAD => "TRANSACTION_PAYLOAD_Event".to_string(),
-            BinlogEvent::HEARTBEAT_LOG_V2 => "HEARTBEAT_LOG_V2_Event".to_string(),
-            BinlogEvent::MYSQL_ENUM_END => "MYSQL_ENUM_END_Event".to_string(),
-            BinlogEvent::ENUM_END_EVENT => "ENUM_END_EVENT".to_string(),
+    /// Get the type name of the event for debugging and logging
+    pub fn get_type_name(&self) -> &'static str {
+        match self {
+            BinlogEvent::Unknown(_) => "UnknownEvent",
+            BinlogEvent::StartV3(_) => "StartV3Event",
+            BinlogEvent::Query(_) => "QueryEvent",
+            BinlogEvent::Stop(_) => "StopEvent",
+            BinlogEvent::Rotate(_) => "RotateEvent",
+            BinlogEvent::IntVar(_) => "IntVarEvent",
+            BinlogEvent::Load { .. } => "LoadEvent",
+            BinlogEvent::Slave(_) => "SlaveEvent",
+            BinlogEvent::CreateFile { .. } => "CreateFileEvent",
+            BinlogEvent::AppendBlock { .. } => "AppendBlockEvent",
+            BinlogEvent::ExecLoad { .. } => "ExecLoadEvent",
+            BinlogEvent::DeleteFile { .. } => "DeleteFileEvent",
+            BinlogEvent::NewLoad { .. } => "NewLoadEvent",
+            BinlogEvent::Rand { .. } => "RandEvent",
+            BinlogEvent::UserVar(_) => "UserVarEvent",
+            BinlogEvent::FormatDescription(_) => "FormatDescriptionEvent",
+            BinlogEvent::XID(_) => "XIDEvent",
+            BinlogEvent::BeginLoadQuery { .. } => "BeginLoadQueryEvent",
+            BinlogEvent::ExecuteLoadQueryEvent { .. } => "ExecuteLoadQueryEvent",
+            BinlogEvent::TableMap(_) => "TableMapEvent",
+            BinlogEvent::PreGaWriteRowsEvent => "PreGaWriteRowsEvent",
+            BinlogEvent::PreGaUpdateRowsEvent => "PreGaUpdateRowsEvent",
+            BinlogEvent::PreGaDeleteRowsEvent => "PreGaDeleteRowsEvent",
+            BinlogEvent::Incident { .. } => "IncidentEvent",
+            BinlogEvent::Heartbeat { .. } => "HeartbeatEvent",
+            BinlogEvent::IgnorableLogEvent => "IgnorableLogEvent",
+            BinlogEvent::RowQuery { .. } => "RowQueryEvent",
+            BinlogEvent::WriteRows(_) => "WriteRowsEvent",
+            BinlogEvent::UpdateRows(_) => "UpdateRowsEvent",
+            BinlogEvent::DeleteRows(_) => "DeleteRowsEvent",
+            BinlogEvent::GtidLog(_) => "GtidLogEvent",
+            BinlogEvent::AnonymousGtidLog(_) => "AnonymousGtidLogEvent",
+            BinlogEvent::PreviousGtidsLog(_) => "PreviousGtidsLogEvent",
+            BinlogEvent::TRANSACTION_CONTEXT => "TransactionContextEvent",
+            BinlogEvent::VIEW_CHANGE => "ViewChangeEvent",
+            BinlogEvent::XA_PREPARE_LOG => "XaPrepareLogEvent",
+            BinlogEvent::PARTIAL_UPDATE_ROWS => "PartialUpdateRowsEvent",
+            BinlogEvent::TRANSACTION_PAYLOAD => "TransactionPayloadEvent",
+            BinlogEvent::HEARTBEAT_LOG_V2 => "HeartbeatLogV2Event",
+            BinlogEvent::MYSQL_ENUM_END => "MysqlEnumEndEvent",
+            BinlogEvent::ENUM_END_EVENT => "EnumEndEvent",
         }
     }
 
-    pub fn len(&self) -> i32 {
+    /// Get the event type code
+    pub fn get_event_type_code(&self) -> u8 {
         match self {
-            BinlogEvent::Unknown(e) => e.len(),
-            BinlogEvent::StartV3(e) => e.len(),
-            BinlogEvent::Query(e) => e.len(),
-            BinlogEvent::Stop(e) => e.len(),
-            BinlogEvent::Rotate(e) => e.len(),
-            BinlogEvent::IntVar(e) => e.len(),
-            BinlogEvent::Slave(e) => e.len(),
-            BinlogEvent::UserVar(e) => e.len(),
-            BinlogEvent::FormatDescription(e) => e.len(),
-            BinlogEvent::XID(e) => e.len(),
-            BinlogEvent::TableMap(e) => e.len(),
-            BinlogEvent::WriteRows(e) => e.len(),
-            BinlogEvent::UpdateRows(e) => e.len(),
-            BinlogEvent::DeleteRows(e) => e.len(),
-            BinlogEvent::GtidLog(e) => e.len(),
-            BinlogEvent::AnonymousGtidLog(e) => e.len(),
-            BinlogEvent::PreviousGtidsLog(e) => e.len(),
+            BinlogEvent::Unknown(_) => 0,
+            BinlogEvent::StartV3(_) => 1,
+            BinlogEvent::Query(_) => 2,
+            BinlogEvent::Stop(_) => 3,
+            BinlogEvent::Rotate(_) => 4,
+            BinlogEvent::IntVar(_) => 5,
+            BinlogEvent::Load { .. } => 6,
+            BinlogEvent::Slave(_) => 7,
+            BinlogEvent::CreateFile { .. } => 8,
+            BinlogEvent::AppendBlock { .. } => 9,
+            BinlogEvent::ExecLoad { .. } => 10,
+            BinlogEvent::DeleteFile { .. } => 11,
+            BinlogEvent::NewLoad { .. } => 12,
+            BinlogEvent::Rand { .. } => 13,
+            BinlogEvent::UserVar(_) => 14,
+            BinlogEvent::FormatDescription(_) => 15,
+            BinlogEvent::XID(_) => 16,
+            BinlogEvent::BeginLoadQuery { .. } => 17,
+            BinlogEvent::ExecuteLoadQueryEvent { .. } => 18,
+            BinlogEvent::TableMap(_) => 19,
+            BinlogEvent::PreGaWriteRowsEvent => 20,
+            BinlogEvent::PreGaUpdateRowsEvent => 21,
+            BinlogEvent::PreGaDeleteRowsEvent => 22,
+            BinlogEvent::WriteRows(_) => 30, // Also handles WRITE_ROWS_EVENT_V1 (23)
+            BinlogEvent::UpdateRows(_) => 31, // Also handles UPDATE_ROWS_EVENT_V1 (24)
+            BinlogEvent::DeleteRows(_) => 32, // Also handles DELETE_ROWS_EVENT_V1 (25)
+            BinlogEvent::Incident { .. } => 26,
+            BinlogEvent::Heartbeat { .. } => 27,
+            BinlogEvent::IgnorableLogEvent => 28,
+            BinlogEvent::RowQuery { .. } => 29,
+            BinlogEvent::GtidLog(_) => 33,
+            BinlogEvent::AnonymousGtidLog(_) => 34,
+            BinlogEvent::PreviousGtidsLog(_) => 35,
+            BinlogEvent::TRANSACTION_CONTEXT => 36,
+            BinlogEvent::VIEW_CHANGE => 37,
+            BinlogEvent::XA_PREPARE_LOG => 38,
+            BinlogEvent::PARTIAL_UPDATE_ROWS => 39,
+            BinlogEvent::TRANSACTION_PAYLOAD => 40,
+            BinlogEvent::HEARTBEAT_LOG_V2 => 41,
+            BinlogEvent::MYSQL_ENUM_END => 42,
+            BinlogEvent::ENUM_END_EVENT => 255,
+        }
+    }
+
+    /// Check if this is a row-level event
+    pub fn is_row_event(&self) -> bool {
+        matches!(self, 
+            BinlogEvent::WriteRows(_) | 
+            BinlogEvent::UpdateRows(_) | 
+            BinlogEvent::DeleteRows(_) |
+            BinlogEvent::PreGaWriteRowsEvent |
+            BinlogEvent::PreGaUpdateRowsEvent |
+            BinlogEvent::PreGaDeleteRowsEvent
+        )
+    }
+
+    /// Check if this is a GTID-related event
+    pub fn is_gtid_event(&self) -> bool {
+        matches!(self,
+            BinlogEvent::GtidLog(_) |
+            BinlogEvent::AnonymousGtidLog(_) |
+            BinlogEvent::PreviousGtidsLog(_)
+        )
+    }
+
+    /// Check if this event affects table structure
+    pub fn is_ddl_event(&self) -> bool {
+        match self {
+            BinlogEvent::Query(query_event) => {
+                // This would need to be implemented based on the query content
+                // For now, we assume all query events could be DDL
+                true
+            },
+            _ => false,
+        }
+    }
+
+    /// Get the table ID if this event is table-specific
+    pub fn get_table_id(&self) -> Option<u64> {
+        match self {
+            BinlogEvent::TableMap(event) => Some(event.table_id),
+            BinlogEvent::WriteRows(event) => Some(event.table_id),
+            BinlogEvent::UpdateRows(event) => Some(event.table_id),
+            BinlogEvent::DeleteRows(event) => Some(event.table_id),
+            _ => None,
+        }
+    }
+
+    /// Get debug information for the event
+    pub fn get_debug_info(&self) -> String {
+        format!("{}(len: {})", self.get_type_name(), self.len())
+    }
+
+    /// Get the event length in bytes
+    pub fn len(&self) -> u32 {
+        match self {
+            BinlogEvent::Unknown(e) => e.len() as u32,
+            BinlogEvent::StartV3(e) => e.len() as u32,
+            BinlogEvent::Query(e) => e.len() as u32,
+            BinlogEvent::Stop(e) => e.len() as u32,
+            BinlogEvent::Rotate(e) => e.len() as u32,
+            BinlogEvent::IntVar(e) => e.len() as u32,
+            BinlogEvent::Slave(e) => e.len() as u32,
+            BinlogEvent::UserVar(e) => e.len() as u32,
+            BinlogEvent::FormatDescription(e) => e.len() as u32,
+            BinlogEvent::XID(e) => e.len() as u32,
+            BinlogEvent::TableMap(e) => e.len() as u32,
+            BinlogEvent::WriteRows(e) => e.len() as u32,
+            BinlogEvent::UpdateRows(e) => e.len() as u32,
+            BinlogEvent::DeleteRows(e) => e.len() as u32,
+            BinlogEvent::GtidLog(e) => e.len() as u32,
+            BinlogEvent::AnonymousGtidLog(e) => e.len() as u32,
+            BinlogEvent::PreviousGtidsLog(e) => e.len() as u32,
 
             BinlogEvent::Load { header, .. } |
             BinlogEvent::CreateFile { header, ..  }  |
@@ -360,20 +461,104 @@ impl BinlogEvent {
             BinlogEvent::ExecuteLoadQueryEvent { header, ..  }  |
             BinlogEvent::Incident { header, ..  }  |
             BinlogEvent::Heartbeat { header, ..  }  |
-            BinlogEvent::RowQuery { header, ..  } => header.get_event_length() as i32,
+            BinlogEvent::RowQuery { header, ..  } => header.get_event_length(),
 
-            BinlogEvent::IgnorableLogEvent {  ..  }  |
-            BinlogEvent::PreGaWriteRowsEvent {  ..  }  |
-            BinlogEvent::PreGaUpdateRowsEvent {  ..  }  |
-            BinlogEvent::PreGaDeleteRowsEvent {  ..  }  |
-            BinlogEvent::TRANSACTION_CONTEXT  |
-            BinlogEvent::VIEW_CHANGE  |
-            BinlogEvent::XA_PREPARE_LOG  |
-            BinlogEvent::PARTIAL_UPDATE_ROWS  |
-            BinlogEvent::TRANSACTION_PAYLOAD  |
-            BinlogEvent::HEARTBEAT_LOG_V2  |
-            BinlogEvent::MYSQL_ENUM_END  |
+            BinlogEvent::IgnorableLogEvent |
+            BinlogEvent::PreGaWriteRowsEvent |
+            BinlogEvent::PreGaUpdateRowsEvent |
+            BinlogEvent::PreGaDeleteRowsEvent |
+            BinlogEvent::TRANSACTION_CONTEXT |
+            BinlogEvent::VIEW_CHANGE |
+            BinlogEvent::XA_PREPARE_LOG |
+            BinlogEvent::PARTIAL_UPDATE_ROWS |
+            BinlogEvent::TRANSACTION_PAYLOAD |
+            BinlogEvent::HEARTBEAT_LOG_V2 |
+            BinlogEvent::MYSQL_ENUM_END |
             BinlogEvent::ENUM_END_EVENT => 0,
+        }
+    }
+
+    /// Check if the event is empty (has no data)
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get memory usage estimate for this event
+    pub fn memory_usage(&self) -> usize {
+        // Use event length as approximation for memory usage
+        std::mem::size_of::<BinlogEvent>() + self.len() as usize
+    }
+
+    /// Validate the event structure and data integrity
+    pub fn validate(&self) -> Result<(), common::err::decode_error::ReError> {
+        use common::err::decode_error::{ReError, ErrorContext};
+
+        let context = ErrorContext::new()
+            .with_event_type(self.get_event_type_code())
+            .with_operation("validate_event".to_string());
+
+        // Basic length validation
+        if self.len() == 0 && !matches!(self, 
+            BinlogEvent::IgnorableLogEvent |
+            BinlogEvent::PreGaWriteRowsEvent |
+            BinlogEvent::PreGaUpdateRowsEvent |
+            BinlogEvent::PreGaDeleteRowsEvent |
+            BinlogEvent::TRANSACTION_CONTEXT |
+            BinlogEvent::VIEW_CHANGE |
+            BinlogEvent::XA_PREPARE_LOG |
+            BinlogEvent::PARTIAL_UPDATE_ROWS |
+            BinlogEvent::TRANSACTION_PAYLOAD |
+            BinlogEvent::HEARTBEAT_LOG_V2 |
+            BinlogEvent::MYSQL_ENUM_END |
+            BinlogEvent::ENUM_END_EVENT
+        ) {
+            return Err(ReError::invalid_data_format(
+                "Event has zero length".to_string(),
+                context
+            ));
+        }
+
+        // Basic validation - more specific validation would require access to private fields
+        Ok(())
+    }
+
+    /// Get the timestamp of the event
+    pub fn get_timestamp(&self) -> Option<u32> {
+        match self {
+            BinlogEvent::Load { header, .. } |
+            BinlogEvent::CreateFile { header, .. } |
+            BinlogEvent::AppendBlock { header, .. } |
+            BinlogEvent::ExecLoad { header, .. } |
+            BinlogEvent::DeleteFile { header, .. } |
+            BinlogEvent::NewLoad { header, .. } |
+            BinlogEvent::Rand { header, .. } |
+            BinlogEvent::BeginLoadQuery { header, .. } |
+            BinlogEvent::ExecuteLoadQueryEvent { header, .. } |
+            BinlogEvent::Incident { header, .. } |
+            BinlogEvent::Heartbeat { header, .. } |
+            BinlogEvent::RowQuery { header, .. } => Some(header.when),
+            
+            _ => None, // Header fields are private in most event types
+        }
+    }
+
+    /// Get the server ID of the event
+    pub fn get_server_id(&self) -> Option<u32> {
+        match self {
+            BinlogEvent::Load { header, .. } |
+            BinlogEvent::CreateFile { header, .. } |
+            BinlogEvent::AppendBlock { header, .. } |
+            BinlogEvent::ExecLoad { header, .. } |
+            BinlogEvent::DeleteFile { header, .. } |
+            BinlogEvent::NewLoad { header, .. } |
+            BinlogEvent::Rand { header, .. } |
+            BinlogEvent::BeginLoadQuery { header, .. } |
+            BinlogEvent::ExecuteLoadQueryEvent { header, .. } |
+            BinlogEvent::Incident { header, .. } |
+            BinlogEvent::Heartbeat { header, .. } |
+            BinlogEvent::RowQuery { header, .. } => Some(header.server_id),
+            
+            _ => None, // Header fields are private in most event types
         }
     }
 }

@@ -19,6 +19,7 @@ use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::events::declare::rows_log_event::RowsLogEvent;
 use crate::events::event_raw::HeaderRef;
 
+/// ```text
 ///                          Binary_log_event
 ///                                   ^
 ///                                   |
@@ -41,6 +42,7 @@ use crate::events::event_raw::HeaderRef;
 ///                         Write_rows_log_event
 ///
 ///   B_l: Namespace Binary_log
+/// ```
 #[derive(Debug, Serialize, Clone)]
 pub struct WriteRowsEvent {
     header: Header,
