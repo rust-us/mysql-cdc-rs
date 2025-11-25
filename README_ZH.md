@@ -131,7 +131,7 @@
 
 ```toml
 [dependencies]
-mysql-cdc-rs = { git = "https://github.com/your-repo/mysql-cdc-rs" }
+mysql-cdc-rs = { git = "https://github.com/rust-us/mysql-cdc-rs" }
 ```
 
 ### 基本用法
