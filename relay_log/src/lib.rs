@@ -5,4 +5,7 @@ pub mod codec;
 pub mod relay_log_server;
 pub mod relay_log_server_machine;
 pub mod relay_log;
+pub mod sink;
+pub mod pipeline;
+pub mod checkpoint;
 

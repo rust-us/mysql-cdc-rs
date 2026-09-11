@@ -81,18 +81,20 @@ impl RelayLogStorage {
         })
     }
 
-    /// 追加中继日志
-    pub fn append_relay_log(&mut self, log: RelayLog) -> CResult<()> {
+    /// 追加中继日志，返回该条日志的自增索引。
+    ///
+    /// 索引由当前可写 segment 分配，可用于下游幂等与断点续传。
+    pub fn append_relay_log(&mut self, log: RelayLog) -> CResult<u64> {
         let mut entry = self.create_entry(log)?;
+        let index = *entry.index();
+
         let current_segment = self.current_usable_segment()?;
         // append to disk
         current_segment.borrow_mut().append(&mut entry)?;
         // add buf
         self.entry_buffer.add(entry);
 
-        // todo send storage_event
-
-        Ok(())
+        Ok(index)
     }
 
     /// get an entry by index

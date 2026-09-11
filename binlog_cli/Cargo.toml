@@ -13,6 +13,7 @@ description = "MySQL binlog tool impl with Rust"
 common = { workspace = true }
 binlog = { workspace = true }
 connection = { workspace = true }
+relay_log = { workspace = true }
 
 clap = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["signal"] }

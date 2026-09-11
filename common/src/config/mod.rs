@@ -51,7 +51,7 @@ pub struct BinlogConfig {
     pub file: Option<String>,
 
     /// binlog file 消费的起始position
-    pub position: Option<i32>,
+    pub position: Option<i64>,
 
     /// binlog 文件的绝对路径
     pub binlog_path: Option<String>,

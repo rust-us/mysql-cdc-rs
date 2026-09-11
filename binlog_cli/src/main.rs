@@ -5,6 +5,7 @@ use std::env::current_dir;
 use std::fmt::{Debug};
 use std::path::PathBuf;
 use std::process;
+use std::sync::atomic::Ordering;
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
@@ -13,9 +14,9 @@ use common::config::load_style::Format;
 use common::err::CResult;
 use common::log::tracing_factory::{OutputType, TracingFactory, TracingFactoryOptions};
 use common::pretty_util::to_string_pretty;
-use common::server::{Server};
+use relay_log::storage::storage_config::StorageConfig;
 use crate::cli_client::{CliClient};
-use crate::cli_options::CliOptions;
+use crate::cli_options::{CliOptions, SinkKind};
 
 #[derive(Parser, Serialize, Debug, Clone)]
 #[command(name = "binlog_cli")]
@@ -60,6 +61,30 @@ pub(crate) struct CliArgs {
 
     #[arg(short, long = "password", help = "mysql password", value_name = "password")]
     pub password: Option<String>,
+
+    ///////////////////////////////////////////////////
+    // Sink & Pipeline Options //
+    ///////////////////////////////////////////////////
+    #[arg(long = "sink", help = "downstream sink: [stdout | file | null], default stdout", default_value = "stdout")]
+    pub sink: String,
+
+    #[arg(long = "sink-file", help = "json-lines output file, required when --sink=file", value_name = "FILE")]
+    pub sink_file: Option<PathBuf>,
+
+    #[arg(long = "pipeline-capacity", help = "bounded pipeline queue capacity (backpressure)", default_value_t = 1024)]
+    pub pipeline_capacity: usize,
+
+    #[arg(long = "print-events", help = "print each binlog event", default_value_t = false)]
+    pub print_events: bool,
+
+    ///////////////////////////////////////////////////
+    // Checkpoint Options //
+    ///////////////////////////////////////////////////
+    #[arg(long = "checkpoint-interval", help = "persist binlog position every N events (0 = disable)", default_value_t = 1000)]
+    pub checkpoint_interval: u64,
+
+    #[arg(long = "no-resume", help = "ignore existing checkpoint, start from configured position", default_value_t = false)]
+    pub no_resume: bool,
 
 
     ///////////////////////////////////////////////////
@@ -140,31 +165,61 @@ async fn main() -> CResult<()> {
         process::exit(1);
     }
 
-    // 创建并启动客户端
-    let mut client = CliClient::new(CliOptions::new_with_log(args.debug, format), binlog_config);
-    
-    match client.start().await {
-        Ok(_) => {
-            println!("Binlog CLI started successfully");
-            
-            // 等待中断信号
-            tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
+    // 构建下游 Sink 选项
+    let sink = match SinkKind::parse(args.sink.as_str()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Invalid sink: {}", e);
+            process::exit(1);
+        }
+    };
+    let sink_path = args.sink_file.as_ref().map(|p| p.to_string_lossy().to_string());
+    let storage_config = build_storage_config(&rep_config.base.get_log_dir());
+
+    // 创建客户端
+    let cli_options = CliOptions::new_with(
+        args.debug,
+        args.print_events,
+        format,
+        sink,
+        sink_path,
+        args.pipeline_capacity,
+        args.checkpoint_interval,
+        !args.no_resume,
+    );
+    let mut client = CliClient::new(cli_options, binlog_config, storage_config);
+
+    // 优雅停机: 监听 Ctrl+C 并置位停止标志
+    let stop = client.stop_handle();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
             println!("\nReceived interrupt signal, shutting down...");
-            
-            if let Err(e) = client.shutdown(true).await {
-                eprintln!("Error during shutdown: {}", e);
-                process::exit(1);
-            }
-            
+            stop.store(true, Ordering::SeqCst);
+        }
+    });
+
+    // 运行端到端闭环: binlog 采集 -> 中继日志落盘 -> Sink 投递
+    match client.run() {
+        Ok(_) => {
             println!("Binlog CLI stopped");
         }
         Err(e) => {
-            eprintln!("Failed to start binlog CLI: {}", e);
+            eprintln!("Binlog CLI stopped with error: {}", e);
             process::exit(1);
         }
     }
 
     Ok(())
+}
+
+/// 基于日志目录构建中继日志存储配置
+fn build_storage_config(log_dir: &Option<String>) -> StorageConfig {
+    let base_dir = log_dir.clone().unwrap_or_else(|| "/tmp/replayer".to_string());
+    let relay_log_dir = PathBuf::from(base_dir).join("relay_log");
+
+    let mut storage_config = StorageConfig::default();
+    storage_config.set_relay_log_dir(relay_log_dir.to_string_lossy().to_string());
+    storage_config
 }
 
 // 加载配置文件， 读取配置

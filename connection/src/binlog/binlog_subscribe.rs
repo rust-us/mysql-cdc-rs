@@ -1,12 +1,17 @@
+use std::cell::RefCell;
 use std::fmt::Debug;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use serde::Serialize;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 use binlog::binlog_server::BinlogServer;
 use binlog::events::binlog_event::BinlogEvent;
 use binlog::events::log_context::ILogContext;
 use binlog::events::log_position::LogFilePosition;
+use common::binlog::FIRST_EVENT_POSITION;
+use crate::binlog::binlog_options::BinlogOptions;
 use crate::binlog::lifecycle::lifecycle::BinlogLifecycle;
 use common::config::BinlogConfig;
 use common::config::load_style::Format;
@@ -49,48 +54,15 @@ pub struct SubscribeOptions {
 #[async_trait::async_trait]
 impl Server for BinlogSubscribe {
     async fn start(&mut self) -> CResult<()> {
-        let c = self.get_binlog_config();
-        self.setup(&c).expect("BinlogSubscribe setup Error!");
-        self.start_in().expect("BinlogSubscribe start Error!");
+        self.setup_and_connect()?;
 
         // 延缓启动，便于观察上述配置项信息
         debug!("wait for 500 millis to-viewing of the above configuration...");
         let sleep_millis = std::time::Duration::from_millis(500);
         thread::sleep(sleep_millis);
 
-        let mut binlogs_warpper = self.binlogs().await?;
-        // 读取binlog 数据
-        for x in binlogs_warpper.get_iter() {
-            if x.is_ok() {
-                let list = x.unwrap();
-
-                for e in list {
-                    let event_type = BinlogEvent::get_type_name(&e);
-
-                    // 输出事件的详细信息
-                    if self.subscribe_options.is_debug() {
-                        let log_pos = self.get_log_position();
-                        println!("[{:?} {}], pos {} in {} \n{:?}\n",
-                                 event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name(),
-                                 to_string_pretty(&self.subscribe_options.get_format(), &e));
-                    } else {
-                        // 输出简要信息
-                        if self.subscribe_options.is_print_logs() {
-                            let log_pos = self.get_log_position();
-                            println!("[{:?} {}], pos {} in {}\n",
-                                     event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
-                        }
-                    }
-                }
-            }
-        }
-
-        // 输出耗时信息
-        if binlogs_warpper.get_during_time().is_some() {
-            println!("binlog 读取完成，耗时：{}， 收包总大小 {} bytes.",
-                     to_duration_pretty(&binlogs_warpper.get_during_time().unwrap()),
-                     to_bytes_len_pretty(binlogs_warpper.get_receives_bytes()));
-        }
+        let stop = Arc::new(AtomicBool::new(false));
+        self.forward_events(stop, |_event, _position| Ok(()))?;
 
         Ok(())
     }
@@ -114,6 +86,17 @@ impl BinlogLifecycle for BinlogSubscribe {
         );
         opts.set_env(EnvOptions::new(self.debug, false));
 
+        // 起始位点: 配置了 binlog 文件名则从指定位点开始复制（断点续传的基础）
+        let file_name = binlog_config.file.clone().unwrap_or_default();
+        if !file_name.is_empty() {
+            let position = binlog_config
+                .position
+                .unwrap_or(FIRST_EVENT_POSITION as i64)
+                .max(FIRST_EVENT_POSITION as i64) as u64;
+            info!("binlog replication start from position: {}@{}", file_name, position);
+            opts.binlog = Some(Arc::new(RefCell::new(BinlogOptions::from_position(file_name, position))));
+        }
+
         let binlog_conn = BinlogConnection::new(&opts);
         self.conn = Some(binlog_conn);
 
@@ -122,12 +105,8 @@ impl BinlogLifecycle for BinlogSubscribe {
 
     #[instrument]
     async fn binlogs(&mut self) -> Result<BinlogEventsWrapper, ReError> {
-        let binlog_event_rs = self.conn.as_mut().unwrap().binlog(self.binlog_config.payload_buffer_size);
-
-        match binlog_event_rs {
-            Ok(b) => {
-                Ok(b)
-            },
+        match self.binlogs_sync() {
+            Ok(b) => Ok(b),
             Err(e) => {
                 error!("get binlog Events error:{:?}", &e);
                 Err(e)
@@ -162,6 +141,89 @@ impl BinlogSubscribe {
 
     pub fn get_binlog_config(&self) -> BinlogConfig {
         self.binlog_config.clone()
+    }
+
+    /// 建立 binlog 连接(setup + connect)。
+    pub fn setup_and_connect(&mut self) -> CResult<()> {
+        let c = self.get_binlog_config();
+        self.setup(&c)?;
+        self.start_in()?;
+        Ok(())
+    }
+
+    /// 设置复制起始位点(断点续传)，需在 `setup_and_connect` 之前调用。
+    pub fn set_start_position(&mut self, file_name: String, position: u64) {
+        self.binlog_config.file = Some(file_name);
+        self.binlog_config.position = Some(position as i64);
+    }
+
+    /// 采集 binlog 事件并逐条转交给 handler。
+    ///
+    /// handler 的第二个参数为该事件处理完成后对应的 binlog 位点
+    /// (即下一事件的起始位置)，可直接用于位点持久化 / 断点续传。
+    ///
+    /// # 背压
+    ///
+    /// 每读取一个网络批次就**完整**交给 handler 处理，处理完成后才读取下一批，
+    /// 因此在途事件数量有界、内存占用恒定，并通过 TCP 接收窗口形成端到端背压
+    /// (下游处理慢 -> 不读新包 -> MySQL 发送窗口耗尽 -> 上游降速)。
+    ///
+    /// `stop` 被置位后会在批次间隙退出，用于优雅停机。
+    pub fn forward_events<F>(&mut self, stop: Arc<AtomicBool>, mut handler: F) -> CResult<()>
+    where
+        F: FnMut(BinlogEvent, LogFilePosition) -> CResult<()>,
+    {
+        let binlogs_wrapper = self.binlogs_sync()?;
+
+        let mut event_count: u64 = 0;
+        for batch in binlogs_wrapper.get_iter() {
+            if stop.load(Ordering::SeqCst) {
+                info!("stop signal received, binlog subscribe will exit.");
+                break;
+            }
+
+            let batch = batch?;
+            for event in batch {
+                self.print_event(&event);
+                // 事件解析时已将上下文位点更新为本事件的 end_log_pos
+                let log_position = self.get_log_position();
+                handler(event, log_position)?;
+                event_count += 1;
+            }
+        }
+
+        // 输出耗时信息
+        if let Some(during) = binlogs_wrapper.get_during_time() {
+            println!("binlog 读取完成，耗时：{}， 收包总大小 {} bytes.",
+                     to_duration_pretty(&during),
+                     to_bytes_len_pretty(binlogs_wrapper.get_receives_bytes()));
+        }
+        info!("binlog subscribe finished, handled {} events.", event_count);
+
+        Ok(())
+    }
+
+    /// 按 debug / print_logs 输出事件信息
+    fn print_event(&self, event: &BinlogEvent) {
+        let event_type = BinlogEvent::get_type_name(event);
+
+        if self.subscribe_options.is_debug() {
+            let log_pos = self.get_log_position();
+            println!("[{:?} {}], pos {} in {} \n{:?}\n",
+                     event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name(),
+                     to_string_pretty(&self.subscribe_options.get_format(), event));
+        } else if self.subscribe_options.is_print_logs() {
+            let log_pos = self.get_log_position();
+            println!("[{:?} {}], pos {} in {}\n",
+                     event_type, self.load_read_ptr(), log_pos.get_position(), log_pos.get_file_name());
+        }
+    }
+
+    /// 同步获取 binlog 事件迭代器
+    fn binlogs_sync(&mut self) -> Result<BinlogEventsWrapper, ReError> {
+        let conn = self.conn.as_mut()
+            .ok_or_else(|| ReError::String("binlog connection not setup.".to_string()))?;
+        conn.binlog(self.binlog_config.payload_buffer_size)
     }
 
     fn start_in(&mut self) -> Result<(), ReError> {
