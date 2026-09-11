@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
+use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use common::err::decode_error::{Needed, ReError, ErrorContext};
@@ -9,8 +11,10 @@ use crate::decoder::event_decoder_registry::{EventDecoderRegistry, EventDecoderR
 use crate::decoder::concrete_decoders::register_standard_decoders;
 use crate::decoder::event_statistics::EventStatsCollector;
 use crate::decoder::table_cache_manager::TableCacheManager;
+use crate::decoder::transaction_payload;
 use crate::events::checksum_type::ChecksumType;
 use crate::events::binlog_event::BinlogEvent;
+use crate::events::event_header::Header;
 use crate::events::event_raw::{HeaderRef};
 use crate::events::log_context::{ILogContext, LogContextRef};
 use crate::events::log_position::LogFilePosition;
@@ -36,6 +40,13 @@ pub struct LogEventDecoder {
 
     /// Statistics collector for monitoring and analysis
     stats_collector: EventStatsCollector,
+
+    /// `TRANSACTION_PAYLOAD_EVENT` 展开后待交付的内含事件。
+    ///
+    /// 一个压缩事务在网络上是**一个**事件，解压后是**多个**逻辑事件；
+    /// 首个事件由 `event_parse` 直接返回，其余排入本队列，
+    /// 由读取侧在读取下一个网络包之前依次取走。
+    pending_events: VecDeque<BinlogEvent>,
 }
 
 impl LogEventDecoder {
@@ -53,6 +64,7 @@ impl LogEventDecoder {
             table_cache_manager: TableCacheManager::new(),
             decoder_registry: registry,
             stats_collector: EventStatsCollector::new(),
+            pending_events: VecDeque::new(),
         })
     }
 
@@ -65,6 +77,7 @@ impl LogEventDecoder {
             table_cache_manager: TableCacheManager::new(),
             decoder_registry: registry,
             stats_collector: EventStatsCollector::new(),
+            pending_events: VecDeque::new(),
         }
     }
 
@@ -77,7 +90,74 @@ impl LogEventDecoder {
             table_cache_manager: TableCacheManager::new(),
             decoder_registry: registry,
             stats_collector,
+            pending_events: VecDeque::new(),
         }
+    }
+
+    /// 是否还有 `TRANSACTION_PAYLOAD_EVENT` 展开出的待交付事件
+    pub fn has_pending_events(&self) -> bool {
+        !self.pending_events.is_empty()
+    }
+
+    /// 取走一个待交付事件(由 `TRANSACTION_PAYLOAD_EVENT` 展开而来)
+    pub fn pop_pending_event(&mut self) -> Option<BinlogEvent> {
+        self.pending_events.pop_front()
+    }
+
+    /// 展开 `TRANSACTION_PAYLOAD_EVENT`: 解压载荷并逐个解析内含事件。
+    ///
+    /// 内含事件是**带完整 19 字节 header 的普通 binlog 事件**(`log_pos` 为 0)，
+    /// 且不含各自的 4 字节校验和；这里为其补齐 4 字节零值后缀，
+    /// 以兼容按 "body + checksum" 布局解析的既有解码器。
+    fn expand_transaction_payload(
+        &mut self,
+        slice: &[u8],
+        header: HeaderRef,
+        context: LogContextRef,
+    ) -> Result<Vec<BinlogEvent>, ReError> {
+        let uncompressed = transaction_payload::decode_payload(slice)?;
+        let ranges = transaction_payload::split_events(&uncompressed)?;
+
+        info!(
+            "transaction payload expanded: {} inner events, {} uncompressed bytes",
+            ranges.len(),
+            uncompressed.len()
+        );
+
+        // 内含事件继承外层事件的 binlog 文件名(各自 header 里没有文件名信息)
+        let log_file_name = header.borrow().get_log_file_name();
+        let mut events = Vec::with_capacity(ranges.len());
+
+        for range in ranges {
+            let event_bytes = &uncompressed[range];
+
+            let parsed = Header::parse_v4_header(event_bytes, context.clone())?;
+            let inner_header = Header::new_with_checksum_alg(
+                log_file_name.clone(),
+                parsed.when,
+                parsed.event_type,
+                parsed.server_id,
+                parsed.get_event_length(),
+                parsed.log_pos,
+                parsed.flags,
+                parsed.checksum_alg,
+            );
+
+            let body = &event_bytes[transaction_payload::EVENT_HEADER_LEN..];
+            let mut body_with_checksum = Vec::with_capacity(body.len() + 4);
+            body_with_checksum.extend_from_slice(body);
+            body_with_checksum.extend_from_slice(&[0u8; 4]);
+
+            // 递归解析: 内含事件同样会注册 TABLE_MAP、组装行事件等
+            let event = self.event_parse(
+                &body_with_checksum,
+                Rc::new(RefCell::new(inner_header)),
+                context.clone(),
+            )?;
+            events.push(event);
+        }
+
+        Ok(events)
     }
 
     /// Get a reference to the decoder registry
@@ -164,6 +244,26 @@ impl LogEventDecoder {
 
         // Start timing the event parsing
         self.stats_collector.start_event_timer(position);
+
+        // TRANSACTION_PAYLOAD_EVENT(压缩事务)是"一个网络事件 → 多个逻辑事件",
+        // 无法用"返回单个事件"的 EventDecoder 接口表达，因此在此直接展开。
+        if b_type == LogEventType::TRANSACTION_PAYLOAD_EVENT.as_u8() {
+            let mut events = self.expand_transaction_payload(slice, header.clone(), context.clone())?;
+
+            // 事务位点以**外层**事件为准(内含事件的 log_pos 均为 0)
+            context.borrow_mut().update_position_offset(position);
+
+            if events.is_empty() {
+                warn!("transaction payload contains no inner events at position {}", position);
+                return Ok(BinlogEvent::IgnorableLogEvent);
+            }
+
+            let first = events.remove(0);
+            self.stats_collector.record_event_success(&first, position);
+            // 其余事件排队，由读取侧在读取下一个网络包之前依次取走
+            self.pending_events.extend(events);
+            return Ok(first);
+        }
 
         // Consider verifying checksum
         let mut cursor = match checksum_type {

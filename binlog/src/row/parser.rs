@@ -21,6 +21,10 @@ use crate::row::performance::{OptimizedRowParser, RowDataPool, RowParsingStats, 
 use crate::row::monitoring::{RowParsingMonitor, MonitoringConfig};
 use crate::utils::{read_bitmap_little_endian, read_len_enc_num, read_string};
 
+/// `PARTIAL_UPDATE_ROWS_EVENT` 中 `value_options` 的 bit0:
+/// 表示 after-image 中可能存在 partial JSON diff。
+pub const PARTIAL_JSON_UPDATES: u64 = 1;
+
 pub const TABLE_MAP_NOT_FOUND: &str =
     "No preceding TableMapEvent event was found for the row event. \
 You possibly started replication in the middle of logical event group.";
@@ -336,6 +340,131 @@ impl RowParser {
 
         // Record the update operation in monitoring
         self.monitor.record_update_operation(&table_map, &rows);
+
+        Ok(rows)
+    }
+
+    /// Parse update row data list with enhanced difference detection and partial column support
+    /// `PARTIAL_UPDATE_ROWS_EVENT`(type 39) 的行数据解析。
+    ///
+    /// # 与普通 UPDATE 的差异
+    ///
+    /// 每行在 before-image 与 after-image **之间**多出两个字段(顺序已用真实事件逐字节验证):
+    ///
+    /// ```text
+    /// row = before_image || value_options(lenenc) || [partial_bits] || after_image
+    /// ```
+    ///
+    /// - `value_options`: lenenc 整数，目前只取 `0`/`1`，bit0 = `PARTIAL_JSON_UPDATES`。
+    /// - `partial_bits`: 仅当 bit0 置位时存在，宽度 `(表中 JSON 列数 + 7) / 8` 字节，
+    ///   **无长度前缀**，LSB-first；bit i 对应第 i 个 JSON 列。
+    /// - JSON 列长度为 `0` 表示"本行未修改该列"，沿用 before-image 的值。
+    ///
+    /// 本方法**不**把 after-image 中非空的 JSON 值当作完整文档: 若 `partial_bits`
+    /// 对应位为 1，说明它是 MySQL 的二进制 JSON diff，需要 `Json_diff` 合并才能还原，
+    /// 此时显式报错，避免静默产出错误数据。
+    pub fn parse_partial_update_row_data_list(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        table_id: u64,
+        before_image: &[bool],
+        after_image: &[bool],
+    ) -> Result<Vec<UpdateRowData>, ReError> {
+        let table_map = self.get_table_map(table_id)?
+            .ok_or_else(|| ReError::String(TABLE_MAP_NOT_FOUND.to_string()))?;
+
+        // partial_bits 的位序 = 表中 JSON 列的出现顺序(不是全部列)
+        let json_columns: Vec<usize> = table_map
+            .get_column_metadata_type()
+            .iter()
+            .enumerate()
+            .filter(|(_, column_type)| **column_type == SrcColumnType::Json)
+            .map(|(index, _)| index)
+            .collect();
+
+        if let Err(e) = self.event_handlers.process_table_start(&table_map) {
+            self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+            return Err(e);
+        }
+
+        let cells_included_before_update = get_bits_number(before_image);
+        let cells_included_after_update = get_bits_number(after_image);
+        let mut rows = Vec::new();
+
+        while cursor.has_remaining() {
+            let start_time = std::time::Instant::now();
+
+            // 1) before-image
+            let row_before_update = self.parse_row(
+                cursor,
+                &table_map,
+                before_image,
+                cells_included_before_update,
+            )?;
+
+            // 2) value_options + partial_bits
+            let (_, value_options) = read_len_enc_num(cursor)?;
+            let partial_bits = if (value_options & PARTIAL_JSON_UPDATES) != 0 {
+                read_bitmap_little_endian(cursor, json_columns.len())?
+            } else {
+                vec![false; json_columns.len()]
+            };
+
+            // 3) after-image
+            let mut row_after_update = self.parse_row(
+                cursor,
+                &table_map,
+                after_image,
+                cells_included_after_update,
+            )?;
+
+            // 4) JSON 列还原
+            for (bit_index, &column_index) in json_columns.iter().enumerate() {
+                let after_cell = row_after_update.cells.get(column_index).cloned().flatten();
+
+                // 长度为 0(或空) ⇒ 本行未修改该列(MySQL 用 0 长度表示"未变更")
+                let is_unchanged = match &after_cell {
+                    None => true,
+                    Some(SrcColumnValue::Blob(bytes)) => bytes.is_empty(),
+                    Some(SrcColumnValue::String(text)) => text.is_empty(),
+                    Some(_) => false,
+                };
+
+                if is_unchanged {
+                    row_after_update.cells[column_index] =
+                        row_before_update.cells.get(column_index).cloned().flatten();
+                    continue;
+                }
+
+                if partial_bits.get(bit_index).copied().unwrap_or(false) {
+                    return Err(ReError::String(format!(
+                        "PARTIAL_UPDATE_ROWS_EVENT contains a partial JSON diff on column {} \
+                         of table id {}, which requires MySQL's Json_diff merge to reconstruct \
+                         and is not supported yet. Refusing to emit a non-reconstructed value. \
+                         Workaround: do not set binlog_row_value_options = 'PARTIAL_JSON' on the source.",
+                        column_index, table_id
+                    )));
+                }
+            }
+
+            let update_row = UpdateRowData::new(row_before_update, row_after_update);
+
+            // Notify handlers of the update event
+            if let Err(e) = self.event_handlers.process_update(&table_map, &update_row.before_update, &update_row.after_update) {
+                self.event_handlers.on_error(&table_map, &e).ok();
+                self.event_handlers.process_table_end(&table_map).ok(); // Try to cleanup
+                return Err(e);
+            }
+
+            rows.push(update_row);
+
+            // Update performance statistics
+            let parse_time = start_time.elapsed().as_nanos() as u64;
+            self.stats.add_row(0, parse_time);
+        }
+
+        // Notify handlers that table processing is ending
+        self.event_handlers.process_table_end(&table_map)?;
 
         Ok(rows)
     }
@@ -778,7 +907,16 @@ fn parse_cell(
         SrcColumnType::DateTime2 => SrcColumnValue::DateTime(parse_date_time2(cursor, metadata)?),
         /* MySQL-specific data types */
         SrcColumnType::Geometry => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
-        SrcColumnType::Json => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+        SrcColumnType::Json => {
+            // 产出 JSON 文本，而不是原始二进制 JSON(JSONB)字节
+            let raw = parse_blob(cursor, metadata)?;
+            match crate::column::decoders::mysql_json::decode_mysql_json_text(&raw) {
+                Ok(text) => SrcColumnValue::String(text),
+                // 解码失败时回退为原始字节: 不改变既有行为，
+                // 也不会静默给出错误的 JSON 文本
+                Err(_) => SrcColumnValue::Blob(raw),
+            }
+        }
         // Null
         // Bool
         _ => {

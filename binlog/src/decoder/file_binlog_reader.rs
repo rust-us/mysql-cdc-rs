@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -79,6 +80,7 @@ impl BinlogReader<File, (Header, BinlogEvent)> for FileBinlogReader {
             context: self.context.clone(),
             payload_buffer: self.payload_buffer.clone(),
             eof: self.eof,
+            pending: VecDeque::new(),
         })
     }
 
@@ -104,38 +106,43 @@ struct FileBinlogReaderIterator {
     payload_buffer: Vec<u8>,
 
     eof: bool,
+
+    /// `TRANSACTION_PAYLOAD_EVENT` 展开出的待交付事件
+    /// (其 header 沿用外层压缩事务事件，文件读取器不承载事务位置语义)
+    pending: VecDeque<(Header, BinlogEvent)>,
 }
 
 impl FileBinlogReaderIterator {
     fn read_event(&mut self) -> Result<(Header, BinlogEvent), ReError> {
-        let mut decoder = &mut self.decoder;
-
         // Parse header
         let mut header_buffer = [0; LOG_EVENT_HEADER_LEN as usize];
         self.stream.read_exact(&mut header_buffer)?;
-        let mut header = Header::parse_v4_header(&header_buffer, self.context.clone()).unwrap();
+        let header = Header::parse_v4_header(&header_buffer, self.context.clone()).unwrap();
         let header_ref = Rc::new(RefCell::new(header.clone()));
 
         // parser payload
         let payload_length = header.get_event_length() as usize - LOG_EVENT_HEADER_LEN as usize;
 
-        if payload_length > PAYLOAD_BUFFER_SIZE {
+        let binlog_event = if payload_length > PAYLOAD_BUFFER_SIZE {
             // 事件payload大小超过缓冲buffer，直接以事件payload大小分配新字节数组，用于读取事件的完整大小
             let mut full_packet: Vec<u8> = vec![0; payload_length];
             self.stream.read_exact(&mut full_packet)?;
 
-            let binlog_event = decoder.event_parse(&full_packet, header_ref, self.context.clone()).unwrap();
-
-            Ok((header, binlog_event))
+            self.decoder.event_parse(&full_packet, header_ref, self.context.clone())?
         } else {
             // 从缓冲区中取空字节数组，用于读取事件的完整大小
             let slice = &mut self.payload_buffer[0..payload_length];
             self.stream.read_exact(slice)?;
 
-            let binlog_event = self.decoder.event_parse(slice, header_ref, self.context.clone()).unwrap();
+            self.decoder.event_parse(slice, header_ref, self.context.clone())?
+        };
 
-            Ok((header, binlog_event))
+        // 压缩事务展开出的其余事件排入队列，由 next() 依次交付
+        while let Some(pending) = self.decoder.pop_pending_event() {
+            self.pending.push_back((header.clone(), pending));
         }
+
+        Ok((header, binlog_event))
     }
 }
 
@@ -144,6 +151,11 @@ impl Iterator for FileBinlogReaderIterator {
     type Item = Result<(Header, BinlogEvent), ReError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // 压缩事务展开出的后续事件优先交付
+        if let Some(pending) = self.pending.pop_front() {
+            return Some(Ok(pending));
+        }
+
         let result = self.read_event();
 
         return match result {

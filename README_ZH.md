@@ -273,7 +273,7 @@ http://s.codealy.com/rust_us/mysql_cdc_rs/2024.02%20binlog%20cli%20view.webm
 | 0x18 | UPDATE_ROWS_EVENTv1       | support             | tested           |       |
 | 0x19 | DELETE_ROWS_EVENTv1       | support             | tested           |       |
 | 0x1a | INCIDENT_EVENT            | not fully support   | not tested       |       |
-| 0x1b | HEARTBEAT_EVENT           | not fully support   | not tested       |       |
+| 0x1b | HEARTBEAT_EVENT           | support             | not tested       | 用于空闲探活 |
 | 0x1c | IGNORABLE_EVENT           | support             | not tested       |       |
 | 0x1d | ROWS_QUERY_EVENT          | not fully support   | not fully tested |       |
 | 0x1e | WRITE_ROWS_EVENTv2        | support             | not fully tested |       |

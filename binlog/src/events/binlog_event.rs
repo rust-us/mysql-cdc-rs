@@ -262,7 +262,7 @@ pub enum BinlogEvent {
 
     /// 38
     /// Prepared XA transaction terminal event similar to Xid
-    XA_PREPARE_LOG,
+    XA_PREPARE_LOG(crate::events::protocol::xa_prepare_log_event::XaPrepareLogEvent),
 
     /// 39
     /// Extension of UPDATE_ROWS_EVENT, allowing partial values according to binlog_row_value_options.
@@ -324,7 +324,7 @@ impl BinlogEvent {
             BinlogEvent::PreviousGtidsLog(_) => "PreviousGtidsLogEvent",
             BinlogEvent::TRANSACTION_CONTEXT => "TransactionContextEvent",
             BinlogEvent::VIEW_CHANGE => "ViewChangeEvent",
-            BinlogEvent::XA_PREPARE_LOG => "XaPrepareLogEvent",
+            BinlogEvent::XA_PREPARE_LOG(_) => "XaPrepareLogEvent",
             BinlogEvent::PARTIAL_UPDATE_ROWS => "PartialUpdateRowsEvent",
             BinlogEvent::TRANSACTION_PAYLOAD => "TransactionPayloadEvent",
             BinlogEvent::HEARTBEAT_LOG_V2 => "HeartbeatLogV2Event",
@@ -371,7 +371,7 @@ impl BinlogEvent {
             BinlogEvent::PreviousGtidsLog(_) => 35,
             BinlogEvent::TRANSACTION_CONTEXT => 36,
             BinlogEvent::VIEW_CHANGE => 37,
-            BinlogEvent::XA_PREPARE_LOG => 38,
+            BinlogEvent::XA_PREPARE_LOG(_) => 38,
             BinlogEvent::PARTIAL_UPDATE_ROWS => 39,
             BinlogEvent::TRANSACTION_PAYLOAD => 40,
             BinlogEvent::HEARTBEAT_LOG_V2 => 41,
@@ -469,7 +469,7 @@ impl BinlogEvent {
             BinlogEvent::PreGaDeleteRowsEvent |
             BinlogEvent::TRANSACTION_CONTEXT |
             BinlogEvent::VIEW_CHANGE |
-            BinlogEvent::XA_PREPARE_LOG |
+            BinlogEvent::XA_PREPARE_LOG(_) |
             BinlogEvent::PARTIAL_UPDATE_ROWS |
             BinlogEvent::TRANSACTION_PAYLOAD |
             BinlogEvent::HEARTBEAT_LOG_V2 |
@@ -505,7 +505,7 @@ impl BinlogEvent {
             BinlogEvent::PreGaDeleteRowsEvent |
             BinlogEvent::TRANSACTION_CONTEXT |
             BinlogEvent::VIEW_CHANGE |
-            BinlogEvent::XA_PREPARE_LOG |
+            BinlogEvent::XA_PREPARE_LOG(_) |
             BinlogEvent::PARTIAL_UPDATE_ROWS |
             BinlogEvent::TRANSACTION_PAYLOAD |
             BinlogEvent::HEARTBEAT_LOG_V2 |

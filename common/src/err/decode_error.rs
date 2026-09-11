@@ -335,6 +335,20 @@ impl ReError {
         }
     }
 
+    /// 是否为 socket 读超时导致的 IO 错误(即连接当前空闲、暂无数据)。
+    ///
+    /// 流式复制空闲时可通过该判断把超时视为"无数据"而非故障，
+    /// 从而周期性唤醒、及时响应停机信号。
+    pub fn is_timeout(&self) -> bool {
+        match self {
+            ReError::IoError(err) => matches!(
+                err.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            ),
+            _ => false,
+        }
+    }
+
     /// Check if the error is recoverable (can continue parsing)
     pub fn is_recoverable(&self) -> bool {
         match self {

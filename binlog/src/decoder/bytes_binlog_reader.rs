@@ -90,6 +90,12 @@ impl BinlogReader<&[u8], BinlogEvent> for BytesBinlogReader {
                 Ok(event) => {
                     self.context.borrow_mut().add_log_stat(event.len() as usize);
                     events.push(Ok(event));
+
+                    // TRANSACTION_PAYLOAD_EVENT 展开出的后续事件
+                    while let Some(pending) = self.decoder.pop_pending_event() {
+                        self.context.borrow_mut().add_log_stat(pending.len() as usize);
+                        events.push(Ok(pending));
+                    }
                 },
                 Err(error) => {
                     if let ReError::IoError(io_error) = &error {
@@ -140,6 +146,13 @@ impl Iterator for BytesBinlogReaderIterator {
     type Item = Result<BinlogEvent, ReError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // TRANSACTION_PAYLOAD_EVENT(压缩事务)展开出的后续事件优先交付，
+        // 必须在 index 边界检查之前，否则末尾事务的内含事件会丢失。
+        if let Some(event) = self.decoder.pop_pending_event() {
+            self.context.borrow_mut().add_log_stat(event.len() as usize);
+            return Some(Ok(event));
+        }
+
         if self.index >= self.event_raws.len() {
             return None;
         }

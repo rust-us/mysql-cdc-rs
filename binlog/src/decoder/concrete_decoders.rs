@@ -3,13 +3,13 @@ use std::io::Cursor;
 use common::err::decode_error::{ReError, ErrorContext};
 use crate::b_type::LogEventType;
 use crate::events::binlog_event::BinlogEvent;
+use crate::events::event_header::Header;
 use crate::events::event_raw::HeaderRef;
 use crate::events::log_context::LogContextRef;
 use crate::events::declare::log_event::LogEvent;
 use crate::decoder::table_cache_manager::TableCacheManager;
 use crate::decoder::event_decoder_registry::{EventDecoder, DecoderPriority};
 use crate::events::protocol::table_map_event::TableMapEvent;
-
 // Import all the event types we need
 use crate::events::protocol::unknown_event::UnknownEvent;
 use crate::events::protocol::v4::start_v3_event::StartV3Event;
@@ -529,6 +529,33 @@ impl EventDecoder for RowsQueryLogEventDecoder {
     }
 }
 
+/// Decoder for HEARTBEAT_LOG_EVENT (0x1b)
+///
+/// 主库在空闲时发送心跳事件，用于向从库证明自己在线。
+/// 载荷为当前 binlog 文件名(可选追加 4 字节 checksum)，与数据无关，
+/// 因此这里不做语义解析，仅按事件边界构造心跳事件，由上层用作"连接存活"信号。
+#[derive(Debug)]
+pub struct HeartbeatLogEventDecoder;
+
+impl EventDecoder for HeartbeatLogEventDecoder {
+    fn event_type(&self) -> u8 { LogEventType::HEARTBEAT_LOG_EVENT.as_u8() }
+    fn name(&self) -> &'static str { "HeartbeatLogEventDecoder" }
+
+    fn decode(
+        &self,
+        _cursor: &mut Cursor<&[u8]>,
+        header: HeaderRef,
+        _context: LogContextRef,
+        _table_map: Option<&HashMap<u64, TableMapEvent>>,
+        _table_cache_manager: Option<&TableCacheManager>,
+    ) -> Result<BinlogEvent, ReError> {
+        Ok(BinlogEvent::Heartbeat {
+            header: Header::copy(header),
+            checksum: 0,
+        })
+    }
+}
+
 /// Function to register all standard decoders
 pub fn register_standard_decoders(registry: &crate::decoder::event_decoder_registry::EventDecoderRegistry) -> Result<(), ReError> {
     // Register all standard event decoders
@@ -555,8 +582,40 @@ pub fn register_standard_decoders(registry: &crate::decoder::event_decoder_regis
     registry.register_decoder(Box::new(ExecuteLoadQueryEventDecoder))?;
     registry.register_decoder(Box::new(RowsQueryLogEventDecoder))?;
 
+    // HEARTBEAT_LOG_EVENT(0x1b): 主库空闲心跳，必须注册，否则心跳包会被当作不支持的事件而中断复制
+    registry.register_decoder(Box::new(HeartbeatLogEventDecoder))?;
+
     // Register MySQL 8.0+ specific decoders
     crate::decoder::mysql8_decoders::register_mysql8_decoders(registry)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::b_type::LogEventType;
+    use crate::decoder::concrete_decoders::register_standard_decoders;
+    use crate::decoder::event_decoder_registry::EventDecoderRegistry;
+
+    /// 心跳事件必须被注册：主库空闲时会发送 HEARTBEAT_LOG_EVENT(0x1b)，
+    /// 未注册的话会被当作"不支持的事件类型"直接中断整个复制流。
+    #[test]
+    fn test_heartbeat_decoder_registered() {
+        let registry = EventDecoderRegistry::new();
+        register_standard_decoders(&registry).unwrap();
+
+        let heartbeat_type = LogEventType::HEARTBEAT_LOG_EVENT.as_u8();
+        assert!(
+            registry.has_decoder(heartbeat_type),
+            "HEARTBEAT_LOG_EVENT(0x{:02x}) should be registered",
+            heartbeat_type
+        );
+        assert!(registry
+            .get_supported_event_types()
+            .contains(&heartbeat_type));
+
+        let decoder_info = registry.get_decoder_info(heartbeat_type);
+        assert_eq!(1, decoder_info.len());
+        assert_eq!("HeartbeatLogEventDecoder", decoder_info[0].0);
+    }
 }

@@ -155,7 +155,12 @@ impl ILogContext for LogContext {
     }
 
     fn update_position_offset(&mut self, pos: u64) {
-        self.log_position.set_position(pos);
+        // 位点单调递增：心跳等事件可能携带不及时的 log_pos，
+        // 若直接覆盖会导致位点回退，进而让 checkpoint 指向已处理过的位置。
+        // 切换 binlog 文件由 `force_set_log_position` 负责，不受此限制。
+        if pos > self.log_position.get_position() {
+            self.log_position.set_position(pos);
+        }
     }
 
 
@@ -272,6 +277,22 @@ mod test {
 
         assert_eq!("Current server_version:5.0, Current binlog_version:4, Current Binlog File: BytesBinlogReader, Current position: 66",
                    _context.stat_fmt());
+    }
+
+    #[test]
+    fn test_update_position_offset_is_monotonic() {
+        let mut context: LogContext = LogContext::new(LogFilePosition::new_with_position("binlog.000001", 1000));
+
+        context.update_position_offset(1200);
+        assert_eq!(1200, context.get_position_offset());
+
+        // 心跳等事件可能携带不及时的 log_pos，不允许位点回退
+        context.update_position_offset(900);
+        assert_eq!(1200, context.get_position_offset(), "position must not go backwards");
+
+        // 切换 binlog 文件由 force_set_log_position 负责，不受单调限制
+        context.force_set_log_position(LogFilePosition::new_with_position("binlog.000002", 4));
+        assert_eq!(4, context.get_position_offset());
     }
 
     #[test]

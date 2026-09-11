@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use openssl::rsa::{Padding, Rsa};
-use tracing::instrument;
+use tracing::{info, instrument};
 
 use common::binlog::row::row_string::RowString;
 use common::err::decode_error::ReError;
@@ -20,7 +20,6 @@ use crate::conn::connection_options::ConnectionOptions;
 use crate::conn::packet_channel::PacketChannel;
 use crate::conn::query_result;
 use crate::conn::query_result::StreamQueryResult;
-use crate::conn::ssl_mode::SslMode;
 use crate::declar::auth_plugin_names::AuthPlugin;
 use crate::declar::capability_flags::CapabilityFlags;
 use crate::declar::status_flags::StatusFlags;
@@ -187,20 +186,31 @@ impl Connection {
         self.handle_handshake(&handshake);
 
         // 如果是ssl连接，发送ssl包
-        if self.options.ssl_mode != SslMode::Disabled {
+        if self.options.ssl_mode.is_enabled() {
             // 检查服务器是否支持ssl
             let ssl_available = capability_flags.contains(capability_flags::CLIENT_SSL);
-            if !ssl_available && self.options.ssl_mode as u8 >= SslMode::Require as u8 {
-                return Err(ReError::String(
-                    "The server doesn't support SSL encryption".to_string(),
-                ));
-            }
-            if ssl_available {
+            if !ssl_available {
+                // 强制加密才报错；IF_AVAILABLE 语义是"不可用则降级明文"
+                if self.options.ssl_mode.requires_encryption() {
+                    return Err(ReError::String(format!(
+                        "The server doesn't support SSL encryption, but ssl mode is {}",
+                        self.options.ssl_mode.as_str()
+                    )));
+                }
+                info!(
+                    "server does not support SSL, fallback to plaintext (ssl mode: {})",
+                    self.options.ssl_mode.as_str()
+                );
+            } else {
+                // 显式配置优先，否则按 ssl_mode 推导校验策略
+                let ssl_opts = self.options.effective_ssl_opts();
+                let domain = self.options.hostname.clone();
                 let ssl_command = SslRequestCommand::new(UTF8_MB4_GENERAL_CI);
                 seq_num += 1;
                 channel.write_packet(&ssl_command.serialize()?, seq_num)?;
                 // 切换到ssl
-                channel = channel.upgrade_to_ssl(&self.options)?;
+                channel = channel.upgrade_to_ssl(&ssl_opts, &domain)?;
+                info!("connection upgraded to SSL (ssl mode: {})", self.options.ssl_mode.as_str());
             }
         }
 

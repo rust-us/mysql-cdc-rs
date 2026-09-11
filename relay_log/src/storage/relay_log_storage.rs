@@ -19,6 +19,8 @@ pub struct RelayLogStorage {
     pub segment_manager: SegmentManager,
     // 环形队列
     entry_buffer: EntryRingBuffer,
+    // append 后是否立即 flush(保证 WAL 真正落盘可见)
+    flush_on_commit: bool,
     // 日志整理
     // log_compactor: Compactor,
 }
@@ -78,6 +80,7 @@ impl RelayLogStorage {
             dst_table_name,
             segment_manager,
             entry_buffer,
+            flush_on_commit: *storage_config.flush_on_commit(),
         })
     }
 
@@ -91,6 +94,10 @@ impl RelayLogStorage {
         let current_segment = self.current_usable_segment()?;
         // append to disk
         current_segment.borrow_mut().append(&mut entry)?;
+        // WAL 语义: 立即 flush，否则数据只停留在 BufWriter/mmap 中，进程异常退出即丢失
+        if self.flush_on_commit {
+            current_segment.borrow_mut().write_flush()?;
+        }
         // add buf
         self.entry_buffer.add(entry);
 

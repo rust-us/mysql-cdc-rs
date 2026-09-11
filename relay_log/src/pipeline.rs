@@ -169,18 +169,23 @@ impl RelayLogPipeline {
         self.checkpointed_position.as_ref()
     }
 
-    /// 接收一个 binlog 事件及其位点。
+    /// 接收一个 binlog 事件及其位点，并**立即**落盘、投递下游并记录位点。
     ///
-    /// 队列达到容量上限时，先处理(落盘+投递)已有事件再入队，形成背压。
+    /// 中继日志是持久化 WAL，事件必须尽快落盘：若只在队列积满时才处理，
+    /// 低流量场景下数据会长期滞留内存，既不落盘也不投递，进程异常退出即丢失。
+    /// 真正的背压由上游 `forward_events` 的"读一批处理一批"提供(TCP 窗口)。
+    /// `capacity` 仅作为内存占用的安全上界。
     pub fn push(&mut self, event: BinlogEvent, position: BinlogPosition) -> CResult<()> {
         self.stats.received += 1;
 
+        // 内存安全上界：极端情况(如未来提供批量投喂接口)下队列不得无限增长
         if self.queue.len() >= self.capacity {
             self.drain()?;
         }
 
         self.queue.push_back((event, position));
-        Ok(())
+        // 立即处理，避免数据滞留内存
+        self.drain()
     }
 
     /// 处理队列中的所有事件。
@@ -254,6 +259,8 @@ impl RelayLogPipeline {
         match self.sink.write(index, &relay_log) {
             Ok(()) => {
                 self.stats.persisted += 1;
+                // 本地已落盘后立即刷下游，保证投递结果对下游可见
+                self.sink.flush()?;
                 // 仅在本事件成功落盘且投递后才推进位点，
                 // 保证失败事件不会被 checkpoint 跳过
                 self.last_position = Some(position);

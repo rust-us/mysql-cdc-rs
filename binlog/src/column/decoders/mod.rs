@@ -6,6 +6,7 @@ pub mod datetime;
 pub mod blob;
 pub mod bit;
 pub mod json;
+pub mod mysql_json;
 pub mod decimal_enhanced;
 pub mod geometry;
 

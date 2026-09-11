@@ -6,6 +6,8 @@ pub mod query_event;
 pub mod table_map_event;
 pub mod write_rows_v12_event;
 pub mod update_rows_v12_event;
+pub mod partial_update_rows_event;
+pub mod xa_prepare_log_event;
 pub mod delete_rows_v12_event;
 pub mod rotate_event;
 pub mod unknown_event;

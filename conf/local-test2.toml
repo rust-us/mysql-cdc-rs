@@ -1,0 +1,28 @@
+app_name = "cdc-test"
+
+[base]
+max_memory = "256MB"
+log_dir = "target/cdc-json"
+
+[binlog]
+host = "127.0.0.1"
+port = 13308
+username = "root"
+password = "Aa123456."
+payload_buffer_size = 4194304
+file = "binlog.000002"
+position = 17165221
+binlog_path = "/tmp"
+
+[rc_mysql]
+addr = ["127.0.0.1:3001"]
+username = "root"
+password = "Aa123456"
+raft_stats_fresh_interval_ms = 60000
+
+[rc_metadata]
+addr = "127.0.0.1:3306"
+username = "root"
+password = "wang"
+database = "hdb_meta"
+metadata_stats_fresh_interval_ms = 10000

@@ -45,7 +45,8 @@ impl Default for StorageConfig {
             max_segment_entries: 100,
             // 1k个
             entry_buffer_num: 1024,
-            flush_on_commit: false,
+            // 默认每条日志立即 flush: 中继日志是持久化 WAL，不能滞留在缓冲区
+            flush_on_commit: true,
             // 5min
             compact_interval_millisecond: 5 * 60 * 1000,
         }

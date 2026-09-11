@@ -162,7 +162,14 @@ impl OptimizedRowParser {
             SrcColumnType::DateTime2 => SrcColumnValue::DateTime(parse_date_time2(cursor, metadata)?),
             /* MySQL-specific data types */
             SrcColumnType::Geometry => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
-            SrcColumnType::Json => SrcColumnValue::Blob(parse_blob(cursor, metadata)?),
+            SrcColumnType::Json => {
+                // 与 `RowParser::parse_cell` 保持一致: 产出 JSON 文本，失败则回退原始字节
+                let raw = parse_blob(cursor, metadata)?;
+                match crate::column::decoders::mysql_json::decode_mysql_json_text(&raw) {
+                    Ok(text) => SrcColumnValue::String(text),
+                    Err(_) => SrcColumnValue::Blob(raw),
+                }
+            }
             _ => {
                 return Err(ReError::String(format!(
                     "Parsing column type {:?} is not supported",

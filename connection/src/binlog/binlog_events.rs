@@ -117,6 +117,12 @@ impl Iterator for BinlogEvents {
     /// Reads binlog event packets from network stream.
     /// <a href="https://mariadb.com/kb/en/3-binlog-network-stream/">See more</a>
     fn next(&mut self) -> Option<Self::Item> {
+        // TRANSACTION_PAYLOAD_EVENT(压缩事务)展开出的后续事件优先交付，
+        // 此时不需要读取新的网络包，否则会丢失该事务的其余事件。
+        if let Some(event) = self.parser.pop_pending_event() {
+            return Some(Ok(vec![event]));
+        }
+
         let (packet, _) = match self.channel.borrow_mut().read_packet() {
             Ok(x) => x,
             Err(e) => return Some(Err(e)),

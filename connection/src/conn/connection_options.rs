@@ -18,7 +18,7 @@ pub type ConnectionOptionsRef = Arc<RefCell<ConnectionOptions>>;
 #[derive(Debug, Clone)]
 pub struct ConnectionOptions {
     /// Port number to connect. Defaults to 3306.
-    pub port: i16,
+    pub port: u16,
 
     /// Hostname to connect. Defaults to "localhost".
     pub hostname: String,
@@ -49,6 +49,13 @@ pub struct ConnectionOptions {
     /// Defaults to 30 seconds.
     pub heartbeat_interval: Duration,
 
+    /// 单次 socket 读取超时。
+    ///
+    /// `None` 表示按 `heartbeat_interval + TIMEOUT_LATENCY_DELTA` 推导。
+    /// 对于 binlog 流式复制，建议显式设置为较小值(如 1s)，
+    /// 使空闲时能周期性唤醒，从而及时响应停机信号。
+    pub read_timeout: Option<Duration>,
+
     /// Defines the binlog coordinates that replication should start from.
     /// Defaults to BinlogOptions.FromEnd()
     pub binlog: Option<BinlogOptionsRef>,
@@ -71,6 +78,7 @@ impl Default for ConnectionOptions {
             server_id: 65535,
             blocking: true,
             heartbeat_interval: Duration::from_secs(30),
+            read_timeout: None,
             binlog: Some(Arc::new(RefCell::new(BinlogOptions::from_start()))),
             env: Some(Arc::new(RefCell::new(EnvOptions::default()))),
             ssl_opts: None,
@@ -79,7 +87,7 @@ impl Default for ConnectionOptions {
 }
 
 impl ConnectionOptions {
-    pub fn new_str(hostname: &str, port: i16, username: &str, password: &str) -> ConnectionOptions {
+    pub fn new_str(hostname: &str, port: u16, username: &str, password: &str) -> ConnectionOptions {
         ConnectionOptions::new(
             hostname.to_string(),
             port,
@@ -90,7 +98,7 @@ impl ConnectionOptions {
 
     pub fn new(
         hostname: String,
-        port: i16,
+        port: u16,
         username: String,
         password: String,
     ) -> ConnectionOptions {
@@ -105,7 +113,7 @@ impl ConnectionOptions {
 
     pub fn new_with_binlog(
         hostname: String,
-        port: i16,
+        port: u16,
         username: String,
         password: String,
         binlog: BinlogOptions,
@@ -120,6 +128,7 @@ impl ConnectionOptions {
             server_id: 0,
             blocking: false,
             heartbeat_interval: Duration::default(),
+            read_timeout: None,
             binlog: Some(Arc::new(RefCell::new(binlog))),
             env: None,
             ssl_opts: None,
@@ -150,6 +159,11 @@ impl ConnectionOptions {
         self.env = Some(Arc::new(RefCell::new(env)));
     }
 
+    /// 设置单次 socket 读取超时。
+    pub fn set_read_timeout(&mut self, read_timeout: Duration) {
+        self.read_timeout = Some(read_timeout);
+    }
+
     pub fn set_env_ref(&mut self, env: EnvOptionsRef) {
         self.env = Some(env);
     }
@@ -159,6 +173,29 @@ impl ConnectionOptions {
             None => false,
             Some(env) => env.borrow().is_debug(),
         }
+    }
+
+    /// 生效的 SSL 选项。
+    ///
+    /// 未显式配置 `ssl_opts` 时按 `ssl_mode` 推导校验策略：
+    /// - `Require`/`IfAvailable`: 只要加密，不校验 CA 与域名
+    /// - `VerifyCa`: 校验 CA，不校验域名
+    /// - `VerifyFull`: 校验 CA 与域名
+    pub fn effective_ssl_opts(&self) -> SslOpts {
+        match self.ssl_opts.clone() {
+            Some(opts) => opts,
+            None => SslOpts::for_mode(self.ssl_mode),
+        }
+    }
+
+    /// 设置 SSL 策略
+    pub fn set_ssl_mode(&mut self, ssl_mode: SslMode) {
+        self.ssl_mode = ssl_mode;
+    }
+
+    /// 设置 SSL 证书等选项
+    pub fn set_ssl_opts(&mut self, ssl_opts: SslOpts) {
+        self.ssl_opts = Some(ssl_opts);
     }
 }
 
@@ -173,6 +210,27 @@ pub struct SslOpts {
 
 /// SSL配置属性
 impl SslOpts {
+    /// 按 SSL 模式推导默认校验策略。
+    ///
+    /// 说明: `IF_AVAILABLE`/`REQUIRED` 语义只要求"加密"，不做证书校验；
+    /// `VERIFY_CA` 校验 CA 但不校验域名；`VERIFY_IDENTITY` 全量校验。
+    pub fn for_mode(mode: SslMode) -> SslOpts {
+        let mut opts = SslOpts::default();
+        match mode {
+            SslMode::Disabled => {}
+            SslMode::IfAvailable | SslMode::Require => {
+                opts = opts
+                    .with_danger_skip_domain_validation(true)
+                    .with_danger_accept_invalid_certs(true);
+            }
+            SslMode::RequireVerifyCa => {
+                opts = opts.with_danger_skip_domain_validation(true);
+            }
+            SslMode::RequireVerifyFull => {}
+        }
+        opts
+    }
+
     /// 设置 client identity.
     pub fn with_client_identity(mut self, identity: Option<ClientIdentity>) -> Self {
         self.client_identity = identity;
@@ -227,7 +285,7 @@ pub struct ClientIdentity {
 
 impl ClientIdentity {
     /// Creates new identity with the given path to the pkcs12 archive.
-    pub fn new<T>(pkcs12_path: String) -> Self {
+    pub fn new(pkcs12_path: String) -> Self {
         Self {
             pkcs12_path,
             password: None,
@@ -235,7 +293,7 @@ impl ClientIdentity {
     }
 
     /// Sets the archive password.
-    pub fn with_password<T>(mut self, pass: String) -> Self {
+    pub fn with_password(mut self, pass: String) -> Self {
         self.password = Some(pass);
         self
     }

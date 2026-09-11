@@ -7,5 +7,6 @@ pub mod event_decoder_impl;
 pub mod event_decoder_registry;
 pub mod concrete_decoders;
 pub mod mysql8_decoders;
+pub mod transaction_payload;
 pub mod event_statistics;
 pub mod table_cache_manager;

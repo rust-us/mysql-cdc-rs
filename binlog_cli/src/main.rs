@@ -11,12 +11,19 @@ use serde::Serialize;
 
 use common::config::{BinlogConfig, FConfig, read_config};
 use common::config::load_style::Format;
+use common::config::DEFAULT_BINLOG_SERVER_ID;
+use connection::conn::ssl_mode::SslMode;
 use common::err::CResult;
 use common::log::tracing_factory::{OutputType, TracingFactory, TracingFactoryOptions};
 use common::pretty_util::to_string_pretty;
 use relay_log::storage::storage_config::StorageConfig;
 use crate::cli_client::{CliClient};
 use crate::cli_options::{CliOptions, SinkKind};
+
+/// 配置与命令行都未指定时使用的默认 MySQL 主机
+const DEFAULT_BINLOG_HOST: &str = "127.0.0.1";
+/// 配置与命令行都未指定时使用的默认 MySQL 端口
+const DEFAULT_BINLOG_PORT: u16 = 3306;
 
 #[derive(Parser, Serialize, Debug, Clone)]
 #[command(name = "binlog_cli")]
@@ -53,14 +60,38 @@ pub(crate) struct CliArgs {
     #[arg(long = "host", help = "mysql host", value_name = "host")]
     pub host: Option<String>,
 
-    #[arg(long = "port", help = "mysql port, [1-65555]", value_name = "port")]
-    pub port: Option<i16>,
+    #[arg(long = "port", help = "mysql port, [1-65535]", value_name = "port")]
+    pub port: Option<u16>,
 
     #[arg(short, long = "username", help = "mysql username", value_name = "username")]
     pub username: Option<String>,
 
     #[arg(short, long = "password", help = "mysql password", value_name = "password")]
     pub password: Option<String>,
+
+    #[arg(long = "read-timeout-ms", help = "socket read timeout in ms for binlog streaming, controls shutdown latency (0 = driver default)", default_value_t = 1000)]
+    pub read_timeout_ms: u64,
+
+    #[arg(long = "heartbeat-interval-secs", help = "master heartbeat interval in seconds for idle liveness detection (0 = disable)", default_value_t = 30)]
+    pub heartbeat_interval_secs: u64,
+
+    #[arg(long = "server-id", help = "replica server id, must be non-zero to keep streaming", default_value_t = 65535)]
+    pub server_id: u32,
+
+    ///////////////////////////////////////////////////
+    // SSL Options //
+    ///////////////////////////////////////////////////
+    #[arg(long = "ssl-mode", help = "ssl mode: [DISABLED | IF_AVAILABLE | REQUIRED | VERIFY_CA | VERIFY_IDENTITY]", default_value = "DISABLED")]
+    pub ssl_mode: String,
+
+    #[arg(long = "ssl-root-cert", help = "CA root certificate path (.pem/.der)", value_name = "FILE")]
+    pub ssl_root_cert: Option<PathBuf>,
+
+    #[arg(long = "ssl-client-pkcs12", help = "client certificate path (pkcs12)", value_name = "FILE")]
+    pub ssl_client_pkcs12: Option<PathBuf>,
+
+    #[arg(long = "ssl-client-pkcs12-password", help = "client certificate password", value_name = "PASSWORD")]
+    pub ssl_client_pkcs12_password: Option<String>,
 
     ///////////////////////////////////////////////////
     // Sink & Pipeline Options //
@@ -265,18 +296,18 @@ fn get_config_path(args: &CliArgs) -> Option<PathBuf> {
 }
 
 fn merge(binlog_config: &mut BinlogConfig, args: &CliArgs) -> CResult<bool> {
-    // 合并主机配置
+    // 合并主机配置: 命令行优先，其次配置文件，最后默认值
     if let Some(ref host) = args.host {
         binlog_config.set_host(Some(host.clone()));
     } else if !binlog_config.have_host() {
-        binlog_config.set_host(Some("127.0.0.1".to_string()));
+        binlog_config.set_host(Some(DEFAULT_BINLOG_HOST.to_string()));
     }
 
-    // 合并端口配置
+    // 合并端口配置: 命令行优先，其次配置文件，最后默认值
     if let Some(port) = args.port {
         binlog_config.set_port(Some(port));
     } else if !binlog_config.have_port() {
-        binlog_config.set_port(Some(3306));
+        binlog_config.set_port(Some(DEFAULT_BINLOG_PORT));
     }
 
     // 合并用户名配置
@@ -287,6 +318,42 @@ fn merge(binlog_config: &mut BinlogConfig, args: &CliArgs) -> CResult<bool> {
     // 合并密码配置
     if let Some(ref password) = args.password {
         binlog_config.password = password.clone();
+    }
+
+    // 合并读超时: 0 表示沿用驱动推导值
+    binlog_config.read_timeout_millis = if args.read_timeout_ms > 0 {
+        Some(args.read_timeout_ms)
+    } else {
+        None
+    };
+
+    // 合并主库心跳间隔: 0 表示禁用心跳与空闲存活检测
+    binlog_config.heartbeat_interval_secs = Some(args.heartbeat_interval_secs);
+
+    // 合并从库 server_id: 0 会导致主库按一次性 dump 处理，这里不允许为 0
+    binlog_config.server_id = Some(if args.server_id == 0 { DEFAULT_BINLOG_SERVER_ID } else { args.server_id });
+
+    // 合并 SSL: 命令行显式提供了 SSL 相关参数则覆盖配置文件，否则保留配置文件设置
+    let ssl_from_cli = !args.ssl_mode.eq_ignore_ascii_case("DISABLED")
+        || args.ssl_root_cert.is_some()
+        || args.ssl_client_pkcs12.is_some()
+        || args.ssl_client_pkcs12_password.is_some();
+    if ssl_from_cli {
+        // 尽早校验模式字符串，避免到建连阶段才报错
+        SslMode::from_name(args.ssl_mode.as_str())?;
+
+        let mut ssl = binlog_config.ssl.clone().unwrap_or_default();
+        ssl.mode = Some(args.ssl_mode.clone());
+        if let Some(path) = &args.ssl_root_cert {
+            ssl.root_cert_path = Some(path.to_string_lossy().to_string());
+        }
+        if let Some(path) = &args.ssl_client_pkcs12 {
+            ssl.client_pkcs12_path = Some(path.to_string_lossy().to_string());
+        }
+        if let Some(password) = &args.ssl_client_pkcs12_password {
+            ssl.client_pkcs12_password = Some(password.clone());
+        }
+        binlog_config.ssl = Some(ssl);
     }
 
     Ok(true)
@@ -312,6 +379,61 @@ fn validate_config(config: &BinlogConfig) -> CResult<()> {
     if config.password.is_empty() {
         return Err(common::err::decode_error::ReError::Error("Password is required".to_string()));
     }
-    
+
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use clap::Parser;
+
+    use common::config::BinlogConfig;
+
+    use super::{merge, CliArgs};
+
+    /// 配置文件里已指定的 host/port 不能被默认值覆盖
+    /// (回归: 曾因 have_host/have_port 语义反转，导致配置端口被改写为 3306)
+    #[test]
+    fn test_merge_keeps_configured_host_and_port() {
+        let args = CliArgs::parse_from(["binlog_cli"]);
+
+        let mut config = BinlogConfig::default();
+        config.set_host(Some("10.0.0.5".to_string()));
+        config.set_port(Some(13308));
+
+        merge(&mut config, &args).unwrap();
+
+        assert_eq!("10.0.0.5", config.get_host());
+        assert_eq!(13308, config.get_port());
+    }
+
+    /// 配置缺失时才回退到默认值
+    #[test]
+    fn test_merge_fills_defaults_when_absent() {
+        let args = CliArgs::parse_from(["binlog_cli"]);
+
+        let mut config = BinlogConfig::default();
+        config.set_host(None);
+        config.set_port(None);
+
+        merge(&mut config, &args).unwrap();
+
+        assert_eq!("127.0.0.1", config.get_host());
+        assert_eq!(3306, config.get_port());
+    }
+
+    /// 命令行参数优先级高于配置文件
+    #[test]
+    fn test_merge_cli_overrides_config() {
+        let args = CliArgs::parse_from(["binlog_cli", "--host", "192.168.1.9", "--port", "13309"]);
+
+        let mut config = BinlogConfig::default();
+        config.set_host(Some("10.0.0.5".to_string()));
+        config.set_port(Some(13308));
+
+        merge(&mut config, &args).unwrap();
+
+        assert_eq!("192.168.1.9", config.get_host());
+        assert_eq!(13309, config.get_port());
+    }
 }

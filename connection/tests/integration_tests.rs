@@ -113,7 +113,7 @@ fn get_test_connection_options() -> ConnectionOptions {
     // 从配置文件加载
     if let Some(config) = load_test_config() {
         opts.hostname = config.mysql.host;
-        opts.port = config.mysql.port as i16;
+        opts.port = config.mysql.port as u16;
         opts.update_auth(config.mysql.username, config.mysql.password);
         return opts;
     }
